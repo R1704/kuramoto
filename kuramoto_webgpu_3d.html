@@ -1,0 +1,2517 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Kuramoto 3D - Multi-Rule</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #0a0a0a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: #e0e0e0;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #app {
+            display: flex;
+            height: 100vh;
+            gap: 0;
+        }
+        #canvas-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        canvas { 
+            border: 1px solid #333;
+            cursor: grab;
+            display: block;
+        }
+        canvas:active { cursor: grabbing; }
+        
+        #panel {
+            width: 320px;
+            background: #1a1a1a;
+            border-left: 1px solid #333;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        
+        h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+        
+        .subtitle {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 16px;
+        }
+        
+        .section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 8px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .control-label {
+            font-size: 13px;
+            color: #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .control-value {
+            font-family: 'Monaco', 'Courier New', monospace;
+            color: #4a9eff;
+            font-size: 12px;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: #333;
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            transition: opacity 0.2s;
+        }
+        
+        input[type="range"]:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #4a9eff;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        input[type="range"]:disabled::-webkit-slider-thumb {
+            cursor: not-allowed;
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #4a9eff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        
+        select {
+            width: 100%;
+            padding: 8px 12px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+        }
+        
+        select:hover { border-color: #555; }
+        select:focus { border-color: #4a9eff; }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        
+        button {
+            padding: 10px 16px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+        }
+        
+        button:hover {
+            background: #333;
+            border-color: #555;
+        }
+        
+        button:active {
+            transform: scale(0.98);
+        }
+        
+        button.primary {
+            background: #4a9eff;
+            border-color: #4a9eff;
+            color: #000;
+        }
+        
+        button.primary:hover {
+            background: #6bb0ff;
+            border-color: #6bb0ff;
+        }
+        
+        .stats {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 11px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            color: #888;
+        }
+        
+        .stats div {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+        
+        .stats div:last-child { margin-bottom: 0; }
+        
+        .stats .value { color: #4a9eff; }
+        
+        .divider {
+            height: 1px;
+            background: #333;
+            margin: 8px 0;
+        }
+        
+        .keyboard-hint {
+            font-size: 10px;
+            color: #666;
+            line-height: 1.5;
+        }
+        
+        .keyboard-hint kbd {
+            background: #2a2a2a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: inherit;
+            border: 1px solid #444;
+        }
+        
+        /* Global coupling indicator */
+        .global-indicator {
+            background: #1a3a1a;
+            border: 1px solid #2d5a2d;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #5fd35f;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .global-indicator::before {
+            content: '●';
+            font-size: 16px;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        
+        .control-group.disabled {
+            opacity: 0.5;
+        }
+        
+        .control-group.disabled .control-label {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="canvas-container">
+            <canvas id="canvas" width="1000" height="800"></canvas>
+        </div>
+        
+        <div id="panel">
+            <div>
+                <h1>Kuramoto Oscillators</h1>
+                <div class="subtitle">3D WebGPU Visualization</div>
+                <div class="stats" id="stats">
+                    <div><span>FPS</span><span class="value" id="fps">--</span></div>
+                    <div><span>Oscillators</span><span class="value" id="count">--</span></div>
+                    <div><span>Grid</span><span class="value" id="grid">--</span></div>
+                </div>
+            </div>
+            
+            <!-- 1. PATTERN PRESETS -->
+            <div class="section">
+                <div class="section-title">Pattern Presets</div>
+                <div style="font-size: 10px; color: #666; margin-bottom: 4px;">Basic Patterns</div>
+                <div class="button-group">
+                    <button class="preset-btn" data-preset="sync">🔄 Global Sync</button>
+                    <button class="preset-btn" data-preset="grains">🌾 Grains</button>
+                    <button class="preset-btn" data-preset="clusters">👥 Clusters</button>
+                    <button class="preset-btn" data-preset="checkerboard">🏁 Checkerboard</button>
+                </div>
+                
+                <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Wave Patterns</div>
+                <div class="button-group">
+                    <button class="preset-btn" data-preset="plane_wave">🌊 Plane Wave</button>
+                    <button class="preset-btn" data-preset="target_waves">🎯 Target Waves</button>
+                    <button class="preset-btn" data-preset="target_waves_inward">⬅️ Inward Waves</button>
+                </div>
+                
+                <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Spiral Patterns</div>
+                <div class="button-group">
+                    <button class="preset-btn" data-preset="single_spiral">🌀 Single Spiral</button>
+                    <button class="preset-btn" data-preset="spiral_simple">🌀 Simple Spiral</button>
+                    <button class="preset-btn" data-preset="spiral_pair">🌀🌀 Spiral Pair</button>
+                    <button class="preset-btn" data-preset="spiral_pair_interference">🌊🌀 Interference</button>
+                    <button class="preset-btn" data-preset="delay_spirals">⏱️ Delay Spirals</button>
+                </div>
+                
+                <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Complex Patterns</div>
+                <div class="button-group">
+                    <button class="preset-btn" data-preset="chimera">👥 Chimera</button>
+                    <button class="preset-btn" data-preset="breathing">🫁 Breathing</button>
+                    <button class="preset-btn" data-preset="turbulence">💨 Turbulence</button>
+                    <button class="preset-btn" data-preset="turbulence_simple">🌪️ Turbulence 2</button>
+                </div>
+            </div>
+            
+            <!-- 2. INITIAL CONDITIONS -->
+            <div class="section">
+                <div class="section-title">Initial Conditions</div>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Phase Pattern (θ)</span>
+                    </div>
+                    <select id="theta-pattern-select">
+                        <option value="random">Random</option>
+                        <option value="gradient">Gradient</option>
+                        <option value="spiral">Spiral</option>
+                        <option value="checkerboard">Checkerboard</option>
+                        <option value="synchronized">Synchronized</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Frequency Pattern (ω)</span>
+                    </div>
+                    <select id="omega-pattern-select">
+                        <option value="random">Random (Gaussian)</option>
+                        <option value="uniform">Uniform</option>
+                        <option value="gradient">Gradient</option>
+                        <option value="checkerboard">Checkerboard</option>
+                        <option value="center_fast">Center Fast</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Frequency Amplitude</span>
+                        <span class="control-value" id="omega-amplitude-value">0.40</span>
+                    </div>
+                    <input type="range" id="omega-amplitude-slider" min="0" max="2.0" step="0.05" value="0.4">
+                </div>
+                
+                <div class="button-group" style="margin-top: 8px;">
+                    <button id="reset-btn" class="primary">Apply & Reset</button>
+                    <button id="randomize-btn">Randomize θ</button>
+                </div>
+            </div>
+            
+            <!-- 3. COUPLING RULE -->
+            <div class="section">
+                <div class="section-title">Coupling Rule</div>
+                <div class="control-group">
+                    <select id="rule-select">
+                        <option value="0">Classic Kuramoto</option>
+                        <option value="1">Coherence-Gated</option>
+                        <option value="2">Curvature-Aware</option>
+                        <option value="3">Harmonics</option>
+                        <option value="4">Non-Local Kernel</option>
+                        <option value="5">Delay-Coupled</option>
+                    </select>
+                    <div id="rule-description" style="font-size: 11px; color: #888; line-height: 1.4; margin-top: 4px;"></div>
+                </div>
+                
+                <!-- Global coupling indicator -->
+                <div id="global-indicator" class="global-indicator" style="display: none; margin-top: 8px;">
+                    GLOBAL COUPLING ACTIVE (All-to-All)
+                </div>
+                
+                <div class="control-group" style="margin-top: 12px;">
+                    <div class="control-label">
+                        <span>Coupling Strength (K)</span>
+                        <span class="control-value" id="k0-value">1.00</span>
+                    </div>
+                    <input type="range" id="k0-slider" min="0" max="3" step="0.01" value="1">
+                </div>
+                
+                <div class="control-group" id="range-control">
+                    <div class="control-label">
+                        <span>Neighborhood Range</span>
+                        <span class="control-value" id="range-value">2</span>
+                    </div>
+                    <input type="range" id="range-slider" min="1" max="8" step="1" value="2">
+                </div>
+                
+                <!-- Rule-specific parameters -->
+                <div class="control-group" id="harmonic-control" style="display: none;">
+                    <div class="control-label">
+                        <span>2nd Harmonic (a₂)</span>
+                        <span class="control-value" id="harmonic-value">0.40</span>
+                    </div>
+                    <input type="range" id="harmonic-slider" min="0" max="1" step="0.01" value="0.4">
+                </div>
+
+                <div class="control-group" id="harmonic3-control" style="display: none;">
+                    <div class="control-label">
+                        <span>3rd Harmonic (a₃)</span>
+                        <span class="control-value" id="harmonic3-value">0.00</span>
+                    </div>
+                    <input type="range" id="harmonic3-slider" min="0" max="1" step="0.01" value="0.0">
+                    <div style="font-size: 10px; color: #888; margin-top: 8px; line-height: 1.4;">
+                        a₂ > 0: Two-cluster patterns • a₃ > 0: Three-cluster patterns
+                    </div>
+                </div>
+
+                <div class="control-group" id="delay-control" style="display: none;">
+                    <div class="control-label">
+                        <span>Delay Steps (τ)</span>
+                        <span class="control-value" id="delay-value">10</span>
+                    </div>
+                    <input type="range" id="delay-slider" min="1" max="30" step="1" value="10">
+                </div>
+            </div>
+            
+            <!-- 4. KERNEL PARAMETERS (shown only for Rule 4) -->
+            <div class="section" id="kernel-section" style="display: none;">
+                <div class="section-title">Coupling Kernel</div>
+                <div style="font-size: 11px; color: #888; margin-bottom: 12px;">
+                    Mexican-hat: excitation (σ) vs inhibition (σ2, β)
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Inner σ (excitation)</span>
+                            <span class="control-value" id="sigma-value">1.20</span>
+                        </div>
+                        <input type="range" id="sigma-slider" min="0.3" max="4" step="0.1" value="1.2">
+                    </div>
+                    
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Outer σ2 (inhibition width)</span>
+                            <span class="control-value" id="sigma2-value">2.20</span>
+                        </div>
+                        <input type="range" id="sigma2-slider" min="0.3" max="6" step="0.1" value="2.2">
+                    </div>
+                    
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Kernel β (inhibition)</span>
+                            <span class="control-value" id="beta-value">0.60</span>
+                        </div>
+                        <input type="range" id="beta-slider" min="0" max="1.5" step="0.05" value="0.6">
+                    </div>
+                </div>
+                
+                <div style="background: #0d0d0d; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-top: 20px;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 8px;">1D Kernel Profile</div>
+                    <canvas id="kernel-canvas" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px;"></canvas>
+                </div>
+                
+                <div style="background: #0d0d0d; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-top: 20px;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 8px;">2D Kernel (Top View)</div>
+                    <canvas id="kernel-2d-canvas" width="280" height="280" style="width: 100%; height: 280px; border-radius: 4px;"></canvas>
+                </div>
+            </div>
+            
+            <!-- 5. TIME CONTROL -->
+            <div class="section">
+                <div class="section-title">Time Control</div>
+                <div class="button-group">
+                    <button id="pause-btn">⏸ Pause</button>
+                    <button id="slow-btn">🐌 Slower</button>
+                    <button id="fast-btn">🐇 Faster</button>
+                    <button id="normal-btn">↻ Reset</button>
+                </div>
+                <div style="font-size: 11px; color: #888; margin-top: 8px; text-align: center;">
+                    Speed: <span id="time-scale-display" class="value">1.0×</span>
+                </div>
+                
+                <div class="control-group" style="margin-top: 12px;">
+                    <div class="control-label">
+                        <span>Time Step (dt)</span>
+                        <span class="control-value" id="dt-value">0.030</span>
+                    </div>
+                    <input type="range" id="dt-slider" min="0.001" max="0.1" step="0.001" value="0.03">
+                </div>
+            </div>
+            
+            <!-- 6. PERTURBATIONS -->
+            <div class="section">
+                <div class="section-title">Perturbations</div>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Noise Strength</span>
+                        <span class="control-value" id="noise-value">0.00</span>
+                    </div>
+                    <input type="range" id="noise-slider" min="0" max="0.5" step="0.01" value="0">
+                </div>
+            </div>
+            
+            <!-- 7. VISUALIZATION -->
+            <div class="section">
+                <div class="section-title">Visualization</div>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Colormap</span>
+                        <span class="control-value" id="colormap-name">Phase</span>
+                    </div>
+                    <select id="colormap-select">
+                        <option value="0">Phase</option>
+                        <option value="1">Velocity</option>
+                        <option value="2">Curvature</option>
+                        <option value="3">Order Parameter</option>
+                    </select>
+                </div>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ccc; cursor: pointer; margin-top: 8px;">
+                    <input type="checkbox" id="show-order" style="width: 16px; height: 16px; cursor: pointer;">
+                    Order Parameter Overlay
+                </label>
+            </div>
+
+             <div class="divider"></div>
+            
+            <div class="keyboard-hint">
+                <strong>Keyboard Shortcuts</strong><br>
+                <kbd>0</kbd>-<kbd>5</kbd> Switch rules<br>
+                <kbd>R</kbd> Reset state<br>
+                <kbd>G</kbd> Toggle global coupling<br>
+                <kbd>O</kbd> Order overlay<br>
+                <kbd>C</kbd> Cycle colormaps<br>
+                <kbd>Space</kbd> Pause/Resume<br>
+                <kbd>[</kbd><kbd>]</kbd> Adjust speed<br>
+                <kbd>↑</kbd><kbd>↓</kbd> Adjust coupling<br>
+                <kbd>←</kbd><kbd>→</kbd> Adjust range<br>
+                <br>
+                <strong>Mouse</strong><br>
+                Drag to rotate • Scroll to zoom<br>
+                Right-drag to pan
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (async () => {
+            // Configuration
+            let GRID = 256;
+            let N = GRID * GRID;
+            const CELL = 0.5;
+            const HEIGHT = 2.0;
+            const WG_SIZE = 8;
+            
+            // Simulation parameters
+            let dt = 0.03;
+            let K0 = 1.0;
+            let LOCAL_RANGE = 2;
+            let RULE_MODE = 0;
+            let HARMONIC_A = 0.4;
+            let HARMONIC_B = 0.0;
+            let GLOBAL_COUPLING = false;
+            let SHOW_ORDER = false;
+            let SIGMA = 1.2;
+            let SIGMA2 = 1.2;
+            let BETA = 0.6;
+            let DELAY_STEPS = 10;
+            const DELAY_BUFFER_SIZE = 32;
+            let delayBufferIndex = 0;
+            
+            // Visualization options
+            let COLORMAP = 0; // 0=phase, 1=velocity, 2=curvature, 3=order
+            
+            // Time control
+            let TIME_SCALE = 1.0;
+            let PAUSED = false;
+            
+            // Perturbations
+            let NOISE_STRENGTH = 0.0;
+            let frameTime = 0;
+            
+            // Initial conditions
+            let THETA_PATTERN = 'random';
+            let OMEGA_PATTERN = 'random';
+            let OMEGA_AMPLITUDE = 0.4;
+            
+            // Rule descriptions
+            const ruleDescriptions = [
+                'Standard mean-field coupling. All oscillators influence each other equally within range.',
+                'Coupling weakens in synchronized regions. Creates grain boundaries and domains.',
+                'Stronger coupling at sharp phase gradients. Enhances edges and transitions.',
+                'Uses 1st and 2nd harmonics. Creates multi-cluster patterns with alternating phases.',
+                'Mexican-hat coupling kernel: short-range excitation + long-range inhibition. Creates patterns.',
+                'Distance-weighted coupling. Will support Gaussian and Mexican-hat kernels.',
+                'Uses delayed phase information from past timesteps. Creates traveling waves and spirals.'
+            ];
+            
+            // WebGPU setup
+            const adapter = await navigator.gpu.requestAdapter();
+            const device = await adapter.requestDevice();
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('webgpu');
+            const format = navigator.gpu.getPreferredCanvasFormat();
+            context.configure({ device, format, alphaMode: 'opaque' });
+            
+            // Camera
+            const cam = { 
+                dist: 24, 
+                theta: 0.5,
+                phi: 1.2,
+                tgt: [0, 0, 0] 
+            };
+            let drag = false, pan = false, mx = 0, my = 0;
+            
+            // Buffers
+            let thetaBuf, omegaBuf, paramsBuf, cameraBuf, orderBuf;
+            let computeBindGroup, renderBindGroup;
+            let delayBuffers = [];
+            
+            function createBuffers() {
+                thetaBuf = device.createBuffer({
+                    size: N * 4,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+                });
+                omegaBuf = device.createBuffer({
+                    size: N * 4,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                });
+                paramsBuf = device.createBuffer({
+                    size: 128,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+                cameraBuf = device.createBuffer({
+                    size: 64,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+                orderBuf = device.createBuffer({
+                    size: N * 4,
+                    usage: GPUBufferUsage.STORAGE,
+                });
+
+                // Initialize to neutral values
+                const orderData = new Float32Array(N).fill(0.5);
+                device.queue.writeBuffer(orderBuf, 0, orderData);
+
+                // Create delay buffer ring
+                for (let i = 0; i < DELAY_BUFFER_SIZE; i++) {
+                    delayBuffers.push(device.createBuffer({
+                        size: N * 4,
+                        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                    }));
+                }
+            }
+            
+            function resetState() {
+                applyThetaPattern(THETA_PATTERN);
+                applyOmegaPattern(OMEGA_PATTERN, OMEGA_AMPLITUDE);
+                updateParams();
+            }
+            
+            function randomizeTheta() {
+                const thetaData = new Float32Array(N);
+                for (let i = 0; i < N; i++) {
+                    thetaData[i] = Math.random() * 6.28318;
+                }
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+            }
+            
+            // Initial Condition Pattern Functions
+            function applyThetaPattern(pattern = THETA_PATTERN) {
+                const thetaData = new Float32Array(N);
+                const TWO_PI = 6.28318;
+                
+                if (pattern === 'random') {
+                    for (let i = 0; i < N; i++) {
+                        thetaData[i] = Math.random() * TWO_PI;
+                    }
+                } else if (pattern === 'gradient') {
+                    // Diagonal phase gradient (top-left to bottom-right)
+                    const k = TWO_PI / (GRID * 1.414); // wavelength = grid diagonal
+                    for (let r = 0; r < GRID; r++) {
+                        for (let c = 0; c < GRID; c++) {
+                            const i = r * GRID + c;
+                            thetaData[i] = k * (c + r);
+                        }
+                    }
+                } else if (pattern === 'spiral') {
+                    // Single spiral from center
+                    const cx = GRID / 2;
+                    const cy = GRID / 2;
+                    for (let r = 0; r < GRID; r++) {
+                        for (let c = 0; c < GRID; c++) {
+                            const i = r * GRID + c;
+                            const dx = c - cx;
+                            const dy = r - cy;
+                            thetaData[i] = Math.atan2(dy, dx);
+                        }
+                    }
+                } else if (pattern === 'checkerboard') {
+                    // Alternating 0 and π phases
+                    for (let r = 0; r < GRID; r++) {
+                        for (let c = 0; c < GRID; c++) {
+                            const i = r * GRID + c;
+                            thetaData[i] = ((r + c) % 2) * Math.PI;
+                        }
+                    }
+                } else if (pattern === 'synchronized') {
+                    // All phases start at 0
+                    for (let i = 0; i < N; i++) {
+                        thetaData[i] = 0;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                
+                // Update delay buffers
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+            }
+            
+            function applyOmegaPattern(pattern = OMEGA_PATTERN, amplitude = OMEGA_AMPLITUDE) {
+                const omegaData = new Float32Array(N);
+                
+                if (pattern === 'random') {
+                    // Gaussian distribution around 0
+                    for (let i = 0; i < N; i++) {
+                        const u1 = Math.random();
+                        const u2 = Math.random();
+                        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                        omegaData[i] = z * amplitude;
+                    }
+                } else if (pattern === 'uniform') {
+                    // All oscillators same frequency
+                    for (let i = 0; i < N; i++) {
+                        omegaData[i] = amplitude;
+                    }
+                } else if (pattern === 'gradient') {
+                    // Linear frequency gradient (top slow → bottom fast)
+                    for (let r = 0; r < GRID; r++) {
+                        for (let c = 0; c < GRID; c++) {
+                            const i = r * GRID + c;
+                            const frac = r / (GRID - 1);
+                            omegaData[i] = (frac * 2 - 1) * amplitude; // -amplitude to +amplitude
+                        }
+                    }
+                } else if (pattern === 'checkerboard') {
+                    // Alternating fast/slow regions
+                    for (let r = 0; r < GRID; r++) {
+                        for (let c = 0; c < GRID; c++) {
+                            const i = r * GRID + c;
+                            omegaData[i] = ((r + c) % 2 ? 1 : -1) * amplitude;
+                        }
+                    }
+                } else if (pattern === 'center_fast') {
+                    // Fast at center, slower at edges (Gaussian profile)
+                    const cx = GRID / 2;
+                    const cy = GRID / 2;
+                    const sigma = GRID / 4;
+                    for (let r = 0; r < GRID; r++) {
+                        for (let c = 0; c < GRID; c++) {
+                            const i = r * GRID + c;
+                            const dx = c - cx;
+                            const dy = r - cy;
+                            const dist2 = dx * dx + dy * dy;
+                            omegaData[i] = amplitude * Math.exp(-dist2 / (2 * sigma * sigma));
+                        }
+                    }
+                }
+                
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+            }
+            
+            // Pattern Presets
+            function preset_plane_wave() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.0;
+                LOCAL_RANGE = 2;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Wave parameters
+                const waveDirection = Math.PI / 4; // 45 degrees
+                const wavelength = 15; // Grid units
+                const k = 2 * Math.PI / wavelength; // Wave number
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        
+                        // Phase gradient along wave direction
+                        const x = c * Math.cos(waveDirection) + r * Math.sin(waveDirection);
+                        thetaData[i] = k * x;
+                        
+                        // Small uniform frequency bias creates motion
+                        omegaData[i] = 0.2; // All oscillators slightly faster
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                // Initialize delay buffers
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("✨ Plane wave initialized - watch the stripes move!");
+            }
+            
+            function preset_single_spiral() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.2;
+                LOCAL_RANGE = 3;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                const cx = GRID / 2;
+                const cy = GRID / 2;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        const dx = c - cx;
+                        const dy = r - cy;
+                        const angle = Math.atan2(dy, dx);
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Archimedean spiral: phase = angle + radial component
+                        thetaData[i] = angle + dist * 0.1;
+                        
+                        // Slight radial frequency gradient
+                        omegaData[i] = 0.15 * (1 - dist / (GRID * 0.7));
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🌀 Archimedean spiral initialized - radial gradient!");
+            }
+            
+            function preset_spiral_simple() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.2;
+                LOCAL_RANGE = 3;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                const cx = GRID / 2;
+                const cy = GRID / 2;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        // Pure angular spiral (simpler)
+                        thetaData[i] = Math.atan2(r - cy, c - cx);
+                        omegaData[i] = 0.2;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🌀 Simple angular spiral initialized!");
+            }
+            
+            function preset_spiral_pair() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.2;
+                LOCAL_RANGE = 3;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Two spiral centers
+                const c1x = GRID * 0.35;
+                const c1y = GRID * 0.35;
+                const c2x = GRID * 0.65;
+                const c2y = GRID * 0.65;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        
+                        const dx1 = c - c1x;
+                        const dy1 = r - c1y;
+                        const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+                        const angle1 = Math.atan2(dy1, dx1);
+                        
+                        const dx2 = c - c2x;
+                        const dy2 = r - c2y;
+                        const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+                        const angle2 = Math.atan2(dy2, dx2);
+                        
+                        // Weight by inverse distance
+                        const w1 = 1 / (dist1 + 1);
+                        const w2 = 1 / (dist2 + 1);
+                        const totalW = w1 + w2;
+                        
+                        // Opposite chirality spirals
+                        const phase1 = angle1 + dist1 * 0.1;
+                        const phase2 = -angle2 + dist2 * 0.1;
+                        
+                        thetaData[i] = (phase1 * w1 + phase2 * w2) / totalW;
+                        omegaData[i] = 0.1;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🌀🌀 Weighted spiral pair - counter-rotating!");
+            }
+            
+            function preset_spiral_pair_interference() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.2;
+                LOCAL_RANGE = 3;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Two spiral centers
+                const c1x = GRID * 0.35;
+                const c1y = GRID * 0.35;
+                const c2x = GRID * 0.65;
+                const c2y = GRID * 0.65;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        const a1 = Math.atan2(r - c1y, c - c1x);
+                        const a2 = Math.atan2(r - c2y, c - c2x);
+                        // Simple difference creates interference pattern
+                        thetaData[i] = a1 - a2;
+                        omegaData[i] = 0.2;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("�🌀 Interference spiral pair!");
+            }
+            
+            function preset_target_waves() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.1;
+                LOCAL_RANGE = 2;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                const cx = GRID / 2;
+                const cy = GRID / 2;
+                const wavelength = 12;
+                const k = 2 * Math.PI / wavelength;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        const dx = c - cx;
+                        const dy = r - cy;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Concentric rings (outward propagation)
+                        thetaData[i] = k * dist;
+                        
+                        // Central pacemaker
+                        if (dist < 5) {
+                            omegaData[i] = 0.3; // Fast at center
+                        } else {
+                            omegaData[i] = 0.05; // Slower outside
+                        }
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🎯 Target waves (outward) - gentle pacemaker!");
+            }
+            
+            function preset_target_waves_inward() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.1;
+                LOCAL_RANGE = 2;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                const cx = GRID / 2;
+                const cy = GRID / 2;
+                const wavelength = 12;
+                const k = 2 * Math.PI / wavelength;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        const dx = c - cx;
+                        const dy = r - cy;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Concentric rings (negative for inward propagation)
+                        thetaData[i] = -k * dist;
+                        
+                        // Strong central pacemaker
+                        omegaData[i] = (dist < 5) ? 0.8 : 0.2;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("⬅️ Target waves (inward) - strong pacemaker!");
+            }
+            
+            function preset_turbulence() {
+                RULE_MODE = 2;  // Curvature-Aware
+                K0 = 0.6;
+                LOCAL_RANGE = 2;
+                GLOBAL_COUPLING = false;
+                dt = 0.02;
+                NOISE_STRENGTH = 0.15;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Random phases with spatial correlation
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        // Smooth random field
+                        const phase = Math.random() * 2 * Math.PI;
+                        thetaData[i] = phase;
+                        
+                        // Heterogeneous frequencies
+                        omegaData[i] = (Math.random() - 0.5) * 0.8;
+                    }
+                }
+                
+                // Apply smoothing to create turbulent structure (periodic boundaries)
+                const smoothedTheta = new Float32Array(N);
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        let sum = 0;
+                        let count = 0;
+                        
+                        for (let dr = -2; dr <= 2; dr++) {
+                            for (let dc = -2; dc <= 2; dc++) {
+                                let rr = (r + dr + GRID) % GRID;
+                                let cc = (c + dc + GRID) % GRID;
+                                const j = rr * GRID + cc;
+                                sum += Math.sin(thetaData[j]);
+                                count++;
+                            }
+                        }
+                        smoothedTheta[i] = Math.atan2(sum / count, Math.cos(thetaData[i]));
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, smoothedTheta);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, smoothedTheta);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("💨 Turbulence (complex) - periodic smoothing!");
+            }
+            
+            function preset_turbulence_simple() {
+                RULE_MODE = 2;  // Curvature-Aware
+                K0 = 0.6;
+                LOCAL_RANGE = 2;
+                GLOBAL_COUPLING = false;
+                dt = 0.02;
+                NOISE_STRENGTH = 0.15;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Random phases with spatial correlation (simple smoothing)
+                const raw = new Float32Array(N);
+                for (let i = 0; i < N; i++) raw[i] = Math.random() * 2 * Math.PI;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        let sum = 0, count = 0;
+                        for (let dy = -2; dy <= 2; dy++) {
+                            for (let dx = -2; dx <= 2; dx++) {
+                                const rr = r + dy, cc = c + dx;
+                                if (rr >= 0 && rr < GRID && cc >= 0 && cc < GRID) {
+                                    sum += raw[rr * GRID + cc];
+                                    count++;
+                                }
+                            }
+                        }
+                        thetaData[i] = sum / count;
+                        omegaData[i] = 0.2;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🌪️ Turbulence (simple) - box averaging!");
+            }
+            
+            function preset_chimera() {
+                RULE_MODE = 4;  // Mexican-Hat Kernel
+                K0 = 1.2;
+                SIGMA = 1.5;
+                SIGMA2 = 3.0;
+                BETA = 0.5;
+                LOCAL_RANGE = 5;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Split domain: synchronized left, desynchronized right
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        
+                        if (c < GRID / 2) {
+                            // Left: synchronized cluster
+                            thetaData[i] = 0;
+                            omegaData[i] = 0.1;
+                        } else {
+                            // Right: random phases
+                            thetaData[i] = Math.random() * 2 * Math.PI;
+                            omegaData[i] = (Math.random() - 0.5) * 0.4;
+                        }
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("👥 Chimera state initialized - sync/async coexistence!");
+            }
+            
+            function preset_breathing() {
+                RULE_MODE = 4;  // Mexican-Hat Kernel
+                K0 = 1.0;
+                SIGMA = 1.2;
+                SIGMA2 = 2.5;
+                BETA = 0.6;
+                LOCAL_RANGE = 4;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                const cx = GRID / 2;
+                const cy = GRID / 2;
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        const dx = c - cx;
+                        const dy = r - cy;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Gaussian blob
+                        const sigma = GRID / 6;
+                        const amplitude = Math.exp(-dist * dist / (2 * sigma * sigma));
+                        thetaData[i] = amplitude * Math.PI;
+                        
+                        // Radial frequency gradient (center breathes)
+                        omegaData[i] = amplitude * 0.2;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🫁 Breathing mode initialized - watch it oscillate!");
+            }
+            
+            function preset_delay_spirals() {
+                RULE_MODE = 5;  // Delay-Coupled
+                K0 = 1.0;
+                LOCAL_RANGE = 2;
+                DELAY_STEPS = 15;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                // Small random perturbation from sync state
+                for (let i = 0; i < N; i++) {
+                    thetaData[i] = Math.random() * 0.1; // Small perturbation
+                    omegaData[i] = 0.2;
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("⏱️ Delay spirals initialized - spontaneous patterns emerge!");
+            }
+            
+            function preset_checkerboard() {
+                RULE_MODE = 0;  // Classic Kuramoto
+                K0 = 1.0;
+                LOCAL_RANGE = 2;
+                GLOBAL_COUPLING = false;
+                dt = 0.03;
+                
+                const thetaData = new Float32Array(N);
+                const omegaData = new Float32Array(N);
+                
+                for (let r = 0; r < GRID; r++) {
+                    for (let c = 0; c < GRID; c++) {
+                        const i = r * GRID + c;
+                        const check = ((Math.floor(r/16) + Math.floor(c/16)) % 2 === 0);
+                        thetaData[i] = check ? 0 : Math.PI;
+                        omegaData[i] = 0.2;
+                    }
+                }
+                
+                device.queue.writeBuffer(thetaBuf, 0, thetaData);
+                device.queue.writeBuffer(omegaBuf, 0, omegaData);
+                
+                for (let buf of delayBuffers) {
+                    device.queue.writeBuffer(buf, 0, thetaData);
+                }
+                delayBufferIndex = 0;
+                
+                updateParams();
+                updateUI();
+                drawKernel();
+                console.log("🏁 Checkerboard initialized - alternating domains!");
+            }
+            
+            function updateParams() {
+                device.queue.writeBuffer(paramsBuf, 0, new Float32Array([
+                    dt * TIME_SCALE * (PAUSED ? 0 : 1), K0, LOCAL_RANGE, RULE_MODE,
+                    GRID, GRID, HARMONIC_A, GLOBAL_COUPLING ? 1.0 : 0.0,
+                    DELAY_STEPS, SIGMA, SIGMA2, BETA,
+                    SHOW_ORDER ? 1.0 : 0.0, COLORMAP, NOISE_STRENGTH, frameTime,
+                    HARMONIC_B, 0, 0, 0
+                ]));
+            }
+            
+            // Compute shader
+            const computeShader = device.createShaderModule({
+                code: `
+                    struct Params {
+                        dt: f32, K0: f32, range: f32, rule_mode: f32,
+                        cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+                        delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+                        show_order: f32, colormap: f32, noise_strength: f32, time: f32,
+                        harmonic_b: f32, pad1: f32, pad2: f32, pad3: f32,
+                    }
+                    
+                    @group(0) @binding(0) var<storage, read_write> theta: array<f32>;
+                    @group(0) @binding(1) var<storage, read> omega: array<f32>;
+                    @group(0) @binding(2) var<uniform> params: Params;
+                    @group(0) @binding(3) var<storage, read_write> order: array<f32>;
+                    @group(0) @binding(4) var<storage, read> theta_delayed: array<f32>;
+                    
+                    fn hash(n: u32) -> f32 {
+                        var x = (n ^ 61u) ^ (n >> 16u);
+                        x = x + (x << 3u);
+                        x = x ^ (x >> 4u);
+                        x = x * 0x27d4eb2du;
+                        x = x ^ (x >> 15u);
+                        return f32(x) / 4294967296.0;
+                    }
+                    
+                    fn noise(i: u32) -> f32 {
+                        let seed = u32(params.time * 1000.0) + i * 12345u;
+                        return (hash(seed) - 0.5) * params.noise_strength * 2.0;
+                    }
+                    
+                    fn localOrder(i: u32, cols: u32, rows: u32, rng: i32) -> f32 {
+                        let c = i % cols;
+                        let r = i / cols;
+                        var sx = 0.0; var sy = 0.0; var cnt = 0.0;
+                        
+                        if (params.global_coupling > 0.5) {
+                            for (var j = 0u; j < cols * rows; j = j + 1u) {
+                                if (j == i) { continue; }
+                                sx = sx + cos(theta[j]);
+                                sy = sy + sin(theta[j]);
+                                cnt = cnt + 1.0;
+                            }
+                        } else {
+                            for (var dr = -rng; dr <= rng; dr = dr + 1) {
+                                for (var dc = -rng; dc <= rng; dc = dc + 1) {
+                                    if (dr == 0 && dc == 0) { continue; }
+                                    var rr = (i32(r) + dr) % i32(rows);
+                                    var cc = (i32(c) + dc) % i32(cols);
+                                    if (rr < 0) { rr = rr + i32(rows); }
+                                    if (cc < 0) { cc = cc + i32(cols); }
+                                    let j = u32(rr) * cols + u32(cc);
+                                    sx = sx + cos(theta[j]);
+                                    sy = sy + sin(theta[j]);
+                                    cnt = cnt + 1.0;
+                                }
+                            }
+                        }
+                        return sqrt((sx/cnt)*(sx/cnt) + (sy/cnt)*(sy/cnt));
+                    }
+
+                    fn mexhat_weight(dist: f32) -> f32 {
+                        let s1 = params.sigma;
+                        let s2 = params.sigma2;
+                        let w1 = exp(-dist * dist / (2.0 * s1 * s1));
+                        let w2 = exp(-dist * dist / (2.0 * s2 * s2));
+                        return w1 - params.beta * w2;
+                    }
+                    
+                    fn rule_classic(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+                        let c = i % cols; let r = i / cols;
+                        var sum = 0.0; var cnt = 0.0;
+                        
+                        if (params.global_coupling > 0.5) {
+                            for (var j = 0u; j < cols * rows; j = j + 1u) {
+                                if (j == i) { continue; }
+                                sum = sum + sin(theta[j] - t);
+                                cnt = cnt + 1.0;
+                            }
+                        } else {
+                            for (var dr = -rng; dr <= rng; dr = dr + 1) {
+                                for (var dc = -rng; dc <= rng; dc = dc + 1) {
+                                    if (dr == 0 && dc == 0) { continue; }
+                                    var rr = (i32(r) + dr) % i32(rows);
+                                    var cc = (i32(c) + dc) % i32(cols);
+                                    if (rr < 0) { rr = rr + i32(rows); }
+                                    if (cc < 0) { cc = cc + i32(cols); }
+                                    let j = u32(rr) * cols + u32(cc);
+                                    sum = sum + sin(theta[j] - t);
+                                    cnt = cnt + 1.0;
+                                }
+                            }
+                        }
+                        return params.K0 * (sum / cnt);
+                    }
+                    
+                    fn rule_coherence(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+                        let c = i % cols; let r = i / cols;
+                        var sum = 0.0; var cnt = 0.0;
+                        
+                        if (params.global_coupling > 0.5) {
+                            for (var j = 0u; j < cols * rows; j = j + 1u) {
+                                if (j == i) { continue; }
+                                sum = sum + sin(theta[j] - t);
+                                cnt = cnt + 1.0;
+                            }
+                        } else {
+                            for (var dr = -rng; dr <= rng; dr = dr + 1) {
+                                for (var dc = -rng; dc <= rng; dc = dc + 1) {
+                                    if (dr == 0 && dc == 0) { continue; }
+                                    var rr = (i32(r) + dr) % i32(rows);
+                                    var cc = (i32(c) + dc) % i32(cols);
+                                    if (rr < 0) { rr = rr + i32(rows); }
+                                    if (cc < 0) { cc = cc + i32(cols); }
+                                    let j = u32(rr) * cols + u32(cc);
+                                    sum = sum + sin(theta[j] - t);
+                                    cnt = cnt + 1.0;
+                                }
+                            }
+                        }
+                        let ri = localOrder(i, cols, rows, rng);
+                        let Ki = params.K0 * (1.0 - 0.8 * ri);
+                        return Ki * (sum / cnt);
+                    }
+                    
+                    fn rule_curvature(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+                        let c = i % cols; let r = i / cols;
+                        var sum = 0.0; var cnt = 0.0;
+                        
+                        if (params.global_coupling > 0.5) {
+                            for (var j = 0u; j < cols * rows; j = j + 1u) {
+                                if (j == i) { continue; }
+                                sum = sum + sin(theta[j] - t);
+                                cnt = cnt + 1.0;
+                            }
+                        } else {
+                            for (var dr = -rng; dr <= rng; dr = dr + 1) {
+                                for (var dc = -rng; dc <= rng; dc = dc + 1) {
+                                    if (dr == 0 && dc == 0) { continue; }
+                                    var rr = (i32(r) + dr) % i32(rows);
+                                    var cc = (i32(c) + dc) % i32(cols);
+                                    if (rr < 0) { rr = rr + i32(rows); }
+                                    if (cc < 0) { cc = cc + i32(cols); }
+                                    let j = u32(rr) * cols + u32(cc);
+                                    sum = sum + sin(theta[j] - t);
+                                    cnt = cnt + 1.0;
+                                }
+                            }
+                        }
+                        let lap = sum / cnt;
+                        return params.K0 * min(1.0, abs(lap) * 2.0) * lap;
+                    }
+                    
+                    fn rule_harmonics(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+                        let c = i % cols; let r = i / cols;
+                        var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
+                        
+                        if (params.global_coupling > 0.5) {
+                            for (var j = 0u; j < cols * rows; j = j + 1u) {
+                                if (j == i) { continue; }
+                                let d = theta[j] - t;
+                                s1 = s1 + sin(d);
+                                s2 = s2 + sin(2.0 * d);
+                                s3 = s3 + sin(3.0 * d);
+                                cnt = cnt + 1.0;
+                            }
+                        } else {
+                            for (var dr = -rng; dr <= rng; dr = dr + 1) {
+                                for (var dc = -rng; dc <= rng; dc = dc + 1) {
+                                    if (dr == 0 && dc == 0) { continue; }
+                                    var rr = (i32(r) + dr) % i32(rows);
+                                    var cc = (i32(c) + dc) % i32(cols);
+                                    if (rr < 0) { rr = rr + i32(rows); }
+                                    if (cc < 0) { cc = cc + i32(cols); }
+                                    let j = u32(rr) * cols + u32(cc);
+                                    let d = theta[j] - t;
+                                    s1 = s1 + sin(d);
+                                    s2 = s2 + sin(2.0 * d);
+                                    s3 = s3 + sin(3.0 * d);
+                                    cnt = cnt + 1.0;
+                                }
+                            }
+                        }
+                        return params.K0 * ((s1 + params.harmonic_a * s2 + params.harmonic_b * s3) / cnt);
+                    }
+                    
+                    fn rule_kernel(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+                        let c = i % cols; let r = i / cols;
+                        var sum = 0.0; var wtotal = 0.0;
+                        
+                        let rng_ext = i32(params.sigma2 * 3.0);
+                        for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
+                            for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
+                                if (dr == 0 && dc == 0) { continue; }
+                                var rr = (i32(r) + dr) % i32(rows);
+                                var cc = (i32(c) + dc) % i32(cols);
+                                if (rr < 0) { rr = rr + i32(rows); }
+                                if (cc < 0) { cc = cc + i32(cols); }
+                                let j = u32(rr) * cols + u32(cc);
+                                let dist = sqrt(f32(dr * dr + dc * dc));
+                                let w = mexhat_weight(dist);
+                                sum = sum + w * sin(theta[j] - t);
+                                wtotal = wtotal + abs(w);
+                            }
+                        }
+                        if (wtotal > 0.0) {
+                            return params.K0 * (sum / wtotal);
+                        }
+                        return 0.0;
+                    }
+                    
+                    fn rule_delay(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+                        let c = i % cols; let r = i / cols;
+                        var sum = 0.0; var cnt = 0.0;
+                        
+                        for (var dr = -rng; dr <= rng; dr = dr + 1) {
+                            for (var dc = -rng; dc <= rng; dc = dc + 1) {
+                                if (dr == 0 && dc == 0) { continue; }
+                                var rr = (i32(r) + dr) % i32(rows);
+                                var cc = (i32(c) + dc) % i32(cols);
+                                if (rr < 0) { rr = rr + i32(rows); }
+                                if (cc < 0) { cc = cc + i32(cols); }
+                                let j = u32(rr) * cols + u32(cc);
+                                sum = sum + sin(theta_delayed[j] - t);
+                                cnt = cnt + 1.0;
+                            }
+                        }
+                        return params.K0 * (sum / cnt);
+                    }
+                    
+                    @compute @workgroup_size(${WG_SIZE}, ${WG_SIZE})
+                    fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+                        let c = id.x; let r = id.y;
+                        let cols = u32(params.cols); let rows = u32(params.rows);
+                        if (c >= cols || r >= rows) { return; }
+                        
+                        let i = r * cols + c;
+                        let t = theta[i];
+                        let rng = i32(params.range);
+                        
+                        // Compute order parameter
+                        order[i] = localOrder(i, cols, rows, rng);
+                        
+                        var dtheta = 0.0;
+                        let mode = i32(params.rule_mode);
+                        if (mode == 0) { dtheta = rule_classic(i, cols, rows, rng, t); }
+                        else if (mode == 1) { dtheta = rule_coherence(i, cols, rows, rng, t); }
+                        else if (mode == 2) { dtheta = rule_curvature(i, cols, rows, rng, t); }
+                        else if (mode == 3) { dtheta = rule_harmonics(i, cols, rows, rng, t); }
+                        else if (mode == 4) { dtheta = rule_kernel(i, cols, rows, rng, t); }
+                        else if (mode == 5) { dtheta = rule_delay(i, cols, rows, rng, t); }
+                        
+                        // Add noise perturbation
+                        if (params.noise_strength > 0.001) {
+                            dtheta = dtheta + noise(i);
+                        }
+                        
+                        var newTheta = t + (omega[i] + dtheta) * params.dt;
+                        let TWO_PI = 6.28318530718;
+                        if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
+                        if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
+                        theta[i] = newTheta;
+                    }
+                `
+            });
+            
+            // Render shader
+            const renderShader = device.createShaderModule({
+                code: `
+                    struct Params {
+                        dt: f32, K0: f32, range: f32, rule_mode: f32,
+                        cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+                        delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+                        show_order: f32, colormap: f32, noise_strength: f32, time: f32,
+                        harmonic_b: f32, pad1: f32, pad2: f32, pad3: f32,
+                    }
+                    @group(0) @binding(0) var<storage, read> theta: array<f32>;
+                    @group(0) @binding(1) var<uniform> params: Params;
+                    @group(0) @binding(2) var<uniform> viewProj: mat4x4<f32>;
+                    @group(0) @binding(3) var<storage, read> order: array<f32>;
+                    
+                    fn compute_gradient(ii: u32, cols: u32, rows: u32) -> f32 {
+                        let c = ii % cols;
+                        let r = ii / cols;
+                        
+                        var cr = (c + 1u) % cols;
+                        var cl = (c + cols - 1u) % cols;
+                        var ru = (r + 1u) % rows;
+                        var rd = (r + rows - 1u) % rows;
+                        
+                        let right = theta[r * cols + cr];
+                        let left = theta[r * cols + cl];
+                        let up = theta[ru * cols + c];
+                        let down = theta[rd * cols + c];
+                        
+                        var dx = right - left;
+                        var dy = up - down;
+                        
+                        // Unwrap phase differences
+                        if (dx > 3.14159) { dx = dx - 6.28318; }
+                        if (dx < -3.14159) { dx = dx + 6.28318; }
+                        if (dy > 3.14159) { dy = dy - 6.28318; }
+                        if (dy < -3.14159) { dy = dy + 6.28318; }
+                        
+                        return sqrt(dx * dx + dy * dy) * 0.5;
+                    }
+                    
+                    struct VertexOutput {
+                        @builtin(position) position: vec4<f32>,
+                        @location(0) height: f32,
+                        @location(1) order_val: f32,
+                        @location(2) gradient: f32,
+                    }
+                    @vertex
+                    fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexOutput {
+                        let cols = u32(params.cols);
+                        let c = f32(ii % cols); let r = f32(ii / cols);
+                        let qx = f32(vi & 1u); let qz = f32((vi >> 1u) & 1u);
+                        let h = sin(theta[ii]) * ${HEIGHT};
+                        let x = (c + qx) * ${CELL} - params.cols * ${CELL} * 0.5;
+                        let z = (r + qz) * ${CELL} - params.rows * ${CELL} * 0.5;
+                        var output: VertexOutput;
+                        output.position = viewProj * vec4<f32>(x, h, z, 1.0);
+                        output.height = h;
+                        output.order_val = order[ii];
+                        output.gradient = compute_gradient(ii, cols, u32(params.rows));
+                        return output;
+                    }
+                    @fragment
+                    fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+                        var col: vec3<f32>;
+                        let mode = i32(params.colormap);
+                        
+                        if (mode == 0) {
+                            // Phase (original)
+                            let t = clamp((input.height / ${HEIGHT} + 1.0) * 0.5, 0.0, 1.0);
+                            if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
+                            else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
+                            else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
+                            else { let s = (t - 0.75) * 4.0; col = vec3<f32>(1.0, 1.0 - s, 0.0); }
+                        } else if (mode == 1) {
+                            // Velocity (gradient magnitude)
+                            let vel = clamp(input.gradient * 2.0, 0.0, 1.0);
+                            col = mix(vec3<f32>(0.0, 0.0, 0.5), vec3<f32>(1.0, 0.5, 0.0), vel);
+                        } else if (mode == 2) {
+                            // Curvature
+                            let curv = clamp(input.gradient, 0.0, 1.0);
+                            col = mix(vec3<f32>(0.2, 0.0, 0.5), vec3<f32>(1.0, 0.8, 0.0), curv);
+                        } else {
+                            // Order parameter
+                            col = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), input.order_val);
+                        }
+                        
+                        // Apply order overlay
+                        if (params.show_order > 0.5) {
+                            let brightness = 0.4 + 0.6 * input.order_val;
+                            col = col * brightness;
+                        }
+                        
+                        return vec4<f32>(col, 1.0);
+                    }
+                `
+            });
+            
+            const computePipeline = device.createComputePipeline({
+                layout: 'auto',
+                compute: { module: computeShader, entryPoint: 'main' }
+            });
+            
+            const renderPipeline = device.createRenderPipeline({
+                layout: 'auto',
+                vertex: { module: renderShader, entryPoint: 'vs_main' },
+                fragment: { module: renderShader, entryPoint: 'fs_main', targets: [{ format }] },
+                primitive: { topology: 'triangle-strip', cullMode: 'none' },
+                depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' },
+            });
+            
+            const depthTexture = device.createTexture({
+                size: [canvas.width, canvas.height],
+                format: 'depth24plus',
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            });
+            
+            function createBindGroups() {
+                const delayIdx = (delayBufferIndex - DELAY_STEPS + DELAY_BUFFER_SIZE) % DELAY_BUFFER_SIZE;
+                computeBindGroup = device.createBindGroup({
+                    layout: computePipeline.getBindGroupLayout(0),
+                    entries: [
+                        { binding: 0, resource: { buffer: thetaBuf } },
+                        { binding: 1, resource: { buffer: omegaBuf } },
+                        { binding: 2, resource: { buffer: paramsBuf } },
+                        { binding: 3, resource: { buffer: orderBuf } },
+                        { binding: 4, resource: { buffer: delayBuffers[delayIdx] } },
+                    ],
+                });
+                renderBindGroup = device.createBindGroup({
+                    layout: renderPipeline.getBindGroupLayout(0),
+                    entries: [
+                        { binding: 0, resource: { buffer: thetaBuf } },
+                        { binding: 1, resource: { buffer: paramsBuf } },
+                        { binding: 2, resource: { buffer: cameraBuf } },
+                        { binding: 3, resource: { buffer: orderBuf } },
+                    ],
+                });
+            }
+            
+            // Matrix functions
+            function perspective(fov, aspect, near, far) {
+                const f = 1 / Math.tan(fov / 2), nf = 1 / (near - far);
+                return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+            }
+            function lookAt(eye, tgt) {
+                const z = normalize([eye[0]-tgt[0], eye[1]-tgt[1], eye[2]-tgt[2]]);
+                const x = normalize(cross([0,1,0], z));
+                const y = cross(z, x);
+                return new Float32Array([x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0, -dot(x,eye),-dot(y,eye),-dot(z,eye),1]);
+            }
+            function normalize(v) { const l = Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]); return l>0?[v[0]/l,v[1]/l,v[2]/l]:[0,0,0]; }
+            function cross(a, b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+            function dot(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+            function mulMat(a, b) {
+                const r = new Float32Array(16);
+                for (let i=0;i<4;i++) for (let j=0;j<4;j++) for (let k=0;k<4;k++) r[i*4+j]+=a[k*4+j]*b[i*4+k];
+                return r;
+            }
+            
+            // Mouse controls
+            canvas.onmousedown = e => {
+                if (e.button === 0) drag = true;
+                else if (e.button === 2) { pan = true; e.preventDefault(); }
+                mx = e.clientX; my = e.clientY;
+            };
+            canvas.onmousemove = e => {
+                if (drag) {
+                    cam.theta -= (e.clientX - mx) * 0.01;
+                    cam.phi = Math.max(0.1, Math.min(3.04, cam.phi + (e.clientY - my) * 0.01));
+                } else if (pan) {
+                    const s = cam.dist * 0.001;
+                    cam.tgt[0] -= (e.clientX - mx) * s * Math.sin(cam.theta);
+                    cam.tgt[2] += (e.clientX - mx) * s * Math.cos(cam.theta);
+                    cam.tgt[1] += (e.clientY - my) * s;
+                }
+                mx = e.clientX; my = e.clientY;
+            };
+            canvas.onmouseup = () => { drag = false; pan = false; };
+            canvas.onwheel = e => {
+                e.preventDefault();
+                cam.dist = Math.max(2, Math.min(300, cam.dist * (1 + e.deltaY * 0.001)));
+            };
+            canvas.oncontextmenu = e => e.preventDefault();
+            
+            // UI Controls
+            const ruleSelect = document.getElementById('rule-select');
+            const ruleDesc = document.getElementById('rule-description');
+            const k0Slider = document.getElementById('k0-slider');
+            const k0Value = document.getElementById('k0-value');
+            const dtSlider = document.getElementById('dt-slider');
+            const dtValue = document.getElementById('dt-value');
+            const rangeSlider = document.getElementById('range-slider');
+            const rangeValue = document.getElementById('range-value');
+            const harmonicSlider = document.getElementById('harmonic-slider');
+            const harmonicValue = document.getElementById('harmonic-value');
+            const harmonicControl = document.getElementById('harmonic-control');
+            const globalIndicator = document.getElementById('global-indicator');
+            const rangeControl = document.getElementById('range-control');
+            const showOrderCheck = document.getElementById('show-order');
+            const sigmaSlider = document.getElementById('sigma-slider');
+            const sigmaValue = document.getElementById('sigma-value');
+            const sigma2Slider = document.getElementById('sigma2-slider');
+            const sigma2Value = document.getElementById('sigma2-value');
+            const betaSlider = document.getElementById('beta-slider');
+            const betaValue = document.getElementById('beta-value');
+            const kernelCanvas = document.getElementById('kernel-canvas');
+            const kernelCtx = kernelCanvas.getContext('2d');
+            const kernel2DCanvas = document.getElementById('kernel-2d-canvas');
+            const kernel2DCtx = kernel2DCanvas.getContext('2d');
+            const delaySlider = document.getElementById('delay-slider');
+            const delayValue = document.getElementById('delay-value');
+            const delayControl = document.getElementById('delay-control');
+            const colormapSelect = document.getElementById('colormap-select');
+            const colormapName = document.getElementById('colormap-name');
+            const pauseBtn = document.getElementById('pause-btn');
+            const slowBtn = document.getElementById('slow-btn');
+            const fastBtn = document.getElementById('fast-btn');
+            const normalBtn = document.getElementById('normal-btn');
+            const timeScaleDisplay = document.getElementById('time-scale-display');
+            const noiseSlider = document.getElementById('noise-slider');
+            const noiseValue = document.getElementById('noise-value');
+            
+            function updateUI() {
+                k0Slider.value = K0;
+                k0Value.textContent = K0.toFixed(2);
+                dtSlider.value = dt;
+                dtValue.textContent = dt.toFixed(3);
+                rangeSlider.value = LOCAL_RANGE;
+                rangeValue.textContent = LOCAL_RANGE;
+                
+                harmonicSlider.value = HARMONIC_A;
+                harmonicValue.textContent = HARMONIC_A.toFixed(2);
+                ruleSelect.value = RULE_MODE;
+                harmonicControl.style.display = RULE_MODE === 3 ? 'flex' : 'none';
+                const harmonic3Control = document.getElementById('harmonic3-control');
+                if (harmonic3Control) {
+                    harmonic3Control.style.display = RULE_MODE === 3 ? 'flex' : 'none';
+                    harmonic3Slider.value = HARMONIC_B;
+                    harmonic3Value.textContent = HARMONIC_B.toFixed(2);
+                }
+                delaySlider.value = DELAY_STEPS;
+                delayValue.textContent = DELAY_STEPS;
+                delayControl.style.display = RULE_MODE === 5 ? 'flex' : 'none';
+                ruleDesc.textContent = ruleDescriptions[RULE_MODE];
+                
+                // Show/hide kernel section for Rule 4
+                const kernelSection = document.getElementById('kernel-section');
+                if (kernelSection) {
+                    kernelSection.style.display = RULE_MODE === 4 ? 'block' : 'none';
+                }
+                
+                // Show/hide global coupling indicator
+                if (GLOBAL_COUPLING) {
+                    globalIndicator.style.display = 'flex';
+                    rangeControl.classList.add('disabled');
+                    rangeSlider.disabled = true;
+                    rangeValue.style.opacity = '0.5';
+                } else {
+                    globalIndicator.style.display = 'none';
+                    rangeControl.classList.remove('disabled');
+                    rangeSlider.disabled = false;
+                    rangeValue.style.opacity = '1';
+                }
+                
+                showOrderCheck.checked = SHOW_ORDER;
+                
+                colormapSelect.value = COLORMAP;
+                const names = ['Phase', 'Velocity', 'Curvature', 'Order Parameter'];
+                colormapName.textContent = names[COLORMAP];
+                
+                sigmaSlider.value = SIGMA;
+                sigmaValue.textContent = SIGMA.toFixed(2);
+                sigma2Slider.value = SIGMA2;
+                sigma2Value.textContent = SIGMA2.toFixed(2);
+                betaSlider.value = BETA;
+                betaValue.textContent = BETA.toFixed(2);
+                
+                // Update kernel visualization when Rule 4 is active
+                if (RULE_MODE === 4) {
+                    drawKernel();
+                }
+            }
+            
+            function drawKernel() {
+                const w = kernelCanvas.width;
+                const h = kernelCanvas.height;
+                const ctx = kernelCtx;
+                
+                // Clear
+                ctx.fillStyle = '#0d0d0d';
+                ctx.fillRect(0, 0, w, h);
+                
+                // Grid
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 4; i++) {
+                    const y = (h - 20) * i / 4 + 10;
+                    ctx.beginPath();
+                    ctx.moveTo(30, y);
+                    ctx.lineTo(w - 10, y);
+                    ctx.stroke();
+                }
+                
+                // Axes
+                ctx.strokeStyle = '#444';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(30, h - 10);
+                ctx.lineTo(w - 10, h - 10);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(30, 10);
+                ctx.lineTo(30, h - 10);
+                ctx.stroke();
+                
+                // Labels
+                ctx.fillStyle = '#666';
+                ctx.font = '10px Monaco';
+                ctx.textAlign = 'right';
+                ctx.fillText('1', 25, 15);
+                ctx.fillText('0', 25, h - 7);
+                ctx.fillText('-1', 25, h - 7 + (h - 20) / 2);
+                ctx.textAlign = 'center';
+                ctx.fillText('distance', w / 2, h - 2);
+                
+                // Compute kernel values
+                const maxDist = RULE_MODE === 4 ? SIGMA2 * 3.5 : LOCAL_RANGE * 3;
+                const points = [];
+                let minW = 0, maxW = 1;
+                
+                for (let px = 0; px < w - 40; px++) {
+                    const dist = (px / (w - 40)) * maxDist;
+                    let weight = 0;
+                    
+                    if (RULE_MODE === 4) {
+                        // Mexican-hat
+                        const w1 = Math.exp(-dist * dist / (2 * SIGMA * SIGMA));
+                        const w2 = Math.exp(-dist * dist / (2 * SIGMA2 * SIGMA2));
+                        weight = w1 - BETA * w2;
+                    } else {
+                        // Gaussian falloff (default for other rules)
+                        weight = Math.exp(-dist * dist / (2 * LOCAL_RANGE * LOCAL_RANGE));
+                    }
+                    
+                    points.push({ x: px + 30, w: weight, dist: dist });
+                    minW = Math.min(minW, weight);
+                    maxW = Math.max(maxW, weight);
+                }
+                
+                // Normalize to [-1, 1] range
+                const range = Math.max(Math.abs(minW), Math.abs(maxW));
+                
+                // Draw neighborhood range cutoff (if not global coupling and not Mexican-hat)
+                if (!GLOBAL_COUPLING && RULE_MODE !== 4) {
+                    const cutoffX = 30 + (LOCAL_RANGE / maxDist) * (w - 40);
+                    ctx.strokeStyle = '#ff9900';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(cutoffX, 10);
+                    ctx.lineTo(cutoffX, h - 10);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    
+                    // Label
+                    ctx.fillStyle = '#ff9900';
+                    ctx.font = '9px Monaco';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('range', cutoffX, h - 12);
+                }
+                
+                // Draw coupling strength indicator (horizontal line at K0)
+                const k0Level = h - 10 - ((K0 / 3.0 + 1) / 2) * (h - 20); // Map K0 [0-3] to display
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([2, 3]);
+                ctx.globalAlpha = 0.6;
+                ctx.beginPath();
+                ctx.moveTo(30, k0Level);
+                ctx.lineTo(w - 10, k0Level);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.globalAlpha = 1.0;
+                
+                // K0 label
+                ctx.fillStyle = '#00ff88';
+                ctx.font = '9px Monaco';
+                ctx.textAlign = 'right';
+                ctx.fillText(`K=${K0.toFixed(1)}`, 26, k0Level - 2);
+                
+                // Draw curve
+                ctx.strokeStyle = '#4a9eff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let i = 0; i < points.length; i++) {
+                    const p = points[i];
+                    const normW = p.w / (range > 0 ? range : 1);
+                    const y = h - 10 - ((normW + 1) / 2) * (h - 20);
+                    if (i === 0) ctx.moveTo(p.x, y);
+                    else ctx.lineTo(p.x, y);
+                }
+                ctx.stroke();
+                
+                // Fill areas
+                ctx.globalAlpha = 0.2;
+                
+                // Positive (excitation)
+                ctx.fillStyle = '#4a9eff';
+                ctx.beginPath();
+                ctx.moveTo(30, h - 10);
+                for (let i = 0; i < points.length; i++) {
+                    const p = points[i];
+                    const normW = Math.max(0, p.w / (range > 0 ? range : 1));
+                    const y = h - 10 - ((normW + 1) / 2) * (h - 20);
+                    ctx.lineTo(p.x, y);
+                }
+                ctx.lineTo(w - 10, h - 10);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Negative (inhibition)
+                ctx.fillStyle = '#ff4a4a';
+                ctx.beginPath();
+                ctx.moveTo(30, h - 10);
+                for (let i = 0; i < points.length; i++) {
+                    const p = points[i];
+                    const normW = Math.min(0, p.w / (range > 0 ? range : 1));
+                    const y = h - 10 - ((normW + 1) / 2) * (h - 20);
+                    ctx.lineTo(p.x, y);
+                }
+                ctx.lineTo(w - 10, h - 10);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.globalAlpha = 1.0;
+                
+                // Zero line
+                ctx.strokeStyle = '#666';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([2, 2]);
+                ctx.beginPath();
+                ctx.moveTo(30, h - 10 - (h - 20) / 2);
+                ctx.lineTo(w - 10, h - 10 - (h - 20) / 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Global coupling indicator
+                if (GLOBAL_COUPLING) {
+                    ctx.fillStyle = '#5fd35f';
+                    ctx.font = 'bold 10px Monaco';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('GLOBAL', w / 2, 22);
+                }
+                
+                // ========== 2D KERNEL HEATMAP ==========
+                const w2 = kernel2DCanvas.width;
+                const h2 = kernel2DCanvas.height;
+                const ctx2 = kernel2DCtx;
+                
+                // Clear
+                ctx2.fillStyle = '#0d0d0d';
+                ctx2.fillRect(0, 0, w2, h2);
+                
+                // Compute 2D kernel grid
+                const gridSize = 60; // 60x60 samples for smooth visualization
+                const centerX = gridSize / 2;
+                const centerY = gridSize / 2;
+                const maxDistDraw = RULE_MODE === 4 ? SIGMA2 * 3.5 : LOCAL_RANGE * 3;
+                
+                let minWeight2D = Infinity;
+                let maxWeight2D = -Infinity;
+                const weights2D = [];
+                
+                for (let gy = 0; gy < gridSize; gy++) {
+                    const row = [];
+                    for (let gx = 0; gx < gridSize; gx++) {
+                        const dx = (gx - centerX) / gridSize * maxDistDraw * 2;
+                        const dy = (gy - centerY) / gridSize * maxDistDraw * 2;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        let weight = 0;
+                        if (RULE_MODE === 4) {
+                            // Mexican-hat kernel
+                            const w1 = Math.exp(-dist * dist / (2 * SIGMA * SIGMA));
+                            const w2 = Math.exp(-dist * dist / (2 * SIGMA2 * SIGMA2));
+                            weight = w1 - BETA * w2;
+                        } else {
+                            // Gaussian falloff for other rules
+                            weight = Math.exp(-dist * dist / (2 * LOCAL_RANGE * LOCAL_RANGE));
+                        }
+                        
+                        row.push(weight);
+                        minWeight2D = Math.min(minWeight2D, weight);
+                        maxWeight2D = Math.max(maxWeight2D, weight);
+                    }
+                    weights2D.push(row);
+                }
+                
+                // Render heatmap
+                const cellW = w2 / gridSize;
+                const cellH = h2 / gridSize;
+                const range2D = Math.max(Math.abs(minWeight2D), Math.abs(maxWeight2D));
+                
+                for (let gy = 0; gy < gridSize; gy++) {
+                    for (let gx = 0; gx < gridSize; gx++) {
+                        const weight = weights2D[gy][gx];
+                        const normWeight = weight / (range2D > 0 ? range2D : 1);
+                        
+                        // Color mapping: blue (excitation) to red (inhibition)
+                        let r, g, b;
+                        if (normWeight > 0) {
+                            // Positive: blue tones
+                            r = 0;
+                            g = Math.floor(normWeight * 160);
+                            b = Math.floor(normWeight * 255);
+                        } else {
+                            // Negative: red tones
+                            const absNorm = Math.abs(normWeight);
+                            r = Math.floor(absNorm * 255);
+                            g = 0;
+                            b = 0;
+                        }
+                        
+                        ctx2.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                        ctx2.fillRect(gx * cellW, gy * cellH, cellW + 1, cellH + 1);
+                    }
+                }
+                
+                // Draw center marker
+                ctx2.strokeStyle = '#ffffff';
+                ctx2.lineWidth = 2;
+                ctx2.beginPath();
+                ctx2.arc(w2 / 2, h2 / 2, 4, 0, 2 * Math.PI);
+                ctx2.stroke();
+                
+                // Draw range circle (if not global and not Mexican-hat)
+                if (!GLOBAL_COUPLING && RULE_MODE !== 4) {
+                    const rangeRadius = (LOCAL_RANGE / maxDistDraw) * (w2 / 2);
+                    ctx2.strokeStyle = '#ff9900';
+                    ctx2.lineWidth = 2;
+                    ctx2.setLineDash([6, 6]);
+                    ctx2.beginPath();
+                    ctx2.arc(w2 / 2, h2 / 2, rangeRadius, 0, 2 * Math.PI);
+                    ctx2.stroke();
+                    ctx2.setLineDash([]);
+                }
+                
+                // Color scale legend
+                ctx2.fillStyle = '#666';
+                ctx2.font = '9px Monaco';
+                ctx2.textAlign = 'left';
+                ctx2.fillText('Excite', 5, h2 - 5);
+                ctx2.textAlign = 'right';
+                ctx2.fillText('Inhibit', w2 - 5, h2 - 5);
+            }
+            
+            ruleSelect.onchange = () => {
+                RULE_MODE = parseInt(ruleSelect.value);
+                updateParams();
+                updateUI();
+                drawKernel();
+            };
+            
+            k0Slider.oninput = () => {
+                K0 = parseFloat(k0Slider.value);
+                k0Value.textContent = K0.toFixed(2);
+                updateParams();
+                drawKernel();
+            };
+            
+            dtSlider.oninput = () => {
+                dt = parseFloat(dtSlider.value);
+                dtValue.textContent = dt.toFixed(3);
+                updateParams();
+            };
+            
+            rangeSlider.oninput = () => {
+                LOCAL_RANGE = parseInt(rangeSlider.value);
+                rangeValue.textContent = LOCAL_RANGE;
+                updateParams();
+                drawKernel();
+            };
+            
+            harmonicSlider.oninput = () => {
+                HARMONIC_A = parseFloat(harmonicSlider.value);
+                harmonicValue.textContent = HARMONIC_A.toFixed(2);
+                updateParams();
+            };
+            
+            const harmonic3Slider = document.getElementById('harmonic3-slider');
+            const harmonic3Value = document.getElementById('harmonic3-value');
+            
+            harmonic3Slider.oninput = () => {
+                HARMONIC_B = parseFloat(harmonic3Slider.value);
+                harmonic3Value.textContent = HARMONIC_B.toFixed(2);
+                updateParams();
+            };
+            
+            showOrderCheck.onchange = () => {
+                SHOW_ORDER = showOrderCheck.checked;
+                updateParams();
+            };
+            
+            colormapSelect.onchange = () => {
+                COLORMAP = parseInt(colormapSelect.value);
+                const names = ['Phase', 'Velocity', 'Curvature', 'Order Parameter'];
+                colormapName.textContent = names[COLORMAP];
+                updateParams();
+            };
+
+            sigmaSlider.oninput = () => {
+                SIGMA = parseFloat(sigmaSlider.value);
+                sigmaValue.textContent = SIGMA.toFixed(2);
+                updateParams();
+                drawKernel();
+            };
+            
+            sigma2Slider.oninput = () => {
+                SIGMA2 = parseFloat(sigma2Slider.value);
+                sigma2Value.textContent = SIGMA2.toFixed(2);
+                updateParams();
+                drawKernel();
+            };
+            
+            betaSlider.oninput = () => {
+                BETA = parseFloat(betaSlider.value);
+                betaValue.textContent = BETA.toFixed(2);
+                updateParams();
+                drawKernel();
+            };
+            
+            delaySlider.oninput = () => {
+                DELAY_STEPS = parseInt(delaySlider.value);
+                delayValue.textContent = DELAY_STEPS;
+                updateParams();
+                createBindGroups();
+            };
+            
+            pauseBtn.onclick = () => {
+                PAUSED = !PAUSED;
+                pauseBtn.textContent = PAUSED ? 'Resume' : 'Pause';
+                pauseBtn.classList.toggle('primary', PAUSED);
+                updateParams();
+            };
+            
+            slowBtn.onclick = () => {
+                TIME_SCALE = Math.max(0.1, TIME_SCALE * 0.5);
+                timeScaleDisplay.textContent = TIME_SCALE.toFixed(1) + '×';
+                updateParams();
+            };
+            
+            fastBtn.onclick = () => {
+                TIME_SCALE = Math.min(4.0, TIME_SCALE * 2.0);
+                timeScaleDisplay.textContent = TIME_SCALE.toFixed(1) + '×';
+                updateParams();
+            };
+            
+            normalBtn.onclick = () => {
+                TIME_SCALE = 1.0;
+                timeScaleDisplay.textContent = '1.0×';
+                updateParams();
+            };
+            
+            noiseSlider.oninput = () => {
+                NOISE_STRENGTH = parseFloat(noiseSlider.value);
+                noiseValue.textContent = NOISE_STRENGTH.toFixed(2);
+                updateParams();
+            };
+            
+            // Initial condition controls
+            const thetaPatternSelect = document.getElementById('theta-pattern-select');
+            const omegaPatternSelect = document.getElementById('omega-pattern-select');
+            const omegaAmplitudeSlider = document.getElementById('omega-amplitude-slider');
+            const omegaAmplitudeValue = document.getElementById('omega-amplitude-value');
+            
+            thetaPatternSelect.onchange = () => {
+                THETA_PATTERN = thetaPatternSelect.value;
+                applyThetaPattern(THETA_PATTERN);
+            };
+            
+            omegaPatternSelect.onchange = () => {
+                OMEGA_PATTERN = omegaPatternSelect.value;
+                applyOmegaPattern(OMEGA_PATTERN, OMEGA_AMPLITUDE);
+            };
+            
+            omegaAmplitudeSlider.oninput = () => {
+                OMEGA_AMPLITUDE = parseFloat(omegaAmplitudeSlider.value);
+                omegaAmplitudeValue.textContent = OMEGA_AMPLITUDE.toFixed(2);
+                applyOmegaPattern(OMEGA_PATTERN, OMEGA_AMPLITUDE);
+            };
+            
+            document.getElementById('reset-btn').onclick = resetState;
+            document.getElementById('randomize-btn').onclick = randomizeTheta;
+            
+            // Presets
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.onclick = () => {
+                    const preset = btn.dataset.preset;
+                    if (preset === 'sync') {
+                        RULE_MODE = 0; K0 = 1.5; LOCAL_RANGE = 2;
+                        GLOBAL_COUPLING = true;
+                        resetState();
+                        updateParams();
+                        updateUI();
+                    } else if (preset === 'grains') {
+                        RULE_MODE = 1; K0 = 0.8; LOCAL_RANGE = 2;
+                        GLOBAL_COUPLING = false;
+                        resetState();
+                        updateParams();
+                        updateUI();
+                    } else if (preset === 'clusters') {
+                        RULE_MODE = 3; K0 = 0.8; HARMONIC_A = 0.5; LOCAL_RANGE = 2;
+                        GLOBAL_COUPLING = false;
+                        resetState();
+                        updateParams();
+                        updateUI();
+                    } else if (preset === 'plane_wave') {
+                        preset_plane_wave();
+                    } else if (preset === 'single_spiral') {
+                        preset_single_spiral();
+                    } else if (preset === 'spiral_simple') {
+                        preset_spiral_simple();
+                    } else if (preset === 'spiral_pair') {
+                        preset_spiral_pair();
+                    } else if (preset === 'spiral_pair_interference') {
+                        preset_spiral_pair_interference();
+                    } else if (preset === 'target_waves') {
+                        preset_target_waves();
+                    } else if (preset === 'target_waves_inward') {
+                        preset_target_waves_inward();
+                    } else if (preset === 'turbulence') {
+                        preset_turbulence();
+                    } else if (preset === 'turbulence_simple') {
+                        preset_turbulence_simple();
+                    } else if (preset === 'chimera') {
+                        preset_chimera();
+                    } else if (preset === 'breathing') {
+                        preset_breathing();
+                    } else if (preset === 'delay_spirals') {
+                        preset_delay_spirals();
+                    } else if (preset === 'checkerboard') {
+                        preset_checkerboard();
+                    }
+                };
+            });
+            
+            // Keyboard controls
+            window.addEventListener('keydown', e => {
+                if (e.key >= '0' && e.key <= '5') {
+                    RULE_MODE = parseInt(e.key);
+                    updateParams();
+                    updateUI();
+                    drawKernel();
+                } else if (e.key === 'r' || e.key === 'R') {
+                    resetState();
+                } else if (e.key === 'g' || e.key === 'G') {
+                    GLOBAL_COUPLING = !GLOBAL_COUPLING;
+                    updateParams();
+                    updateUI();
+                    drawKernel();
+                    console.log(`Global coupling: ${GLOBAL_COUPLING ? 'ON' : 'OFF'}`);
+                } else if (e.key === 'ArrowUp') {
+                    K0 = Math.min(3.0, K0 + 0.1);
+                    updateParams();
+                    updateUI();
+                    drawKernel();
+                } else if (e.key === 'ArrowDown') {
+                    K0 = Math.max(0.0, K0 - 0.1);
+                    updateParams();
+                    updateUI();
+                    drawKernel();
+                } else if (e.key === 'ArrowLeft') {
+                    if (!GLOBAL_COUPLING) {
+                        LOCAL_RANGE = Math.max(1, LOCAL_RANGE - 1);
+                        updateParams();
+                        updateUI();
+                        drawKernel();
+                    }
+                } else if (e.key === 'ArrowRight') {
+                    if (!GLOBAL_COUPLING) {
+                        LOCAL_RANGE = Math.min(8, LOCAL_RANGE + 1);
+                        updateParams();
+                        updateUI();
+                        drawKernel();
+                    }
+                } else if (e.key === 'o' || e.key === 'O') {
+                    SHOW_ORDER = !SHOW_ORDER;
+                    updateParams();
+                    updateUI();
+                } else if (e.key === 'c' || e.key === 'C') {
+                    COLORMAP = (COLORMAP + 1) % 4;
+                    updateParams();
+                    updateUI();
+                    const names = ['Phase', 'Velocity', 'Curvature', 'Order Parameter'];
+                    console.log(`Colormap: ${names[COLORMAP]}`);
+                } else if (e.key === ' ') {
+                    e.preventDefault();
+                    PAUSED = !PAUSED;
+                    pauseBtn.textContent = PAUSED ? 'Resume' : 'Pause';
+                    pauseBtn.classList.toggle('primary', PAUSED);
+                    updateParams();
+                    console.log(`Simulation ${PAUSED ? 'PAUSED' : 'RUNNING'}`);
+                } else if (e.key === '[') {
+                    TIME_SCALE = Math.max(0.1, TIME_SCALE * 0.5);
+                    timeScaleDisplay.textContent = TIME_SCALE.toFixed(1) + '×';
+                    updateParams();
+                    console.log(`Speed: ${TIME_SCALE.toFixed(1)}×`);
+                } else if (e.key === ']') {
+                    TIME_SCALE = Math.min(4.0, TIME_SCALE * 2.0);
+                    timeScaleDisplay.textContent = TIME_SCALE.toFixed(1) + '×';
+                    updateParams();
+                    console.log(`Speed: ${TIME_SCALE.toFixed(1)}×`);
+                }
+            });
+            
+            // Animation loop
+            let fps = 0, fc = 0, lt = performance.now();
+            function frame() {
+                // Update frame time for noise seed
+                if (!PAUSED) {
+                    frameTime += dt * TIME_SCALE;
+                }
+                updateParams();
+                
+                const eye = [
+                    cam.tgt[0] + cam.dist * Math.sin(cam.phi) * Math.cos(cam.theta),
+                    cam.tgt[1] + cam.dist * Math.cos(cam.phi),
+                    cam.tgt[2] + cam.dist * Math.sin(cam.phi) * Math.sin(cam.theta)
+                ];
+                const proj = perspective(0.785, canvas.width/canvas.height, 0.1, 500);
+                const view = lookAt(eye, cam.tgt);
+                const vp = mulMat(proj, view);
+                device.queue.writeBuffer(cameraBuf, 0, vp);
+                
+                // Copy current theta to delay buffer
+                const encoder = device.createCommandEncoder();
+                encoder.copyBufferToBuffer(thetaBuf, 0, delayBuffers[delayBufferIndex], 0, N * 4);
+                delayBufferIndex = (delayBufferIndex + 1) % DELAY_BUFFER_SIZE;
+                
+                // Recreate bind groups with updated delay buffer
+                createBindGroups();
+                
+                const computePass = encoder.beginComputePass();
+                computePass.setPipeline(computePipeline);
+                computePass.setBindGroup(0, computeBindGroup);
+                computePass.dispatchWorkgroups(Math.ceil(GRID / WG_SIZE), Math.ceil(GRID / WG_SIZE));
+                computePass.end();
+                
+                const renderPass = encoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: context.getCurrentTexture().createView(),
+                        clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                    depthStencilAttachment: {
+                        view: depthTexture.createView(),
+                        depthClearValue: 1.0,
+                        depthLoadOp: 'clear',
+                        depthStoreOp: 'store',
+                    },
+                });
+                renderPass.setPipeline(renderPipeline);
+                renderPass.setBindGroup(0, renderBindGroup);
+                renderPass.draw(4, N);
+                renderPass.end();
+                
+                device.queue.submit([encoder.finish()]);
+                fc++;
+                
+                const now = performance.now();
+                if (now - lt > 1000) {
+                    fps = Math.round(fc * 1000 / (now - lt));
+                    document.getElementById('fps').textContent = fps;
+                    document.getElementById('count').textContent = N.toLocaleString();
+                    document.getElementById('grid').textContent = `${GRID}×${GRID}`;
+                    fc = 0;
+                    lt = now;
+                }
+                requestAnimationFrame(frame);
+            }
+            
+            // Initialize
+            createBuffers();
+            resetState();
+            createBindGroups();
+            updateUI();
+            drawKernel();  // Add this line
+            frame();
+        })();
+    </script>
+</body>
+</html>
