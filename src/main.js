@@ -101,7 +101,7 @@ async function init() {
         
         const encoder = device.createCommandEncoder();
         
-        sim.step(encoder, STATE.delaySteps);
+        sim.step(encoder, STATE.delaySteps, STATE.globalCoupling);
         
         const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
         renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize);

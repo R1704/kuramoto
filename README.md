@@ -42,7 +42,7 @@ Where:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/kuramoto.git
+git clone https://github.com/r1704/kuramoto.git
 cd kuramoto
 
 # Serve with any static file server

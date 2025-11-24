@@ -7,11 +7,13 @@ struct Params {
     harmonic_b: f32, view_mode: f32, pad2: f32, pad3: f32,
 }
 
-@group(0) @binding(0) var<storage, read_write> theta: array<f32>;
+@group(0) @binding(0) var<storage, read> theta_in: array<f32>;
 @group(0) @binding(1) var<storage, read> omega: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 @group(0) @binding(3) var<storage, read_write> order: array<f32>;
 @group(0) @binding(4) var<storage, read> theta_delayed: array<f32>;
+@group(0) @binding(5) var<storage, read> global_order: vec2<f32>;
+@group(0) @binding(6) var<storage, read_write> theta_out: array<f32>;
 
 fn hash(n: u32) -> f32 {
     var x = (n ^ 61u) ^ (n >> 16u);
@@ -36,8 +38,8 @@ fn localOrder(i: u32, cols: u32, rows: u32, rng: i32) -> f32 {
         // Global coupling: couple to ALL oscillators
         for (var j = 0u; j < cols * rows; j = j + 1u) {
             if (j == i) { continue; }
-            sx = sx + cos(theta[j]);
-            sy = sy + sin(theta[j]);
+            sx = sx + cos(theta_in[j]);
+            sy = sy + sin(theta_in[j]);
             cnt = cnt + 1.0;
         }
     } else {
@@ -49,8 +51,8 @@ fn localOrder(i: u32, cols: u32, rows: u32, rng: i32) -> f32 {
                 if (rr < 0) { rr = rr + i32(rows); }
                 if (cc < 0) { cc = cc + i32(cols); }
                 let j = u32(rr) * cols + u32(cc);
-                sx = sx + cos(theta[j]);
-                sy = sy + sin(theta[j]);
+                sx = sx + cos(theta_in[j]);
+                sy = sy + sin(theta_in[j]);
                 cnt = cnt + 1.0;
             }
         }
@@ -71,11 +73,17 @@ fn rule_classic(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
-        for (var j = 0u; j < cols * rows; j = j + 1u) {
-            if (j == i) { continue; }
-            sum = sum + sin(theta[j] - t);
-            cnt = cnt + 1.0;
-        }
+        // Use precomputed mean field: Z = (cos_avg, sin_avg)
+        // Coupling = K * Im(Z * e^(-iθ)) = K * sin(arg(Z) - θ)
+        let Z_cos = global_order.x;
+        let Z_sin = global_order.y;
+        
+        // Convert to phase difference: sin(θ_mean - θ_i)
+        // Z * e^(-iθ) = (Z_cos + i*Z_sin) * (cos(-θ) + i*sin(-θ))
+        //             = Z_cos*cos(θ) + Z_sin*sin(θ) + i*(Z_sin*cos(θ) - Z_cos*sin(θ))
+        // Im part = Z_sin*cos(θ) - Z_cos*sin(θ) = sin(atan2(Z_sin, Z_cos) - θ)
+        sum = Z_sin * cos(t) - Z_cos * sin(t);
+        cnt = 1.0;
     } else {
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
@@ -85,7 +93,7 @@ fn rule_classic(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
                 if (rr < 0) { rr = rr + i32(rows); }
                 if (cc < 0) { cc = cc + i32(cols); }
                 let j = u32(rr) * cols + u32(cc);
-                sum = sum + sin(theta[j] - t);
+                sum = sum + sin(theta_in[j] - t);
                 cnt = cnt + 1.0;
             }
         }
@@ -98,11 +106,11 @@ fn rule_coherence(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
-        for (var j = 0u; j < cols * rows; j = j + 1u) {
-            if (j == i) { continue; }
-            sum = sum + sin(theta[j] - t);
-            cnt = cnt + 1.0;
-        }
+        // Use precomputed mean field
+        let Z_cos = global_order.x;
+        let Z_sin = global_order.y;
+        sum = Z_sin * cos(t) - Z_cos * sin(t);
+        cnt = 1.0;
     } else {
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
@@ -112,7 +120,7 @@ fn rule_coherence(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
                 if (rr < 0) { rr = rr + i32(rows); }
                 if (cc < 0) { cc = cc + i32(cols); }
                 let j = u32(rr) * cols + u32(cc);
-                sum = sum + sin(theta[j] - t);
+                sum = sum + sin(theta_in[j] - t);
                 cnt = cnt + 1.0;
             }
         }
@@ -127,11 +135,11 @@ fn rule_curvature(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
-        for (var j = 0u; j < cols * rows; j = j + 1u) {
-            if (j == i) { continue; }
-            sum = sum + sin(theta[j] - t);
-            cnt = cnt + 1.0;
-        }
+        // Use precomputed mean field
+        let Z_cos = global_order.x;
+        let Z_sin = global_order.y;
+        sum = Z_sin * cos(t) - Z_cos * sin(t);
+        cnt = 1.0;
     } else {
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
@@ -141,7 +149,7 @@ fn rule_curvature(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
                 if (rr < 0) { rr = rr + i32(rows); }
                 if (cc < 0) { cc = cc + i32(cols); }
                 let j = u32(rr) * cols + u32(cc);
-                sum = sum + sin(theta[j] - t);
+                sum = sum + sin(theta_in[j] - t);
                 cnt = cnt + 1.0;
             }
         }
@@ -155,14 +163,17 @@ fn rule_harmonics(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
-        for (var j = 0u; j < cols * rows; j = j + 1u) {
-            if (j == i) { continue; }
-            let d = theta[j] - t;
-            s1 = s1 + sin(d);
-            s2 = s2 + sin(2.0 * d);
-            s3 = s3 + sin(3.0 * d);
-            cnt = cnt + 1.0;
-        }
+        // Use precomputed mean field for fundamental
+        let Z_cos = global_order.x;
+        let Z_sin = global_order.y;
+        s1 = Z_sin * cos(t) - Z_cos * sin(t);
+        
+        // For harmonics, we'd need additional reduction passes (not implemented here)
+        // For now, just use the fundamental with harmonic coefficients applied to magnitude
+        let Z_mag = sqrt(Z_cos * Z_cos + Z_sin * Z_sin);
+        s2 = s1 * params.harmonic_a * Z_mag;
+        s3 = s1 * params.harmonic_b * Z_mag;
+        cnt = 1.0;
     } else {
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
@@ -172,7 +183,7 @@ fn rule_harmonics(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
                 if (rr < 0) { rr = rr + i32(rows); }
                 if (cc < 0) { cc = cc + i32(cols); }
                 let j = u32(rr) * cols + u32(cc);
-                let d = theta[j] - t;
+                let d = theta_in[j] - t;
                 s1 = s1 + sin(d);
                 s2 = s2 + sin(2.0 * d);
                 s3 = s3 + sin(3.0 * d);
@@ -198,7 +209,7 @@ fn rule_kernel(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
             let j = u32(rr) * cols + u32(cc);
             let dist = sqrt(f32(dr * dr + dc * dc));
             let w = mexhat_weight(dist);
-            sum = sum + w * sin(theta[j] - t);
+            sum = sum + w * sin(theta_in[j] - t);
             wtotal = wtotal + abs(w);
         }
     }
@@ -234,7 +245,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (c >= cols || r >= rows) { return; }
     
     let i = r * cols + c;
-    let t = theta[i];
+    let t = theta_in[i];
     let rng = i32(params.range);
     
     // Compute order parameter
@@ -258,7 +269,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let TWO_PI = 6.28318530718;
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
     if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
-    theta[i] = newTheta;
+    theta_out[i] = newTheta;
 }
 `;
 
@@ -432,5 +443,76 @@ fn main() {
     let x = atomicLoad(&global_order_atomic[0]);
     let y = atomicLoad(&global_order_atomic[1]);
     global_order = vec2<f32>(f32(x) / 10000.0, f32(y) / 10000.0);
+}
+`;
+
+// Fast global order parameter reduction using workgroup shared memory
+// Stage 1: Computes partial sums using atomic operations on integers
+export const GLOBAL_ORDER_REDUCTION_SHADER = `
+@group(0) @binding(0) var<storage, read> theta: array<f32>;
+@group(0) @binding(1) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;
+
+var<workgroup> shared_sum: array<vec2<f32>, 256>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let local_id = lid.x;
+    let global_id = gid.x;
+    let N = arrayLength(&theta);
+    
+    // Each thread processes one oscillator
+    var sum = vec2<f32>(0.0, 0.0);
+    if (global_id < N) {
+        let t = theta[global_id];
+        sum.x = cos(t);
+        sum.y = sin(t);
+    }
+    
+    // Store in shared memory
+    shared_sum[local_id] = sum;
+    workgroupBarrier();
+    
+    // Tree reduction in shared memory (parallel sum)
+    for (var offset = 128u; offset > 0u; offset = offset / 2u) {
+        if (local_id < offset) {
+            shared_sum[local_id] = shared_sum[local_id] + shared_sum[local_id + offset];
+        }
+        workgroupBarrier();
+    }
+    
+    // First thread of each workgroup atomically adds to global result
+    // Scale by 10000 to preserve precision with integers
+    if (local_id == 0u) {
+        atomicAdd(&global_order_atomic[0], i32(shared_sum[0].x * 10000.0));
+        atomicAdd(&global_order_atomic[1], i32(shared_sum[0].y * 10000.0));
+    }
+}
+`;
+
+// Stage 2: Convert atomic integer sums to normalized float vector
+export const GLOBAL_ORDER_NORMALIZE_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, noise_strength: f32, time: f32,
+    harmonic_b: f32, view_mode: f32, pad2: f32, pad3: f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;
+@group(0) @binding(1) var<storage, read_write> global_order: vec2<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@compute @workgroup_size(1)
+fn main() {
+    // Load atomic sums (these are scaled by 10000)
+    let x = atomicLoad(&global_order_atomic[0]);
+    let y = atomicLoad(&global_order_atomic[1]);
+    
+    // Convert to float, unscale, and normalize by N
+    let N = params.cols * params.rows;
+    global_order.x = (f32(x) / 10000.0) / N;
+    global_order.y = (f32(y) / 10000.0) / N;
 }
 `;

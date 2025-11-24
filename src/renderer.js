@@ -38,6 +38,7 @@ export class Renderer {
 
         this.initPipeline();
         this.bindGroup = null; // Cache bind group
+        this.lastThetaBuffer = null;
     }
 
     initPipeline() {
@@ -64,6 +65,7 @@ export class Renderer {
     invalidateBindGroup() {
         this.bindGroup = null;
         this.lastSim = null;
+        this.lastThetaBuffer = null;
     }
 
     draw(commandEncoder, sim, viewProjMatrix, N) {
@@ -71,7 +73,7 @@ export class Renderer {
         this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
 
         // Create bind group only if it doesn't exist or buffers changed
-        if (!this.bindGroup || this.lastSim !== sim) {
+        if (!this.bindGroup || this.lastSim !== sim || this.lastThetaBuffer !== sim.thetaBuf) {
             this.bindGroup = this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
                 entries: [
@@ -84,6 +86,7 @@ export class Renderer {
                 ],
             });
             this.lastSim = sim;
+            this.lastThetaBuffer = sim.thetaBuf;
         }
 
         const pass = commandEncoder.beginRenderPass({
