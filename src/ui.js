@@ -15,6 +15,71 @@ export class UIManager {
         
         this.bindControls();
         this.bindKeyboard();
+        this.bindZoomPan();
+    }
+    
+    bindZoomPan() {
+        const canvas = document.getElementById('canvas');
+        if (!canvas) return;
+        
+        // Mouse wheel for zoom (in 2D mode)
+        canvas.addEventListener('wheel', (e) => {
+            if (this.state.viewMode !== 1) return; // Only in 2D mode
+            e.preventDefault();
+            
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            this.state.zoom = Math.max(0.5, Math.min(10.0, this.state.zoom * zoomFactor));
+            this.cb.onParamChange();
+        }, { passive: false });
+        
+        // Mouse drag for pan (in 2D mode)
+        let isPanning = false;
+        let lastX = 0, lastY = 0;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (this.state.viewMode !== 1) return; // Only in 2D mode
+            if (e.button === 0) { // Left click
+                isPanning = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            
+            const dx = (e.clientX - lastX) / canvas.width;
+            const dy = (e.clientY - lastY) / canvas.height;
+            
+            // Pan is scaled by zoom level
+            this.state.panX -= dx / this.state.zoom;
+            this.state.panY += dy / this.state.zoom; // Y is flipped
+            
+            // Clamp pan to reasonable bounds
+            this.state.panX = Math.max(-1.0, Math.min(1.0, this.state.panX));
+            this.state.panY = Math.max(-1.0, Math.min(1.0, this.state.panY));
+            
+            lastX = e.clientX;
+            lastY = e.clientY;
+            this.cb.onParamChange();
+        });
+        
+        window.addEventListener('mouseup', () => {
+            if (isPanning) {
+                isPanning = false;
+                canvas.style.cursor = 'default';
+            }
+        });
+        
+        // Double-click to reset zoom/pan
+        canvas.addEventListener('dblclick', () => {
+            if (this.state.viewMode !== 1) return;
+            this.state.zoom = 1.0;
+            this.state.panX = 0.0;
+            this.state.panY = 0.0;
+            this.cb.onParamChange();
+        });
     }
 
     bindControls() {
@@ -536,12 +601,9 @@ export class UIManager {
                 this.cb.onParamChange();
                 this.updateDisplay();
             }
-            // Cycle colormaps
+            // Cycle colormaps (0-10: 11 modes total)
             else if (e.key === 'c' || e.key === 'C') {
-                // Cycle through colormaps, skip mode 4 (Image Texture) if no external input active
-                const hasExternalInput = this.state.omegaPattern === 'image' || this.state.thetaPattern === 'image';
-                const maxMode = hasExternalInput ? 5 : 4;
-                this.state.colormap = (this.state.colormap + 1) % maxMode;
+                this.state.colormap = (this.state.colormap + 1) % 11;
                 this.cb.onParamChange();
                 this.updateDisplay();
             }
@@ -566,6 +628,28 @@ export class UIManager {
                 this.state.viewMode = this.state.viewMode === 0 ? 1 : 0;
                 this.cb.onParamChange();
                 this.updateDisplay();
+            }
+            // Reset zoom/pan with Z key (in 2D mode)
+            else if (e.key === 'z' || e.key === 'Z') {
+                if (this.state.viewMode === 1) {
+                    this.state.zoom = 1.0;
+                    this.state.panX = 0.0;
+                    this.state.panY = 0.0;
+                    this.cb.onParamChange();
+                }
+            }
+            // Zoom in/out with +/- keys (in 2D mode)
+            else if (e.key === '=' || e.key === '+') {
+                if (this.state.viewMode === 1) {
+                    this.state.zoom = Math.min(10.0, this.state.zoom * 1.2);
+                    this.cb.onParamChange();
+                }
+            }
+            else if (e.key === '-' || e.key === '_') {
+                if (this.state.viewMode === 1) {
+                    this.state.zoom = Math.max(0.5, this.state.zoom / 1.2);
+                    this.cb.onParamChange();
+                }
             }
         });
     }

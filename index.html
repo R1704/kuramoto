@@ -1079,11 +1079,17 @@
                         <span>Color Mode</span>
                     </div>
                     <select id="colormap-select">
-                        <option value="0">Phase (hue wheel)</option>
+                        <option value="0">Phase (rainbow)</option>
                         <option value="1">Velocity (dθ/dt)</option>
                         <option value="2">Curvature (∇²θ)</option>
                         <option value="3">Order Parameter</option>
                         <option value="4">Image Texture</option>
+                        <option value="5">Viridis</option>
+                        <option value="6">Plasma</option>
+                        <option value="7">Twilight (cyclic)</option>
+                        <option value="8">Inferno</option>
+                        <option value="9">Chirality (spirals)</option>
+                        <option value="10">Phase + Gradient</option>
                     </select>
                 </div>
                 
@@ -1103,16 +1109,19 @@
                 <kbd>G</kbd> Toggle global coupling<br>
                 <kbd>O</kbd> Order overlay<br>
                 <kbd>C</kbd> Cycle colormaps<br>
+                <kbd>V</kbd> Toggle 2D/3D view<br>
                 <kbd>Space</kbd> Pause/Resume<br>
                 <kbd>[</kbd><kbd>]</kbd> Adjust speed<br>
                 <kbd>↑</kbd><kbd>↓</kbd> Adjust coupling<br>
                 <kbd>←</kbd><kbd>→</kbd> Adjust range<br>
                 <kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> Adjust grid size<br>
-                <kbd>V</kbd> Toggle 2D/3D view<br>
+                <kbd>+</kbd><kbd>-</kbd> Zoom in/out (2D)<br>
+                <kbd>Z</kbd> Reset zoom (2D)<br>
                 <br>
-                <strong>Mouse</strong><br>
-                Drag to rotate (3D) or pan (2D)<br>
-                Scroll to zoom • Right-drag to pan
+                <strong>Mouse (2D Mode)</strong><br>
+                Drag to pan<br>
+                Scroll to zoom<br>
+                Double-click to reset view
             </div>
         </div>
         

@@ -614,14 +614,96 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     
     return output;
 }
+
+// Colormap helper functions for 3D shader
+fn colormap3d_viridis(t: f32) -> vec3<f32> {
+    let c0 = vec3<f32>(0.267004, 0.004874, 0.329415);
+    let c1 = vec3<f32>(0.282327, 0.140926, 0.457517);
+    let c2 = vec3<f32>(0.253935, 0.265254, 0.529983);
+    let c3 = vec3<f32>(0.206756, 0.371758, 0.553117);
+    let c4 = vec3<f32>(0.163625, 0.471133, 0.558148);
+    let c5 = vec3<f32>(0.127568, 0.566949, 0.550556);
+    let c6 = vec3<f32>(0.134692, 0.658636, 0.517649);
+    let c7 = vec3<f32>(0.266941, 0.748751, 0.440573);
+    let c8 = vec3<f32>(0.477504, 0.821444, 0.318195);
+    let c9 = vec3<f32>(0.741388, 0.873449, 0.149561);
+    let c10 = vec3<f32>(0.993248, 0.906157, 0.143936);
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+fn colormap3d_plasma(t: f32) -> vec3<f32> {
+    let c0 = vec3<f32>(0.050383, 0.029803, 0.527975);
+    let c1 = vec3<f32>(0.254627, 0.013882, 0.615419);
+    let c2 = vec3<f32>(0.417642, 0.000564, 0.658390);
+    let c3 = vec3<f32>(0.562738, 0.051545, 0.641509);
+    let c4 = vec3<f32>(0.692840, 0.165141, 0.564522);
+    let c5 = vec3<f32>(0.798216, 0.280197, 0.469538);
+    let c6 = vec3<f32>(0.881443, 0.392529, 0.383229);
+    let c7 = vec3<f32>(0.949217, 0.517763, 0.295662);
+    let c8 = vec3<f32>(0.988648, 0.652325, 0.211364);
+    let c9 = vec3<f32>(0.988648, 0.809579, 0.145357);
+    let c10 = vec3<f32>(0.940015, 0.975158, 0.131326);
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+fn colormap3d_twilight(t: f32) -> vec3<f32> {
+    let c0 = vec3<f32>(0.886, 0.851, 0.906);
+    let c1 = vec3<f32>(0.816, 0.576, 0.678);
+    let c2 = vec3<f32>(0.659, 0.318, 0.459);
+    let c3 = vec3<f32>(0.420, 0.180, 0.357);
+    let c4 = vec3<f32>(0.184, 0.165, 0.329);
+    let c5 = vec3<f32>(0.184, 0.165, 0.329);
+    let c6 = vec3<f32>(0.125, 0.278, 0.353);
+    let c7 = vec3<f32>(0.192, 0.431, 0.427);
+    let c8 = vec3<f32>(0.388, 0.588, 0.529);
+    let c9 = vec3<f32>(0.663, 0.757, 0.690);
+    let c10 = vec3<f32>(0.886, 0.851, 0.906);
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+fn colormap3d_inferno(t: f32) -> vec3<f32> {
+    let c0 = vec3<f32>(0.001, 0.000, 0.014);
+    let c1 = vec3<f32>(0.122, 0.047, 0.224);
+    let c2 = vec3<f32>(0.281, 0.073, 0.382);
+    let c3 = vec3<f32>(0.448, 0.096, 0.397);
+    let c4 = vec3<f32>(0.610, 0.134, 0.345);
+    let c5 = vec3<f32>(0.761, 0.214, 0.235);
+    let c6 = vec3<f32>(0.876, 0.337, 0.123);
+    let c7 = vec3<f32>(0.949, 0.493, 0.020);
+    let c8 = vec3<f32>(0.976, 0.667, 0.117);
+    let c9 = vec3<f32>(0.964, 0.843, 0.354);
+    let c10 = vec3<f32>(0.988, 0.998, 0.645);
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var col: vec3<f32>;
     let mode = i32(params.colormap);
+    let t = clamp((input.height / 2.0 + 1.0) * 0.5, 0.0, 1.0); // Normalized phase
     
     if (mode == 0) {
-        // Phase (original)
-        let t = clamp((input.height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
+        // Phase (original rainbow)
         if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
         else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
         else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
@@ -637,12 +719,45 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (mode == 3) {
         // Order parameter
         col = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), input.order_val);
-    } else {
-        // mode == 4: Image texture modulated by phase
+    } else if (mode == 4) {
+        // Image texture modulated by phase
         let texColor = textureSample(externalTexture, textureSampler, input.texcoord).rgb;
-        // Modulate brightness by phase (height)
         let phaseMod = 0.5 + 0.5 * sin(input.height);
         col = texColor * (0.7 + 0.3 * phaseMod);
+    } else if (mode == 5) {
+        // Viridis
+        col = colormap3d_viridis(t);
+    } else if (mode == 6) {
+        // Plasma
+        col = colormap3d_plasma(t);
+    } else if (mode == 7) {
+        // Twilight (cyclic)
+        col = colormap3d_twilight(t);
+    } else if (mode == 8) {
+        // Inferno
+        col = colormap3d_inferno(t);
+    } else if (mode == 9) {
+        // Chirality - use gradient as proxy (3D doesn't have curl computed)
+        let chirality = clamp((input.gradient - 0.5) * 2.0, -1.0, 1.0);
+        if (chirality > 0.0) {
+            col = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(1.0, 0.2, 0.1), chirality);
+        } else {
+            col = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(0.1, 0.4, 1.0), -chirality);
+        }
+    } else if (mode == 10) {
+        // Phase + gradient brightness
+        if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
+        else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
+        else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
+        else { let s = (t - 0.75) * 4.0; col = vec3<f32>(1.0, 1.0 - s, 0.0); }
+        let brightness = 0.3 + 0.7 * clamp(input.gradient * 3.0, 0.0, 1.0);
+        col = col * brightness;
+    } else {
+        // Default to phase
+        if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
+        else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
+        else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
+        else { let s = (t - 0.75) * 4.0; col = vec3<f32>(1.0, 1.0 - s, 0.0); }
     }
     
     // Apply order overlay
@@ -786,5 +901,296 @@ fn main() {
     let N = params.cols * params.rows;
     global_order.x = (f32(x) / 10000.0) / N;
     global_order.y = (f32(y) / 10000.0) / N;
+}
+`;
+
+// ============================================================================
+// FAST 2D RENDER SHADER - Full-screen quad with texture sampling
+// Much faster than instanced rendering for 2D mode
+// ============================================================================
+export const RENDER_2D_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, noise_strength: f32, time: f32,
+    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, zoom: f32, panX: f32,
+    panY: f32, pad1: f32, pad2: f32, pad3: f32,
+}
+
+@group(0) @binding(0) var theta_tex: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> params: Params;
+@group(0) @binding(2) var<storage, read> order: array<f32>;
+@group(0) @binding(3) var textureSampler: sampler;
+@group(0) @binding(4) var externalTexture: texture_2d<f32>;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
+    // Full-screen triangle (more efficient than quad - only 3 vertices)
+    var pos = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0)
+    );
+    
+    // UV coordinates: (0,0) is top-left, (1,1) is bottom-right
+    // Map to match 3D shader orientation
+    var uv = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(2.0, 0.0),
+        vec2<f32>(0.0, 2.0)
+    );
+    
+    var output: VertexOutput;
+    output.position = vec4<f32>(pos[vi], 0.0, 1.0);
+    output.uv = uv[vi];
+    return output;
+}
+
+// ============================================================================
+// COLORMAP FUNCTIONS
+// ============================================================================
+
+fn colormap_phase(t: f32) -> vec3<f32> {
+    // Classic rainbow phase colormap
+    let phase = t * 6.28318530718;
+    return vec3<f32>(
+        0.5 + 0.5 * cos(phase),
+        0.5 + 0.5 * cos(phase - 2.094),
+        0.5 + 0.5 * cos(phase + 2.094)
+    );
+}
+
+fn colormap_viridis(t: f32) -> vec3<f32> {
+    // Perceptually uniform colormap
+    let c0 = vec3<f32>(0.267004, 0.004874, 0.329415);
+    let c1 = vec3<f32>(0.282327, 0.140926, 0.457517);
+    let c2 = vec3<f32>(0.253935, 0.265254, 0.529983);
+    let c3 = vec3<f32>(0.206756, 0.371758, 0.553117);
+    let c4 = vec3<f32>(0.163625, 0.471133, 0.558148);
+    let c5 = vec3<f32>(0.127568, 0.566949, 0.550556);
+    let c6 = vec3<f32>(0.134692, 0.658636, 0.517649);
+    let c7 = vec3<f32>(0.266941, 0.748751, 0.440573);
+    let c8 = vec3<f32>(0.477504, 0.821444, 0.318195);
+    let c9 = vec3<f32>(0.741388, 0.873449, 0.149561);
+    let c10 = vec3<f32>(0.993248, 0.906157, 0.143936);
+    
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+fn colormap_plasma(t: f32) -> vec3<f32> {
+    // Plasma colormap - hot magenta to yellow
+    let c0 = vec3<f32>(0.050383, 0.029803, 0.527975);
+    let c1 = vec3<f32>(0.254627, 0.013882, 0.615419);
+    let c2 = vec3<f32>(0.417642, 0.000564, 0.658390);
+    let c3 = vec3<f32>(0.562738, 0.051545, 0.641509);
+    let c4 = vec3<f32>(0.692840, 0.165141, 0.564522);
+    let c5 = vec3<f32>(0.798216, 0.280197, 0.469538);
+    let c6 = vec3<f32>(0.881443, 0.392529, 0.383229);
+    let c7 = vec3<f32>(0.949217, 0.517763, 0.295662);
+    let c8 = vec3<f32>(0.988648, 0.652325, 0.211364);
+    let c9 = vec3<f32>(0.988648, 0.809579, 0.145357);
+    let c10 = vec3<f32>(0.940015, 0.975158, 0.131326);
+    
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+fn colormap_twilight(t: f32) -> vec3<f32> {
+    // Cyclic twilight colormap - perfect for periodic phase data
+    // Goes purple -> pink -> white -> teal -> purple
+    let c0 = vec3<f32>(0.886, 0.851, 0.906);  // Light lavender
+    let c1 = vec3<f32>(0.816, 0.576, 0.678);  // Pink
+    let c2 = vec3<f32>(0.659, 0.318, 0.459);  // Magenta
+    let c3 = vec3<f32>(0.420, 0.180, 0.357);  // Dark purple
+    let c4 = vec3<f32>(0.184, 0.165, 0.329);  // Deep blue
+    let c5 = vec3<f32>(0.184, 0.165, 0.329);  // Deep blue (center)
+    let c6 = vec3<f32>(0.125, 0.278, 0.353);  // Dark teal
+    let c7 = vec3<f32>(0.192, 0.431, 0.427);  // Teal
+    let c8 = vec3<f32>(0.388, 0.588, 0.529);  // Green-teal
+    let c9 = vec3<f32>(0.663, 0.757, 0.690);  // Light sage
+    let c10 = vec3<f32>(0.886, 0.851, 0.906); // Back to lavender (cyclic)
+    
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+fn colormap_inferno(t: f32) -> vec3<f32> {
+    // Inferno - black to yellow through red
+    let c0 = vec3<f32>(0.001, 0.000, 0.014);
+    let c1 = vec3<f32>(0.122, 0.047, 0.224);
+    let c2 = vec3<f32>(0.281, 0.073, 0.382);
+    let c3 = vec3<f32>(0.448, 0.096, 0.397);
+    let c4 = vec3<f32>(0.610, 0.134, 0.345);
+    let c5 = vec3<f32>(0.761, 0.214, 0.235);
+    let c6 = vec3<f32>(0.876, 0.337, 0.123);
+    let c7 = vec3<f32>(0.949, 0.493, 0.020);
+    let c8 = vec3<f32>(0.976, 0.667, 0.117);
+    let c9 = vec3<f32>(0.964, 0.843, 0.354);
+    let c10 = vec3<f32>(0.988, 0.998, 0.645);
+    
+    let idx = clamp(t, 0.0, 1.0) * 10.0;
+    let i = i32(floor(idx));
+    let f = fract(idx);
+    
+    var colors = array<vec3<f32>, 11>(c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10);
+    if (i >= 10) { return c10; }
+    return mix(colors[i], colors[i + 1], f);
+}
+
+// ============================================================================
+// FRAGMENT SHADER
+// ============================================================================
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let zoom = select(1.0, params.zoom, params.zoom > 0.0);
+    
+    // Apply zoom and pan
+    var uv = input.uv;
+    uv = (uv - 0.5) / zoom + vec2<f32>(params.panX, params.panY) + 0.5;
+    
+    // Check bounds (for when zoomed/panned outside grid)
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4<f32>(0.08, 0.08, 0.1, 1.0);
+    }
+    
+    // Convert UV to grid coordinates
+    let cols = i32(params.cols);
+    let rows = i32(params.rows);
+    let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
+    let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
+    
+    // Load theta value
+    let theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
+    
+    // Load order parameter
+    let idx = u32(r) * u32(cols) + u32(c);
+    let order_val = order[idx];
+    
+    // Compute gradient for velocity/curvature modes
+    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), 0).r;
+    let left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), 0).r;
+    let up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), 0).r;
+    let down = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), 0).r;
+    
+    var dx = right - left;
+    var dy = up - down;
+    if (dx > 3.14159) { dx -= 6.28318; }
+    if (dx < -3.14159) { dx += 6.28318; }
+    if (dy > 3.14159) { dy -= 6.28318; }
+    if (dy < -3.14159) { dy += 6.28318; }
+    let gradient = sqrt(dx * dx + dy * dy) * 0.5;
+    
+    // Compute chirality (curl) for spiral detection
+    let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), 0).r;
+    let tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), 0).r;
+    let br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), 0).r;
+    let bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), 0).r;
+    
+    var curl = (tr - tl - br + bl) * 0.25;
+    if (curl > 3.14159) { curl -= 6.28318; }
+    if (curl < -3.14159) { curl += 6.28318; }
+    
+    // Select colormap based on mode
+    var col3: vec3<f32>;
+    let mode = i32(params.colormap);
+    
+    // Use sin(theta) mapping to match 3D shader's height-based coloring
+    let height = sin(theta) * 2.0;
+    let t_height = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
+    // Also keep linear theta mapping for some colormaps
+    let t_linear = theta / 6.28318530718;
+    
+    if (mode == 0) {
+        // Phase - classic rainbow (matches 3D exactly)
+        let phase_t = t_height;
+        if (phase_t < 0.25) { col3 = vec3<f32>(0.0, phase_t * 4.0, 1.0); }
+        else if (phase_t < 0.5) { let s = (phase_t - 0.25) * 4.0; col3 = vec3<f32>(0.0, 1.0, 1.0 - s); }
+        else if (phase_t < 0.75) { let s = (phase_t - 0.5) * 4.0; col3 = vec3<f32>(s, 1.0, 0.0); }
+        else { let s = (phase_t - 0.75) * 4.0; col3 = vec3<f32>(1.0, 1.0 - s, 0.0); }
+    } else if (mode == 1) {
+        // Velocity (gradient magnitude) - blue to orange
+        let vel = clamp(gradient * 2.0, 0.0, 1.0);
+        col3 = mix(vec3<f32>(0.0, 0.0, 0.5), vec3<f32>(1.0, 0.5, 0.0), vel);
+    } else if (mode == 2) {
+        // Curvature - purple to yellow
+        let curv = clamp(gradient, 0.0, 1.0);
+        col3 = mix(vec3<f32>(0.2, 0.0, 0.5), vec3<f32>(1.0, 0.8, 0.0), curv);
+    } else if (mode == 3) {
+        // Order parameter - red (chaos) to green (sync)
+        col3 = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), order_val);
+    } else if (mode == 4) {
+        // Image texture modulated by phase (matches 3D)
+        // Flip X axis for webcam mirror effect
+        let tex_uv = vec2<f32>(1.0 - uv.x, uv.y);
+        let texColor = textureSample(externalTexture, textureSampler, tex_uv).rgb;
+        let phaseMod = 0.5 + 0.5 * sin(theta);
+        col3 = texColor * (0.7 + 0.3 * phaseMod);
+    } else if (mode == 5) {
+        // Viridis - perceptually uniform (use sin-based mapping like 3D)
+        col3 = colormap_viridis(t_height);
+    } else if (mode == 6) {
+        // Plasma - hot magenta to yellow (use sin-based mapping like 3D)
+        col3 = colormap_plasma(t_height);
+    } else if (mode == 7) {
+        // Twilight - cyclic, good for phase (use linear for full cycle)
+        col3 = colormap_twilight(t_linear);
+    } else if (mode == 8) {
+        // Inferno - black to yellow (use sin-based mapping like 3D)
+        col3 = colormap_inferno(t_height);
+    } else if (mode == 9) {
+        // Chirality - spiral rotation direction
+        // Blue = clockwise, Red = counterclockwise, Gray = no rotation
+        let chirality = clamp(curl * 5.0, -1.0, 1.0);
+        if (chirality > 0.0) {
+            col3 = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(1.0, 0.2, 0.1), chirality);
+        } else {
+            col3 = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(0.1, 0.4, 1.0), -chirality);
+        }
+    } else if (mode == 10) {
+        // Combined: phase hue + gradient brightness
+        let hue_col = colormap_phase(t_height);
+        let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
+        col3 = hue_col * brightness;
+    } else {
+        // Default to phase
+        col3 = colormap_phase(t_height);
+    }
+    
+    // Apply order overlay if enabled
+    if (params.show_order > 0.5) {
+        let brightness = 0.3 + 0.7 * order_val;
+        col3 = col3 * brightness;
+    }
+    
+    return vec4<f32>(col3, 1.0);
 }
 `;

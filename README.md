@@ -79,6 +79,14 @@ The simulation implements 6 different coupling mechanisms:
 
 Switch rules using **keyboard 0-5** or the dropdown menu.
 
+### 11 Colormap Modes
+
+Rich visualization options including Phase, Velocity, Curvature, Order, Image Texture, Viridis, Plasma, Twilight, Inferno, Chirality, and Phase+Gradient. Colormaps are synchronized between 2D and 3D views for consistent visualization.
+
+### Fast 2D Rendering
+
+Dedicated 2D rendering path using a single full-screen triangle instead of N² instanced quads. Provides 2-5× speedup for large grids while maintaining full colormap and zoom/pan support.
+
 ### External Image/Video Input
 
 Drive oscillator dynamics with images or live webcam:
@@ -113,10 +121,13 @@ Change simulation resolution on-the-fly:
   - Pan with right-drag
   - Zoom with scroll
   
-- **2D Mode**: Flat top-down view
+- **2D Mode**: Flat top-down view (optimized fast rendering path)
   - Perfect for image textures
   - Direct phase visualization
   - Publication-quality figures
+  - **Zoom**: Mouse wheel (0.5× to 10×)
+  - **Pan**: Click and drag
+  - **Reset View**: Double-click or press **Z**
 
 Toggle with **V** key or buttons.
 
@@ -131,6 +142,12 @@ Press **C** to cycle through colormaps:
 | **2** | Curvature | Phase Laplacian (∇²θ) | Purple (concave) → Yellow (convex) |
 | **3** | Order | Local synchronization | Red (chaos) → Green (sync) |
 | **4** | Image Texture | External image modulated by phase | Original colors × phase brightness |
+| **5** | Viridis | Perceptually uniform | Blue → Green → Yellow |
+| **6** | Plasma | Hot magenta-yellow | Magenta → Orange → Yellow |
+| **7** | Twilight | Cyclic colormap | Purple → Red → Yellow → Blue |
+| **8** | Inferno | Black to bright | Black → Purple → Orange → Yellow |
+| **9** | Chirality | Spiral rotation direction | Blue (CW) → Gray → Red (CCW) |
+| **10** | Phase+Gradient | Combined visualization | Phase hue with gradient brightness |
 
 ### Order Parameter Overlay
 
@@ -229,7 +246,7 @@ Spatial coupling kernel with multiple shape options:
 ### Rule & Mode Control
 - **0-5**: Switch coupling rules
 - **V**: Toggle 2D/3D view
-- **C**: Cycle colormaps
+- **C**: Cycle colormaps (11 modes)
 - **O**: Toggle order overlay
 - **G**: Toggle global coupling
 
@@ -243,6 +260,11 @@ Spatial coupling kernel with multiple shape options:
 - **↑** / **↓**: Increase/Decrease coupling strength K₀
 - **←** / **→**: Decrease/Increase range (local coupling only)
 - **Shift + ↑** / **Shift + ↓**: Increase/Decrease grid size
+
+### View Control (2D Mode)
+- **Z**: Reset zoom/pan to default
+- **+** / **=**: Zoom in
+- **-**: Zoom out
 
 ### Camera (3D Mode)
 - **Left-drag**: Rotate
@@ -374,9 +396,11 @@ kuramoto/
 
 ### Performance Optimization
 
+- **Shared Memory Tiling**: Compute shaders use GPU shared memory for neighbor data
 - **Cached Bind Groups**: Reuse GPU bind groups per delay step
 - **Workgroup Size**: 16×16 threads per group (optimized for modern GPUs)
 - **Partial Buffer Updates**: Only update dynamic params (dt, time) per frame
+- **Fast 2D Rendering**: Single full-screen triangle instead of N² instanced quads
 - **Periodic Boundaries**: Efficient toroidal topology
 
 **Benchmarks (M1 Max GPU):**
@@ -586,4 +610,4 @@ MIT License - see LICENSE file for details.
 
 **Enjoy exploring the beautiful world of synchronization!** 🌀✨
 
-*Last updated: November 2025*
+*Last updated: January 2025*

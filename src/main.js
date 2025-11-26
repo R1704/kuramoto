@@ -28,6 +28,10 @@ const STATE = {
     omegaAmplitude: 0.4,
     viewMode: 0, // 0 = 3D, 1 = 2D
     gridSize: 256, // Adjustable grid size
+    // Zoom/pan for 2D mode
+    zoom: 1.0,
+    panX: 0.0,
+    panY: 0.0,
     // Kernel shape parameters
     kernelShape: 0, // 0=isotropic, 1=anisotropic, 2=multi-scale, 3=asymmetric, 4=step, 5=multi-ring
     kernelOrientation: 0.0, // radians, 0-2π (for anisotropic)
@@ -124,7 +128,8 @@ async function init() {
         sim.step(encoder, STATE.delaySteps, STATE.globalCoupling);
         
         const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
-        renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize);
+        const viewModeStr = STATE.viewMode === 0 ? '3d' : '2d';
+        renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr);
         
         device.queue.submit([encoder.finish()]);
         

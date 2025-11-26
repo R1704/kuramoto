@@ -952,4 +952,32 @@ These extensions transform the Kuramoto model from a **toy demonstration** into 
 
 The mathematical foundation is solid, the GPU implementation is feasible, and the potential applications span neuroscience, ML, social dynamics, and beyond.
 
-**Ready to implement? Let's start with Phase 1: Graph Topologies!** 🚀
+
+
+
+Tier 1: Visual Enhancements (Easy, High Impact)
+Extension	Description	Effort
+🎨 More colormaps	Add plasma, viridis, inferno, twilight	Low
+📊 Real-time statistics	Show mean frequency, sync ratio, chimera index	Medium
+🎬 Recording/GIF export	Capture simulation as video or GIF	Medium
+🔍 Zoom/Pan	Mouse wheel zoom, click-drag pan	Low
+Tier 2: Physics Extensions (Medium Complexity)
+Extension	Description	Effort
+🌊 External forcing	Add periodic driving force (entrainment)	Low
+🎯 Targeted perturbation	Click to inject phase pulse	Low
+📈 Frequency adaptation	Oscillators adapt their natural frequency	Medium
+🔗 Network topology	Small-world, scale-free, or custom networks	High
+⏱️ Adaptive time-stepping	Larger dt when synchronized, smaller when chaotic	Medium
+Tier 3: Analysis Tools (Medium-High Complexity)
+Extension	Description	Effort
+📉 Order parameter history	Time series plot of global order	Medium
+🗺️ Phase space visualization	Plot oscillators on unit circle	Medium
+🌀 Chimera detection	Automatically detect and highlight chimera states	High
+📊 Frequency spectrum	FFT of phase evolution	High
+💾 State save/load	Save interesting patterns to JSON	Low
+Tier 4: Advanced Simulations (High Complexity)
+Extension	Description	Effort
+🧊 True 3D grid	3D lattice of oscillators (not just 3D view)	High
+🔀 Multi-population	Different oscillator types with cross-coupling	High
+🌡️ Temperature/noise control	Thermal fluctuations with phase transitions	Medium
+🎭 Frustrated coupling	XY model with frustration (spin glass behavior)	Medium

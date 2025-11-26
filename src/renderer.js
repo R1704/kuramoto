@@ -1,4 +1,4 @@
-import { RENDER_SHADER } from './shaders.js';
+import { RENDER_SHADER, RENDER_2D_SHADER } from './shaders.js';
 
 export class Renderer {
     constructor(device, format, canvas) {
@@ -37,7 +37,9 @@ export class Renderer {
         });
 
         this.initPipeline();
+        this.init2DPipeline();
         this.bindGroup = null; // Cache bind group
+        this.bindGroup2D = null; // Cache 2D bind group
         this.lastThetaTexture = null;
     }
 
@@ -49,6 +51,17 @@ export class Renderer {
             fragment: { module, entryPoint: 'fs_main', targets: [{ format: this.format }] },
             primitive: { topology: 'triangle-strip', cullMode: 'none' },
             depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' },
+        });
+    }
+    
+    init2DPipeline() {
+        const module = this.device.createShaderModule({ code: RENDER_2D_SHADER });
+        this.pipeline2D = this.device.createRenderPipeline({
+            layout: 'auto',
+            vertex: { module, entryPoint: 'vs_main' },
+            fragment: { module, entryPoint: 'fs_main', targets: [{ format: this.format }] },
+            primitive: { topology: 'triangle-list', cullMode: 'none' },
+            // No depth buffer needed for 2D
         });
     }
 
@@ -64,11 +77,18 @@ export class Renderer {
     // Call this when simulation textures change
     invalidateBindGroup() {
         this.bindGroup = null;
+        this.bindGroup2D = null;
         this.lastSim = null;
         this.lastThetaTexture = null;
     }
 
-    draw(commandEncoder, sim, viewProjMatrix, N) {
+    draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d') {
+        // Use fast 2D renderer when in 2D mode
+        if (viewMode === '2d') {
+            this.draw2D(commandEncoder, sim);
+            return;
+        }
+        
         // Update camera uniform
         this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
 
@@ -106,6 +126,38 @@ export class Renderer {
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.bindGroup);
         pass.draw(4, N);
+        pass.end();
+    }
+    
+    draw2D(commandEncoder, sim) {
+        // Fast 2D rendering with full-screen quad
+        // Create bind group for 2D pipeline
+        if (!this.bindGroup2D || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
+            this.bindGroup2D = this.device.createBindGroup({
+                layout: this.pipeline2D.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: sim.thetaTexture.createView() },
+                    { binding: 1, resource: { buffer: sim.paramsBuf } },
+                    { binding: 2, resource: { buffer: sim.orderBuf } },
+                    { binding: 3, resource: this.externalSampler },
+                    { binding: 4, resource: this.externalTexture.createView() },
+                ],
+            });
+            this.lastSim = sim;
+            this.lastThetaTexture = sim.thetaTexture;
+        }
+
+        const pass = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.context.getCurrentTexture().createView(),
+                clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+                loadOp: 'clear',
+                storeOp: 'store',
+            }],
+        });
+        pass.setPipeline(this.pipeline2D);
+        pass.setBindGroup(0, this.bindGroup2D);
+        pass.draw(3); // Single triangle covering the screen
         pass.end();
     }
     

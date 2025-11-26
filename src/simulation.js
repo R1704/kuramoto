@@ -146,7 +146,7 @@ export class Simulation {
     
     updateFullParams(p) {
         // Pack all parameters - called only when user changes settings
-        // 28 base params + 5 ring widths + 5 ring weights + 3 composition + 1 asymmetric orientation + 3 Gabor + 2 pad = 47 floats = 188 bytes (192 allocated)
+        // 28 base params + 5 ring widths + 5 ring weights + 3 composition + 1 asymmetric orientation + 3 Gabor + 3 zoom/pan + 3 pad = 51 floats
         const data = new Float32Array([
             p.dt * p.timeScale * (p.paused ? 0 : 1), p.K0, p.range, p.ruleMode,
             this.gridSize, this.gridSize, p.harmonicA, p.globalCoupling ? 1.0 : 0.0,
@@ -166,7 +166,9 @@ export class Simulation {
             p.kernelAsymmetricOrientation,
             // Gabor parameters
             p.kernelSpatialFreqMag, p.kernelSpatialFreqAngle, p.kernelGaborPhase,
-            0, 0 // pad1, pad2
+            // Zoom/pan parameters
+            p.zoom || 1.0, p.panX || 0.0, p.panY || 0.0,
+            0 // pad
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }
