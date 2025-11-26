@@ -1,412 +1,821 @@
-# 🚀 Comprehensive Extensions for Kuramoto Dynamics
+# 🚀 Kuramoto Simulation Extensions Roadmap# 🚀 Comprehensive Extensions for Kuramoto Dynamics
 
-This document outlines advanced extensions to move beyond the basic 2D grid of coupled phase oscillators. We examine four major directions, each with increasing complexity and biological/computational relevance.
 
----
 
-## **Table of Contents**
+A prioritized list of potential extensions for the Kuramoto oscillator simulation, ranked by multiple criteria to guide development decisions.This document outlines advanced extensions to move beyond the basic 2D grid of coupled phase oscillators. We examine four major directions, each with increasing complexity and biological/computational relevance.
 
-1. [Extension 1: n-Dimensional Unit Vectors (S^n)](#extension-1-n-dimensional-unit-vectors-sn)
-2. [Extension 2: Hierarchical (Deep) Layers](#extension-2-hierarchical-deep-layers)
-3. [Extension 3: Hebbian Learning & Plasticity](#extension-3-hebbian-learning--plasticity)
-4. [Extension 4: Arbitrary Graph Topologies](#extension-4-arbitrary-graph-topologies)
-5. [Synthesis: Combining Extensions](#synthesis-combining-extensions)
-6. [Implementation Roadmap](#implementation-roadmap)
 
----
 
-## **Extension 1: n-Dimensional Unit Vectors (S^n)**
+------
 
-### Motivation
 
-Current model: Each oscillator has a **scalar phase** $\theta_i \in [0, 2\pi)$ on the circle $S^1$.
 
-**Why extend to vectors?**
-- **Biological realism**: Neural populations, protein orientations, bacterial swimming
-- **Richer dynamics**: Nematic order, topological defects, quaternion rotations
-- **Mathematical depth**: Explores high-dimensional synchronization phenomena
+## 📊 Extension Ranking Summary## **Table of Contents**
 
-### Mathematical Foundation
 
-#### Current: Scalar Phases on S¹
 
-$$\frac{d\theta_i}{dt} = \omega_i + K \sum_{j} \sin(\theta_j - \theta_i)$$
+| Rank | Extension | Difficulty | Impact | Novelty | Time Est. | Priority Score |1. [Extension 1: n-Dimensional Unit Vectors (S^n)](#extension-1-n-dimensional-unit-vectors-sn)
 
-**State space**: Circle $S^1 = \{e^{i\theta} : \theta \in [0, 2\pi)\}$
+|------|-----------|------------|--------|---------|-----------|----------------|2. [Extension 2: Hierarchical (Deep) Layers](#extension-2-hierarchical-deep-layers)
 
-#### Generalized: Unit Vectors on S^(n-1)
+| 1 | 💾 State Save/Load | ⭐ Easy | ⭐⭐⭐ High | ⭐ Low | 2-4 hrs | **95** |3. [Extension 3: Hebbian Learning & Plasticity](#extension-3-hebbian-learning--plasticity)
 
-$$\frac{d\mathbf{v}_i}{dt} = \boldsymbol{\omega}_i + K \sum_{j} \sin(\alpha_{ij}) \cdot \hat{\mathbf{c}}_{ij}$$
+| 2 | 📊 Real-time Statistics | ⭐⭐ Medium | ⭐⭐⭐ High | ⭐⭐ Medium | 4-8 hrs | **90** |4. [Extension 4: Arbitrary Graph Topologies](#extension-4-arbitrary-graph-topologies)
+
+| 3 | 🎬 Recording/GIF Export | ⭐⭐ Medium | ⭐⭐⭐ High | ⭐ Low | 6-10 hrs | **88** |5. [Synthesis: Combining Extensions](#synthesis-combining-extensions)
+
+| 4 | 🎯 Targeted Perturbation | ⭐ Easy | ⭐⭐ Medium | ⭐⭐ Medium | 2-4 hrs | **85** |6. [Implementation Roadmap](#implementation-roadmap)
+
+| 5 | 🌊 External Forcing | ⭐ Easy | ⭐⭐ Medium | ⭐⭐ Medium | 3-5 hrs | **82** |
+
+| 6 | 📉 Order Parameter History | ⭐⭐ Medium | ⭐⭐⭐ High | ⭐ Low | 4-6 hrs | **80** |---
+
+| 7 | 🔗 Graph Topologies | ⭐⭐⭐ Hard | ⭐⭐⭐ High | ⭐⭐⭐ High | 2-3 weeks | **78** |
+
+| 8 | 🧠 Hebbian Learning | ⭐⭐⭐ Hard | ⭐⭐⭐ High | ⭐⭐⭐ High | 2-3 weeks | **75** |## **Extension 1: n-Dimensional Unit Vectors (S^n)**
+
+| 9 | 📈 Frequency Adaptation | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐⭐ High | 1 week | **72** |
+
+| 10 | 🏗️ Hierarchical Layers | ⭐⭐⭐ Hard | ⭐⭐⭐ High | ⭐⭐⭐ High | 3-4 weeks | **70** |### Motivation
+
+| 11 | 🌀 Chimera Detection | ⭐⭐⭐ Hard | ⭐⭐ Medium | ⭐⭐⭐ High | 1-2 weeks | **68** |
+
+| 12 | 🌡️ Temperature/Noise Control | ⭐⭐ Medium | ⭐⭐ Medium | ⭐⭐ Medium | 3-5 hrs | **65** |Current model: Each oscillator has a **scalar phase** $\theta_i \in [0, 2\pi)$ on the circle $S^1$.
+
+| 13 | 🗺️ Phase Space Visualization | ⭐⭐ Medium | ⭐⭐ Medium | ⭐ Low | 4-8 hrs | **62** |
+
+| 14 | 📊 Frequency Spectrum (FFT) | ⭐⭐⭐ Hard | ⭐⭐ Medium | ⭐⭐ Medium | 1 week | **58** |**Why extend to vectors?**
+
+| 15 | ⏱️ Adaptive Time-stepping | ⭐⭐ Medium | ⭐ Low | ⭐⭐ Medium | 4-8 hrs | **55** |- **Biological realism**: Neural populations, protein orientations, bacterial swimming
+
+| 16 | 🔮 n-D Unit Vectors (S^n) | ⭐⭐⭐⭐ V.Hard | ⭐⭐⭐ High | ⭐⭐⭐ High | 4-6 weeks | **52** |- **Richer dynamics**: Nematic order, topological defects, quaternion rotations
+
+| 17 | 🧊 True 3D Grid | ⭐⭐⭐⭐ V.Hard | ⭐⭐ Medium | ⭐⭐ Medium | 3-4 weeks | **45** |- **Mathematical depth**: Explores high-dimensional synchronization phenomena
+
+| 18 | 🔀 Multi-population | ⭐⭐⭐ Hard | ⭐⭐ Medium | ⭐⭐ Medium | 2-3 weeks | **42** |
+
+| 19 | 🎭 Frustrated Coupling | ⭐⭐⭐ Hard | ⭐ Low | ⭐⭐⭐ High | 2 weeks | **38** |### Mathematical Foundation
+
+
+
+**Priority Score** = (10 - Difficulty) × 2 + Impact × 15 + Novelty × 5 + (10 - TimeWeeks) × 3#### Current: Scalar Phases on S¹
+
+
+
+---$$\frac{d\theta_i}{dt} = \omega_i + K \sum_{j} \sin(\theta_j - \theta_i)$$
+
+
+
+## 🏆 Tier 1: Quick Wins (< 1 day each)**State space**: Circle $S^1 = \{e^{i\theta} : \theta \in [0, 2\pi)\}$
+
+
+
+These deliver high value with minimal effort. **Do these first.**#### Generalized: Unit Vectors on S^(n-1)
+
+
+
+### 1. 💾 State Save/Load$$\frac{d\mathbf{v}_i}{dt} = \boldsymbol{\omega}_i + K \sum_{j} \sin(\alpha_{ij}) \cdot \hat{\mathbf{c}}_{ij}$$
+
+**Difficulty:** ⭐ Easy | **Impact:** ⭐⭐⭐ High | **Time:** 2-4 hours
 
 Where:
-- $\mathbf{v}_i \in \mathbb{R}^n$ with $||\mathbf{v}_i|| = 1$ (unit vector)
+
+Save simulation state (theta, omega, parameters) to JSON file; load it back later.- $\mathbf{v}_i \in \mathbb{R}^n$ with $||\mathbf{v}_i|| = 1$ (unit vector)
+
 - $\cos(\alpha_{ij}) = \mathbf{v}_i \cdot \mathbf{v}_j$ (dot product gives angle)
-- $\hat{\mathbf{c}}_{ij}$ = coupling direction along geodesic on sphere
 
-**Coupling direction** (tangent to sphere):
-$$\hat{\mathbf{c}}_{ij} = \frac{\mathbf{v}_j - (\mathbf{v}_j \cdot \mathbf{v}_i)\mathbf{v}_i}{||\mathbf{v}_j - (\mathbf{v}_j \cdot \mathbf{v}_i)\mathbf{v}_i||}$$
+**Why prioritize:**- $\hat{\mathbf{c}}_{ij}$ = coupling direction along geodesic on sphere
 
-This projects $\mathbf{v}_j$ onto the **tangent plane** at $\mathbf{v}_i$.
+- Users lose interesting patterns when refreshing
 
-### Dimensional Examples
+- Enables sharing discoveries**Coupling direction** (tangent to sphere):
 
-| Dimension | Sphere | Representation | Applications |
-|-----------|--------|----------------|--------------|
-| **n=2** | S¹ (circle) | $[\cos\theta, \sin\theta]$ | Current system |
-| **n=3** | S² (2-sphere) | $[x, y, z]$ with $x^2+y^2+z^2=1$ | Magnetic spins, protein folding |
-| **n=4** | S³ (3-sphere) | Quaternions $w+xi+yj+zk$ | 3D rotations, orientation dynamics |
-| **n>>4** | S^(n-1) | High-dim vectors | Neural population codes |
+- Foundation for presets library$$\hat{\mathbf{c}}_{ij} = \frac{\mathbf{v}_j - (\mathbf{v}_j \cdot \mathbf{v}_i)\mathbf{v}_i}{||\mathbf{v}_j - (\mathbf{v}_j \cdot \mathbf{v}_i)\mathbf{v}_i||}$$
 
-### Implementation: S² (3D Unit Vectors)
 
-**GPU Buffer Layout:**
+
+**Implementation:**This projects $\mathbf{v}_j$ onto the **tangent plane** at $\mathbf{v}_i$.
+
+```javascript
+
+function saveState() {### Dimensional Examples
+
+    const state = {
+
+        theta: Array.from(sim.readTheta()),| Dimension | Sphere | Representation | Applications |
+
+        omega: Array.from(sim.readOmega()),|-----------|--------|----------------|--------------|
+
+        params: { ...STATE }| **n=2** | S¹ (circle) | $[\cos\theta, \sin\theta]$ | Current system |
+
+    };| **n=3** | S² (2-sphere) | $[x, y, z]$ with $x^2+y^2+z^2=1$ | Magnetic spins, protein folding |
+
+    const blob = new Blob([JSON.stringify(state)], {type: 'application/json'});| **n=4** | S³ (3-sphere) | Quaternions $w+xi+yj+zk$ | 3D rotations, orientation dynamics |
+
+    downloadBlob(blob, `kuramoto-${Date.now()}.json`);| **n>>4** | S^(n-1) | High-dim vectors | Neural population codes |
+
+}
+
+```### Implementation: S² (3D Unit Vectors)
+
+
+
+---**GPU Buffer Layout:**
+
 ```wgsl
-struct Vector3 {
-    x: f32,
+
+### 2. 🎯 Targeted Perturbation (Click to Disturb)struct Vector3 {
+
+**Difficulty:** ⭐ Easy | **Impact:** ⭐⭐ Medium | **Time:** 2-4 hours    x: f32,
+
     y: f32,
-    z: f32,
+
+Click on the simulation to inject a phase pulse at that location.    z: f32,
+
     padding: f32,  // Align to 16 bytes
-}
 
-@group(0) @binding(0) var<storage, read_write> states: array<Vector3>;
-@group(0) @binding(1) var<storage, read> omegas: array<Vector3>;
+**Why prioritize:**}
+
+- Highly interactive
+
+- Reveals system stability@group(0) @binding(0) var<storage, read_write> states: array<Vector3>;
+
+- Great for teaching@group(0) @binding(1) var<storage, read> omegas: array<Vector3>;
+
 ```
 
-**Compute Shader (Simplified):**
-```wgsl
-fn compute_step(i: u32) {
+**Implementation:**
+
+- Add click handler to canvas**Compute Shader (Simplified):**
+
+- Map click coordinates to grid position```wgsl
+
+- Write phase pulse to theta buffer at that locationfn compute_step(i: u32) {
+
     let v_i = normalize(vec3f(states[i].x, states[i].y, states[i].z));
-    var dv = vec3f(omegas[i].x, omegas[i].y, omegas[i].z);
+
+---    var dv = vec3f(omegas[i].x, omegas[i].y, omegas[i].z);
+
     
-    // Sum over neighbors
-    for (var j = 0u; j < neighbor_count; j++) {
+
+### 3. 🌊 External Forcing (Periodic Drive)    // Sum over neighbors
+
+**Difficulty:** ⭐ Easy | **Impact:** ⭐⭐ Medium | **Time:** 3-5 hours    for (var j = 0u; j < neighbor_count; j++) {
+
         let v_j = normalize(vec3f(states[j].x, states[j].y, states[j].z));
-        
+
+Add a global periodic driving force: `dθ/dt += F·sin(ω_drive·t - θ)`        
+
         // Angle between vectors
-        let cos_alpha = dot(v_i, v_j);
-        let sin_alpha = sqrt(max(0.0, 1.0 - cos_alpha * cos_alpha));
-        
-        // Tangent component (coupling direction)
+
+**Why prioritize:**        let cos_alpha = dot(v_i, v_j);
+
+- Simple equation modification        let sin_alpha = sqrt(max(0.0, 1.0 - cos_alpha * cos_alpha));
+
+- Demonstrates entrainment        
+
+- Relevant to many real systems (heartbeat, circadian rhythms)        // Tangent component (coupling direction)
+
         let c_ij = normalize(v_j - cos_alpha * v_i);
-        
-        // Accumulate coupling force
-        dv += K * sin_alpha * c_ij;
+
+**New Parameters:**        
+
+- `forcingAmplitude` (0-1)        // Accumulate coupling force
+
+- `forcingFrequency` (0-5 Hz)        dv += K * sin_alpha * c_ij;
+
     }
-    
+
+---    
+
     // Update and renormalize to stay on sphere
-    let v_new = normalize(v_i + dt * dv);
-    states[i] = Vector3(v_new.x, v_new.y, v_new.z, 0.0);
+
+### 4. 🌡️ Enhanced Noise Control    let v_new = normalize(v_i + dt * dv);
+
+**Difficulty:** ⭐⭐ Medium | **Impact:** ⭐⭐ Medium | **Time:** 3-5 hours    states[i] = Vector3(v_new.x, v_new.y, v_new.z, 0.0);
+
 }
-```
 
-**Key Operation: Renormalization**
+Expand noise options: spatially correlated noise, colored noise, noise bursts.```
 
-After each update, vectors **must** be renormalized:
-$$\mathbf{v}_i^{\text{new}} = \frac{\mathbf{v}_i + \Delta t \cdot \frac{d\mathbf{v}_i}{dt}}{||\mathbf{v}_i + \Delta t \cdot \frac{d\mathbf{v}_i}{dt}||}$$
 
-### Visualization Strategies
 
-**Challenge**: How to display 3D+ vectors on a 2D screen?
+**Why prioritize:****Key Operation: Renormalization**
 
-#### Option A: Stereographic Projection
+- Already have noise infrastructure
+
+- Phase transitions depend on noiseAfter each update, vectors **must** be renormalized:
+
+- More realistic physics$$\mathbf{v}_i^{\text{new}} = \frac{\mathbf{v}_i + \Delta t \cdot \frac{d\mathbf{v}_i}{dt}}{||\mathbf{v}_i + \Delta t \cdot \frac{d\mathbf{v}_i}{dt}||}$$
+
+
+
+---### Visualization Strategies
+
+
+
+## 🥈 Tier 2: Medium Projects (1-3 days each)**Challenge**: How to display 3D+ vectors on a 2D screen?
+
+
+
+### 5. 📊 Real-time Statistics Panel#### Option A: Stereographic Projection
+
+**Difficulty:** ⭐⭐ Medium | **Impact:** ⭐⭐⭐ High | **Time:** 4-8 hours
 
 Project S² → ℝ²:
-```
-North pole: (0, 0, 1)
-Projected point: (x/(1-z), y/(1-z))
-```
+
+Display live metrics:```
+
+- Global order parameter R (already computed!)North pole: (0, 0, 1)
+
+- Mean/std of frequenciesProjected point: (x/(1-z), y/(1-z))
+
+- Chimera index (sync vs desync area ratio)```
+
+- Pattern classification (spiral, wave, chimera, etc.)
 
 #### Option B: Color Mapping
 
-```wgsl
-fn vector_to_color(v: vec3f) -> vec4f {
-    // Azimuthal angle → Hue
+**Why prioritize:**
+
+- Uses existing GPU computations```wgsl
+
+- Makes simulation quantitativefn vector_to_color(v: vec3f) -> vec4f {
+
+- Essential for research use    // Azimuthal angle → Hue
+
     let hue = atan2(v.y, v.x) / (2.0 * 3.14159);
-    
-    // Polar angle → Brightness
-    let brightness = 0.5 + 0.5 * v.z;
-    
-    return hsv_to_rgb(hue, 1.0, brightness);
-}
-```
 
-#### Option C: Quiver Plot (3D Arrows)
+**Implementation:**    
 
-Render small arrows at each grid position showing vector direction.
+```javascript    // Polar angle → Brightness
 
-### New Phenomena on S^n
+// Add stats panel to UI    let brightness = 0.5 + 0.5 * v.z;
+
+<div id="stats-panel">    
+
+    <div>Order R: <span id="stat-order">0.00</span></div>    return hsv_to_rgb(hue, 1.0, brightness);
+
+    <div>Entropy: <span id="stat-entropy">0.00</span></div>}
+
+    <div>Pattern: <span id="stat-pattern">Unknown</span></div>```
+
+</div>
+
+```#### Option C: Quiver Plot (3D Arrows)
+
+
+
+---Render small arrows at each grid position showing vector direction.
+
+
+
+### 6. 🎬 Recording/GIF Export### New Phenomena on S^n
+
+**Difficulty:** ⭐⭐ Medium | **Impact:** ⭐⭐⭐ High | **Time:** 6-10 hours
 
 1. **Nematic Order** (S²): 
-   - Vectors have head-tail symmetry: $\mathbf{v} \equiv -\mathbf{v}$
+
+Record simulation to video (WebM) or animated GIF.   - Vectors have head-tail symmetry: $\mathbf{v} \equiv -\mathbf{v}$
+
    - Allows topological defects with **±1/2 winding** (not just ±1)
-   - Forms stripe patterns, not spirals
 
-2. **Quaternion Dynamics** (S³):
-   - Represents 3D rotations without gimbal lock
+**Why prioritize:**   - Forms stripe patterns, not spirals
+
+- Sharing on social media
+
+- Documentation/presentations2. **Quaternion Dynamics** (S³):
+
+- Publication figures   - Represents 3D rotations without gimbal lock
+
    - Couples rotational degrees of freedom
-   - Applications: Satellite attitude control, robotic swarms
 
-3. **High-Dimensional Effects**:
+**Libraries:** gif.js, MediaRecorder API   - Applications: Satellite attitude control, robotic swarms
+
+
+
+---3. **High-Dimensional Effects**:
+
    - **Concentration of measure**: Random vectors in S^(n-1) are nearly orthogonal when n is large
-   - Harder to synchronize (requires stronger coupling)
-   - Neural population codes live in S^(100+)
 
-### Generalized Order Parameter
+### 7. 📉 Order Parameter History (Time Series)   - Harder to synchronize (requires stronger coupling)
 
-For scalar phases: $Z = \frac{1}{N}\sum_i e^{i\theta_i}$, $|Z| \in [0,1]$
+**Difficulty:** ⭐⭐ Medium | **Impact:** ⭐⭐⭐ High | **Time:** 4-6 hours   - Neural population codes live in S^(100+)
 
-For vector states:
-$$\mathbf{Z} = \frac{1}{N}\sum_{i=1}^{N} \mathbf{v}_i \in \mathbb{R}^n$$
 
-- **Magnitude**: $|\mathbf{Z}| \in [0, 1]$ measures synchronization
+
+Plot R(t) over time in a small chart below the main view.### Generalized Order Parameter
+
+
+
+**Why prioritize:**For scalar phases: $Z = \frac{1}{N}\sum_i e^{i\theta_i}$, $|Z| \in [0,1]$
+
+- Shows synchronization transitions
+
+- Detects oscillations and chaosFor vector states:
+
+- Standard analysis tool$$\mathbf{Z} = \frac{1}{N}\sum_{i=1}^{N} \mathbf{v}_i \in \mathbb{R}^n$$
+
+
+
+**Implementation:** Use Chart.js or canvas 2D with rolling buffer- **Magnitude**: $|\mathbf{Z}| \in [0, 1]$ measures synchronization
+
 - **Direction**: $\mathbf{Z}/|\mathbf{Z}|$ shows mean orientation
 
 ---
 
-## **Extension 2: Hierarchical (Deep) Layers**
+---
 
-### Motivation
+### 8. 🗺️ Phase Space Visualization
 
-Single-layer oscillators can synchronize, but **hierarchical organization** enables:
-- **Abstraction**: Higher layers represent abstract features
-- **Top-down attention**: Feedback from high to low layers
-- **Multi-scale processing**: Different timescales at different layers
+**Difficulty:** ⭐⭐ Medium | **Impact:** ⭐⭐ Medium | **Time:** 4-8 hours## **Extension 2: Hierarchical (Deep) Layers**
 
-**Biological parallel**: Cortical hierarchy (V1 → V2 → V4 → IT)
 
-### Architecture
+
+Show all oscillators as dots on a unit circle (phase) or torus (phase + frequency).### Motivation
+
+
+
+**Why prioritize:**Single-layer oscillators can synchronize, but **hierarchical organization** enables:
+
+- Classic Kuramoto visualization- **Abstraction**: Higher layers represent abstract features
+
+- Reveals clustering directly- **Top-down attention**: Feedback from high to low layers
+
+- Complements spatial view- **Multi-scale processing**: Different timescales at different layers
+
+
+
+---**Biological parallel**: Cortical hierarchy (V1 → V2 → V4 → IT)
+
+
+
+### 9. 📈 Frequency Adaptation### Architecture
+
+**Difficulty:** ⭐⭐ Medium | **Impact:** ⭐⭐ Medium | **Time:** 1 week
 
 ```
-Layer 2 (Abstract)    ●────●────●────●
-                      ↕    ↕    ↕    ↕
+
+Oscillators adjust their natural frequency based on neighbors:Layer 2 (Abstract)    ●────●────●────●
+
+`dω/dt = ε · (ω_neighbors - ω_i)`                      ↕    ↕    ↕    ↕
+
 Layer 1 (Features)   ●─●─●─●─●─●─●─●─●
-                     ↕ ↕ ↕ ↕ ↕ ↕ ↕ ↕ ↕
-Layer 0 (Input)     ●●●●●●●●●●●●●●●●●●
 
-Connections:
+**Why prioritize:**                     ↕ ↕ ↕ ↕ ↕ ↕ ↕ ↕ ↕
+
+- Novel dynamicsLayer 0 (Input)     ●●●●●●●●●●●●●●●●●●
+
+- Self-organizing frequencies
+
+- Biological relevance (neural adaptation)Connections:
+
 ─ Lateral coupling (within layer)
-↕ Vertical coupling (between layers)
+
+---↕ Vertical coupling (between layers)
+
 ```
+
+## 🥉 Tier 3: Major Features (1-3 weeks each)
 
 ### Mathematical Formulation
 
-For oscillator $i$ in layer $\ell$:
+### 10. 🔗 Arbitrary Graph Topologies
 
-$$\frac{d\theta_i^\ell}{dt} = \omega_i^\ell + \underbrace{K_{\text{lat}} \sum_{j \in N_i^\ell} \sin(\theta_j^\ell - \theta_i^\ell)}_{\text{Lateral (same layer)}} + \underbrace{K_{\text{vert}} \sum_{k} \sin(\theta_k^{\ell \pm 1} - \theta_i^\ell)}_{\text{Vertical (adjacent layers)}}$$
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐⭐⭐ High | **Time:** 2-3 weeksFor oscillator $i$ in layer $\ell$:
 
-**Key parameters**:
-- $K_{\text{lat}}$: Within-layer coupling (feature binding)
-- $K_{\text{vert}}$: Between-layer coupling (feed-forward/feedback)
-- $\omega^\ell$: Layer-specific natural frequencies
 
-### Feed-Forward vs Feedback
 
-#### Feed-Forward (Bottom-Up)
-```
+Replace grid with small-world, scale-free, or custom networks.$$\frac{d\theta_i^\ell}{dt} = \omega_i^\ell + \underbrace{K_{\text{lat}} \sum_{j \in N_i^\ell} \sin(\theta_j^\ell - \theta_i^\ell)}_{\text{Lateral (same layer)}} + \underbrace{K_{\text{vert}} \sum_{k} \sin(\theta_k^{\ell \pm 1} - \theta_i^\ell)}_{\text{Vertical (adjacent layers)}}$$
+
+
+
+**Why prioritize:****Key parameters**:
+
+- Fundamentally new phenomena- $K_{\text{lat}}$: Within-layer coupling (feature binding)
+
+- Brain/social network modeling- $K_{\text{vert}}$: Between-layer coupling (feed-forward/feedback)
+
+- Strong research interest- $\omega^\ell$: Layer-specific natural frequencies
+
+
+
+**Key Challenges:**### Feed-Forward vs Feedback
+
+- Neighbor buffer management
+
+- Force-directed layout for visualization#### Feed-Forward (Bottom-Up)
+
+- Non-uniform degree handling```
+
 Layer 1 receives input from Layer 0:
-dθ₁/dt = ω₁ + K_lat Σ sin(θ₁_j - θ₁_i) + K_ff Σ sin(θ₀_k - θ₁_i)
-```
 
-**Effect**: Lower layers drive higher layers (sensory processing)
+**Implementation Approach:**dθ₁/dt = ω₁ + K_lat Σ sin(θ₁_j - θ₁_i) + K_ff Σ sin(θ₀_k - θ₁_i)
+
+1. Add neighbor index buffer (N × MAX_DEGREE)```
+
+2. Modify compute shader to iterate over explicit neighbors
+
+3. Implement Watts-Strogatz and Barabási-Albert generators**Effect**: Lower layers drive higher layers (sensory processing)
+
+4. Add force-directed layout for node positioning
 
 #### Feedback (Top-Down)
-```
-Layer 0 receives input from Layer 1:
-dθ₀/dt = ω₀ + K_lat Σ sin(θ₀_j - θ₀_i) + K_fb Σ sin(θ₁_k - θ₀_i)
-```
 
-**Effect**: Higher layers modulate lower layers (attention, prediction)
+---```
+
+Layer 0 receives input from Layer 1:
+
+### 11. 🧠 Hebbian Learning (Adaptive Weights)dθ₀/dt = ω₀ + K_lat Σ sin(θ₀_j - θ₀_i) + K_fb Σ sin(θ₁_k - θ₀_i)
+
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐⭐⭐ High | **Time:** 2-3 weeks```
+
+
+
+Coupling weights evolve based on correlation:**Effect**: Higher layers modulate lower layers (attention, prediction)
+
+`dK_ij/dt = η·cos(θ_j - θ_i) - λ·K_ij`
 
 #### Bi-Directional (Full)
-```
-Both feed-forward AND feedback active simultaneously
-```
+
+**Why prioritize:**```
+
+- Memory formationBoth feed-forward AND feedback active simultaneously
+
+- Self-organization```
+
+- Biologically plausible
 
 **Effect**: Hierarchical inference (predictive coding)
 
-### Implementation
+**Key Challenges:**
 
-**GPU Buffer Structure:**
+- Weight buffer (N × N or sparse)### Implementation
+
+- Two-pass update (phases then weights)
+
+- Visualization of weight matrix**GPU Buffer Structure:**
+
 ```javascript
-// Flat buffer: [Layer 0, Layer 1, ..., Layer L]
+
+---// Flat buffer: [Layer 0, Layer 1, ..., Layer L]
+
 // Total size: L × N × 4 bytes
 
-const totalOscillators = NUM_LAYERS × gridSize × gridSize;
+### 12. 🌀 Automatic Chimera Detection
+
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐⭐ Medium | **Time:** 1-2 weeksconst totalOscillators = NUM_LAYERS × gridSize × gridSize;
+
 thetaBuf = device.createBuffer({
-    size: totalOscillators × 4,
+
+Automatically identify and highlight chimera states.    size: totalOscillators × 4,
+
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-});
-```
 
-**Compute Shader:**
-```wgsl
+**Algorithm:**});
+
+1. Compute local order parameter R_i for each oscillator```
+
+2. Threshold into "sync" (R > 0.8) and "desync" (R < 0.3) regions
+
+3. Find connected components**Compute Shader:**
+
+4. Report chimera index = |sync| / |total|```wgsl
+
 struct Params {
-    // ... existing params ...
-    num_layers: u32,
-    K_lateral: f32,
-    K_vertical_ff: f32,  // Feed-forward strength
-    K_vertical_fb: f32,  // Feedback strength
-}
 
-fn get_index(layer: u32, row: u32, col: u32) -> u32 {
-    return layer * params.rows * params.cols + row * params.cols + col;
-}
+---    // ... existing params ...
+
+    num_layers: u32,
+
+### 13. 📊 Frequency Spectrum (FFT)    K_lateral: f32,
+
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐⭐ Medium | **Time:** 1 week    K_vertical_ff: f32,  // Feed-forward strength
+
+    K_vertical_fb: f32,  // Feedback strength
+
+Compute and display frequency spectrum of phase evolution.}
+
+
+
+**Why useful:**fn get_index(layer: u32, row: u32, col: u32) -> u32 {
+
+- Reveals dominant frequencies    return layer * params.rows * params.cols + row * params.cols + col;
+
+- Detects period-doubling}
+
+- Characterizes chaos
 
 @compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
+
+**Implementation:** WebGPU FFT or wgpu-fft libraryfn main(@builtin(global_invocation_id) gid: vec3u) {
+
     let layer = gid.z;  // Use Z dimension for layer
-    let row = gid.y;
+
+---    let row = gid.y;
+
     let col = gid.x;
-    
+
+## 🔬 Tier 4: Research-Grade Extensions (1+ months)    
+
     let i = get_index(layer, row, col);
-    let theta_i = theta[i];
-    var dtheta = omega[i];
+
+### 14. 🏗️ Hierarchical Layers    let theta_i = theta[i];
+
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐⭐⭐ High | **Time:** 3-4 weeks    var dtheta = omega[i];
+
     
-    // 1. Lateral coupling (same layer)
+
+Multiple layers with feed-forward and feedback coupling.    // 1. Lateral coupling (same layer)
+
     for (var dr = -range; dr <= range; dr++) {
-        for (var dc = -range; dc <= range; dc++) {
-            if (dr == 0 && dc == 0) { continue; }
-            let r_neighbor = (row + dr + params.rows) % params.rows;
-            let c_neighbor = (col + dc + params.cols) % params.cols;
-            let j = get_index(layer, r_neighbor, c_neighbor);
-            dtheta += params.K_lateral * sin(theta[j] - theta_i);
-        }
-    }
+
+**Architecture:**        for (var dc = -range; dc <= range; dc++) {
+
+```            if (dr == 0 && dc == 0) { continue; }
+
+Layer 2 (Abstract)    ●────●────●            let r_neighbor = (row + dr + params.rows) % params.rows;
+
+                      ↕    ↕    ↕            let c_neighbor = (col + dc + params.cols) % params.cols;
+
+Layer 1 (Features)   ●─●─●─●─●─●            let j = get_index(layer, r_neighbor, c_neighbor);
+
+                     ↕ ↕ ↕ ↕ ↕ ↕            dtheta += params.K_lateral * sin(theta[j] - theta_i);
+
+Layer 0 (Input)     ●●●●●●●●●●●●        }
+
+```    }
+
     
-    // 2. Vertical coupling (adjacent layers)
-    if (layer > 0) {
-        // Feed-forward from layer below
-        let j = get_index(layer - 1, row, col);
+
+**Applications:**    // 2. Vertical coupling (adjacent layers)
+
+- Cortical hierarchy modeling    if (layer > 0) {
+
+- Predictive coding        // Feed-forward from layer below
+
+- Deep oscillator networks        let j = get_index(layer - 1, row, col);
+
         dtheta += params.K_vertical_ff * sin(theta[j] - theta_i);
-    }
+
+---    }
+
     
-    if (layer < params.num_layers - 1) {
-        // Feedback from layer above
+
+### 15. 🔮 n-Dimensional Unit Vectors (S^n)    if (layer < params.num_layers - 1) {
+
+**Difficulty:** ⭐⭐⭐⭐ Very Hard | **Impact:** ⭐⭐⭐ High | **Time:** 4-6 weeks        // Feedback from layer above
+
         let j = get_index(layer + 1, row, col);
-        dtheta += params.K_vertical_fb * sin(theta[j] - theta_i);
+
+Extend from scalar phase θ ∈ S¹ to vector v ∈ S² or S³.        dtheta += params.K_vertical_fb * sin(theta[j] - theta_i);
+
     }
-    
-    // Update
-    theta_next[i] = theta_i + params.dt * dtheta;
-}
+
+**New Phenomena:**    
+
+- Nematic order (±½ defects)    // Update
+
+- Quaternion dynamics (3D rotations)    theta_next[i] = theta_i + params.dt * dtheta;
+
+- High-dimensional synchronization}
+
 ```
 
-**3D Workgroup Dispatch:**
-```javascript
-const workgroupsX = Math.ceil(gridSize / 16);
+**Challenges:**
+
+- Vector normalization on sphere**3D Workgroup Dispatch:**
+
+- Geodesic coupling computation```javascript
+
+- Visualization (stereographic projection, color mapping)const workgroupsX = Math.ceil(gridSize / 16);
+
 const workgroupsY = Math.ceil(gridSize / 16);
-const workgroupsZ = NUM_LAYERS;
 
-computePass.dispatchWorkgroups(workgroupsX, workgroupsY, workgroupsZ);
-```
+---const workgroupsZ = NUM_LAYERS;
 
-### Visualization: Multi-Layer View
 
-**Option 1: Side-by-Side Panels**
-```
-┌──────────┬──────────┬──────────┐
-│ Layer 0  │ Layer 1  │ Layer 2  │
+
+### 16. 🧊 True 3D LatticecomputePass.dispatchWorkgroups(workgroupsX, workgroupsY, workgroupsZ);
+
+**Difficulty:** ⭐⭐⭐⭐ Very Hard | **Impact:** ⭐⭐ Medium | **Time:** 3-4 weeks```
+
+
+
+3D grid of oscillators (not just 3D visualization of 2D grid).### Visualization: Multi-Layer View
+
+
+
+**Challenges:****Option 1: Side-by-Side Panels**
+
+- Memory: N³ oscillators```
+
+- Visualization: Volume rendering or slicing┌──────────┬──────────┬──────────┐
+
+- Interaction: Navigating 3D space│ Layer 0  │ Layer 1  │ Layer 2  │
+
 │ (Input)  │(Features)│(Abstract)│
-└──────────┴──────────┴──────────┘
+
+---└──────────┴──────────┴──────────┘
+
 ```
 
-**Option 2: 3D Stack**
+### 17. 🔀 Multi-population Dynamics
+
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐⭐ Medium | **Time:** 2-3 weeks**Option 2: 3D Stack**
+
 ```
-Render layers at different heights:
+
+Multiple distinct oscillator types with different coupling rules.Render layers at different heights:
+
 y = 0:   Layer 0 (base)
-y = 10:  Layer 1 (middle)
+
+**Example:** Excitatory + Inhibitory populations (like E-I balance in brain)y = 10:  Layer 1 (middle)
+
 y = 20:  Layer 2 (top)
-
-With transparency to see through
-```
-
-**Option 3: Animated Transition**
-```
-Press [ / ] to cycle through layers
-Show one layer at a time with context
-```
-
-### Applications
-
-1. **Feature Extraction**: Layer 0 = edges, Layer 1 = shapes, Layer 2 = objects
-2. **Predictive Coding**: Top-down prediction vs bottom-up sensation
-3. **Hierarchical Synchronization**: Different timescales at different layers
-4. **Memory Consolidation**: Slow dynamics in higher layers
-
-### Novel Patterns
-
-- **Hierarchical Waves**: Traveling waves that propagate upward through layers
-- **Layer-Specific Chimeras**: Synchronized in Layer 0, chaotic in Layer 1
-- **Cross-Layer Resonance**: Frequency matching between layers creates binding
 
 ---
 
-## **Extension 3: Hebbian Learning & Plasticity**
+With transparency to see through
 
-### Motivation
+### 18. 🎭 Frustrated Coupling (XY Model)```
 
-**Current**: Coupling strength $K$ is fixed and uniform.
+**Difficulty:** ⭐⭐⭐ Hard | **Impact:** ⭐ Low | **Time:** 2 weeks
 
-**Biological reality**: Synaptic connections **strengthen** with correlated activity (Hebb's rule: "Neurons that fire together, wire together").
+**Option 3: Animated Transition**
 
-**Goal**: Make coupling weights $K_{ij}$ **dynamic** and **adaptive**.
+Add frustration term to coupling: `K·sin(θ_j - θ_i - α_ij)````
+
+Press [ / ] to cycle through layers
+
+**Applications:**Show one layer at a time with context
+
+- Spin glass behavior```
+
+- Disordered systems
+
+- Complex energy landscapes### Applications
+
+
+
+---1. **Feature Extraction**: Layer 0 = edges, Layer 1 = shapes, Layer 2 = objects
+
+2. **Predictive Coding**: Top-down prediction vs bottom-up sensation
+
+## 📋 Implementation Decision Matrix3. **Hierarchical Synchronization**: Different timescales at different layers
+
+4. **Memory Consolidation**: Slow dynamics in higher layers
+
+Use this to decide what to work on next:
+
+### Novel Patterns
+
+| Question | If YES → | If NO → |
+
+|----------|----------|---------|- **Hierarchical Waves**: Traveling waves that propagate upward through layers
+
+| Need quick demo? | Tier 1 | Continue |- **Layer-Specific Chimeras**: Synchronized in Layer 0, chaotic in Layer 1
+
+| Users requesting feature? | Prioritize that | Continue |- **Cross-Layer Resonance**: Frequency matching between layers creates binding
+
+| Research publication goal? | Tier 3-4 | Tier 1-2 |
+
+| Learning GPU programming? | Tier 2-3 | Tier 1 |---
+
+| Want viral social media? | Recording + Statistics | Continue |
+
+| Studying specific phenomenon? | Feature enabling that | General improvements |## **Extension 3: Hebbian Learning & Plasticity**
+
+
+
+---### Motivation
+
+
+
+## 🗓️ Suggested Development Schedule**Current**: Coupling strength $K$ is fixed and uniform.
+
+
+
+### Sprint 1 (Week 1): Foundation**Biological reality**: Synaptic connections **strengthen** with correlated activity (Hebb's rule: "Neurons that fire together, wire together").
+
+- [ ] State save/load
+
+- [ ] Targeted perturbation (click to disturb)**Goal**: Make coupling weights $K_{ij}$ **dynamic** and **adaptive**.
+
+- [ ] Basic statistics panel
 
 ### Mathematical Formulation
 
-#### Standard Kuramoto (Fixed K)
-$$\frac{d\theta_i}{dt} = \omega_i + K \sum_j \sin(\theta_j - \theta_i)$$
+### Sprint 2 (Week 2): Analysis
+
+- [ ] Order parameter history plot#### Standard Kuramoto (Fixed K)
+
+- [ ] External forcing$$\frac{d\theta_i}{dt} = \omega_i + K \sum_j \sin(\theta_j - \theta_i)$$
+
+- [ ] Enhanced noise options
 
 #### Hebbian Kuramoto (Adaptive K_ij)
-$$\frac{d\theta_i}{dt} = \omega_i + \sum_j K_{ij}(t) \sin(\theta_j - \theta_i)$$
 
-$$\frac{dK_{ij}}{dt} = \eta \cdot f(\theta_i, \theta_j) - \lambda K_{ij}$$
+### Sprint 3 (Weeks 3-4): Recording & Polish$$\frac{d\theta_i}{dt} = \omega_i + \sum_j K_{ij}(t) \sin(\theta_j - \theta_i)$$
+
+- [ ] Video/GIF recording
+
+- [ ] Phase space visualization$$\frac{dK_{ij}}{dt} = \eta \cdot f(\theta_i, \theta_j) - \lambda K_{ij}$$
+
+- [ ] UI improvements
 
 Where:
-- $\eta$: Learning rate
-- $f(\theta_i, \theta_j)$: Hebbian learning rule
-- $\lambda K_{ij}$: Weight decay (prevents runaway growth)
 
-### Learning Rules
+### Sprint 4 (Weeks 5-8): Graph Topologies- $\eta$: Learning rate
 
-#### Rule 1: Phase Difference Hebb
+- [ ] Neighbor buffer system- $f(\theta_i, \theta_j)$: Hebbian learning rule
 
-$$f(\theta_i, \theta_j) = \cos(\theta_j - \theta_i)$$
+- [ ] Small-world generator- $\lambda K_{ij}$: Weight decay (prevents runaway growth)
+
+- [ ] Scale-free generator
+
+- [ ] Force-directed layout### Learning Rules
+
+
+
+### Sprint 5 (Weeks 9-12): Learning#### Rule 1: Phase Difference Hebb
+
+- [ ] Weight buffer
+
+- [ ] Hebbian learning rule$$f(\theta_i, \theta_j) = \cos(\theta_j - \theta_i)$$
+
+- [ ] Weight visualization
 
 **Effect**:
-- If $\theta_i \approx \theta_j$ (synchronized) → $f > 0$ → $K_{ij}$ increases
-- If $\theta_i \approx \theta_j + \pi$ (anti-phase) → $f < 0$ → $K_{ij}$ decreases
 
-#### Rule 2: Activity-Dependent Hebb
+### Future: Advanced- If $\theta_i \approx \theta_j$ (synchronized) → $f > 0$ → $K_{ij}$ increases
 
-$$f(\theta_i, \theta_j) = \dot{\theta}_i \cdot \dot{\theta}_j$$
+- [ ] Hierarchical layers- If $\theta_i \approx \theta_j + \pi$ (anti-phase) → $f < 0$ → $K_{ij}$ decreases
 
-**Effect**: Strengthen connections when both oscillators are accelerating together
+- [ ] n-D vectors
 
-#### Rule 3: Order-Gated Hebb
+- [ ] 3D lattice#### Rule 2: Activity-Dependent Hebb
 
-$$f(\theta_i, \theta_j) = R_i \cdot R_j \cdot \cos(\theta_j - \theta_i)$$
+
+
+---$$f(\theta_i, \theta_j) = \dot{\theta}_i \cdot \dot{\theta}_j$$
+
+
+
+## 🔧 Technical Dependencies**Effect**: Strengthen connections when both oscillators are accelerating together
+
+
+
+```#### Rule 3: Order-Gated Hebb
+
+State Save/Load ──┐
+
+                  ├──► Recording$$f(\theta_i, \theta_j) = R_i \cdot R_j \cdot \cos(\theta_j - \theta_i)$$
+
+Statistics ───────┘
 
 Where $R_i$ is the local order parameter.
 
-**Effect**: Only learn when both oscillators are in synchronized neighborhoods
+Graph Topologies ──┬──► Hebbian Learning
+
+                   │**Effect**: Only learn when both oscillators are in synchronized neighborhoods
+
+                   └──► Hierarchical Layers
 
 ### Implementation
 
-**GPU Buffer for Weights:**
+n-D Vectors ────────────► (Independent, can do anytime)
+
+```**GPU Buffer for Weights:**
+
 ```javascript
-// For N oscillators with max degree D:
+
+---// For N oscillators with max degree D:
+
 // Weight matrix: N × D × 4 bytes (per neighbor)
 
+## 📚 References
+
 weightsBuffer = device.createBuffer({
-    size: N * MAX_DEGREE * 4,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-});
-```
+
+1. **Kuramoto Model**: Kuramoto, Y. (1975). Self-entrainment of a population of coupled non-linear oscillators.    size: N * MAX_DEGREE * 4,
+
+2. **Chimera States**: Abrams, D. & Strogatz, S. (2004). Chimera states for coupled oscillators.    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+
+3. **Small-World**: Watts, D. & Strogatz, S. (1998). Collective dynamics of 'small-world' networks.});
+
+4. **Scale-Free**: Barabási, A. & Albert, R. (1999). Emergence of scaling in random networks.```
+
+5. **Hebbian Learning**: Hebb, D. (1949). The Organization of Behavior.
 
 **Two-Pass Update:**
 
+---
+
 **Pass 1: Update Phases (Using Current Weights)**
-```wgsl
+
+*Last updated: January 2025*```wgsl
+
 @compute @workgroup_size(16, 16)
 fn update_phases() {
     let i = get_index(gid.x, gid.y);

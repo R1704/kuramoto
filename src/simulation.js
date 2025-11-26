@@ -168,7 +168,8 @@ export class Simulation {
             p.kernelSpatialFreqMag, p.kernelSpatialFreqAngle, p.kernelGaborPhase,
             // Zoom/pan parameters
             p.zoom || 1.0, p.panX || 0.0, p.panY || 0.0,
-            0 // pad
+            p.bilinearInterpolation ? 1.0 : 0.0, // bilinear interpolation toggle
+            0, 0 // pad
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }

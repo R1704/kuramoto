@@ -28,6 +28,7 @@ const STATE = {
     omegaAmplitude: 0.4,
     viewMode: 0, // 0 = 3D, 1 = 2D
     gridSize: 256, // Adjustable grid size
+    bilinearInterpolation: false, // Smooth interpolation for 2D mode
     // Zoom/pan for 2D mode
     zoom: 1.0,
     panX: 0.0,

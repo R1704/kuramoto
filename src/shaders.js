@@ -189,7 +189,8 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         let asymmetry = params.kernel_asymmetry; // -1 to 1
         
         // Compute angle from center to point
-        let point_angle = atan2(dy, dx);
+        // Negate dx to match visual X-axis (column indices increase left-to-right visually)
+        let point_angle = atan2(dy, -dx);
         
         // Directional modulation: 1.0 along orientation, varies with angle difference
         let angle_diff = point_angle - angle;
@@ -921,7 +922,7 @@ struct Params {
     ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, zoom: f32, panX: f32,
-    panY: f32, pad1: f32, pad2: f32, pad3: f32,
+    panY: f32, bilinear: f32, pad2: f32, pad3: f32,
 }
 
 @group(0) @binding(0) var theta_tex: texture_2d<f32>;
@@ -961,6 +962,65 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 // ============================================================================
 // COLORMAP FUNCTIONS
 // ============================================================================
+
+// Bilinear interpolation for smooth theta sampling
+fn sample_theta_bilinear(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
+    // Convert UV to floating-point grid coordinates
+    let gx = uv.x * cols - 0.5;
+    let gy = uv.y * rows - 0.5;
+    
+    // Get integer coordinates
+    let x0 = i32(floor(gx));
+    let y0 = i32(floor(gy));
+    let x1 = x0 + 1;
+    let y1 = y0 + 1;
+    
+    // Fractional parts for interpolation
+    let fx = fract(gx);
+    let fy = fract(gy);
+    
+    // Wrap coordinates for periodic boundaries
+    let cols_i = i32(cols);
+    let rows_i = i32(rows);
+    let x0w = (x0 + cols_i) % cols_i;
+    let x1w = x1 % cols_i;
+    let y0w = (y0 + rows_i) % rows_i;
+    let y1w = y1 % rows_i;
+    
+    // Sample 4 corners
+    let t00 = textureLoad(theta_tex, vec2<i32>(x0w, y0w), 0).r;
+    let t10 = textureLoad(theta_tex, vec2<i32>(x1w, y0w), 0).r;
+    let t01 = textureLoad(theta_tex, vec2<i32>(x0w, y1w), 0).r;
+    let t11 = textureLoad(theta_tex, vec2<i32>(x1w, y1w), 0).r;
+    
+    // Handle phase wrapping for interpolation
+    // (phase can wrap from 2π to 0, need to interpolate correctly)
+    var d10 = t10 - t00;
+    var d01 = t01 - t00;
+    var d11 = t11 - t00;
+    
+    // Wrap differences to [-π, π]
+    if (d10 > 3.14159) { d10 -= 6.28318; }
+    if (d10 < -3.14159) { d10 += 6.28318; }
+    if (d01 > 3.14159) { d01 -= 6.28318; }
+    if (d01 < -3.14159) { d01 += 6.28318; }
+    if (d11 > 3.14159) { d11 -= 6.28318; }
+    if (d11 < -3.14159) { d11 += 6.28318; }
+    
+    // Bilinear interpolation of differences
+    let interp_diff = d10 * fx * (1.0 - fy) + 
+                      d01 * (1.0 - fx) * fy + 
+                      d11 * fx * fy;
+    
+    // Add back the base value
+    var result = t00 + interp_diff;
+    
+    // Wrap to [0, 2π]
+    if (result < 0.0) { result += 6.28318; }
+    if (result >= 6.28318) { result -= 6.28318; }
+    
+    return result;
+}
 
 fn colormap_phase(t: f32) -> vec3<f32> {
     // Classic rainbow phase colormap
@@ -1082,20 +1142,25 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.08, 0.08, 0.1, 1.0);
     }
     
-    // Convert UV to grid coordinates
+    // Convert UV to grid coordinates (integer for discrete lookups)
     let cols = i32(params.cols);
     let rows = i32(params.rows);
     let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
     
-    // Load theta value
-    let theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
+    // Load theta value - use bilinear interpolation if enabled, otherwise nearest neighbor
+    var theta: f32;
+    if (params.bilinear > 0.5) {
+        theta = sample_theta_bilinear(uv, params.cols, params.rows);
+    } else {
+        theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
+    }
     
-    // Load order parameter
+    // Load order parameter (no interpolation needed - it's already smooth)
     let idx = u32(r) * u32(cols) + u32(c);
     let order_val = order[idx];
     
-    // Compute gradient for velocity/curvature modes
+    // Compute gradient for velocity/curvature modes (use discrete samples for accuracy)
     let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), 0).r;
     let left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), 0).r;
     let up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), 0).r;
@@ -1118,6 +1183,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var curl = (tr - tl - br + bl) * 0.25;
     if (curl > 3.14159) { curl -= 6.28318; }
     if (curl < -3.14159) { curl += 6.28318; }
+    // Negate curl to match 3D coordinate system (UV Y is inverted)
+    curl = -curl;
     
     // Select colormap based on mode
     var col3: vec3<f32>;
@@ -1149,8 +1216,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         col3 = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), order_val);
     } else if (mode == 4) {
         // Image texture modulated by phase (matches 3D)
-        // Flip X axis for webcam mirror effect
-        let tex_uv = vec2<f32>(1.0 - uv.x, uv.y);
+        // Flip Y to match 3D texcoord orientation, flip X for webcam mirror
+        let tex_uv = vec2<f32>(1.0 - uv.x, 1.0 - uv.y);
         let texColor = textureSample(externalTexture, textureSampler, tex_uv).rgb;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         col3 = texColor * (0.7 + 0.3 * phaseMod);
@@ -1176,13 +1243,22 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             col3 = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(0.1, 0.4, 1.0), -chirality);
         }
     } else if (mode == 10) {
-        // Combined: phase hue + gradient brightness
-        let hue_col = colormap_phase(t_height);
+        // Combined: phase hue + gradient brightness (matches 3D exactly)
+        var hue_col: vec3<f32>;
+        let pt = t_height;
+        if (pt < 0.25) { hue_col = vec3<f32>(0.0, pt * 4.0, 1.0); }
+        else if (pt < 0.5) { let s = (pt - 0.25) * 4.0; hue_col = vec3<f32>(0.0, 1.0, 1.0 - s); }
+        else if (pt < 0.75) { let s = (pt - 0.5) * 4.0; hue_col = vec3<f32>(s, 1.0, 0.0); }
+        else { let s = (pt - 0.75) * 4.0; hue_col = vec3<f32>(1.0, 1.0 - s, 0.0); }
         let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
         col3 = hue_col * brightness;
     } else {
-        // Default to phase
-        col3 = colormap_phase(t_height);
+        // Default to phase (matches 3D exactly)
+        let pt = t_height;
+        if (pt < 0.25) { col3 = vec3<f32>(0.0, pt * 4.0, 1.0); }
+        else if (pt < 0.5) { let s = (pt - 0.25) * 4.0; col3 = vec3<f32>(0.0, 1.0, 1.0 - s); }
+        else if (pt < 0.75) { let s = (pt - 0.5) * 4.0; col3 = vec3<f32>(s, 1.0, 0.0); }
+        else { let s = (pt - 0.75) * 4.0; col3 = vec3<f32>(1.0, 1.0 - s, 0.0); }
     }
     
     // Apply order overlay if enabled

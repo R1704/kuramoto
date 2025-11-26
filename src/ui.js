@@ -378,7 +378,7 @@ export class UIManager {
         }
         
         bind('colormap-select', 'colormap', 'int', 'change');
-        bind('show-order', 'showOrder', 'bool', 'change');
+        bind('bilinear-interp', 'bilinearInterpolation', 'bool', 'change');
         bind('omega-amplitude-slider', 'omegaAmplitude');
         
         // Selects for patterns
@@ -594,12 +594,6 @@ export class UIManager {
                     this.cb.onParamChange();
                     this.updateDisplay();
                 }
-            }
-            // Toggle order parameter overlay
-            else if (e.key === 'o' || e.key === 'O') {
-                this.state.showOrder = !this.state.showOrder;
-                this.cb.onParamChange();
-                this.updateDisplay();
             }
             // Cycle colormaps (0-10: 11 modes total)
             else if (e.key === 'c' || e.key === 'C') {
