@@ -25,7 +25,8 @@ export class Simulation {
         this.thetaBuf = this.thetaBufs[this.thetaIndex];
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        this.paramsBuf = this.device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        // Params buffer: 43 floats = 172 bytes (rounded to 176 for alignment)
+        this.paramsBuf = this.device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
         // Global order parameter buffer (stores complex mean field Z = (cos, sin) as vec2)
         this.globalOrderBuf = this.device.createBuffer({ 
@@ -129,12 +130,27 @@ export class Simulation {
     
     updateFullParams(p) {
         // Pack all parameters - called only when user changes settings
+        // 28 base params + 5 ring widths + 5 ring weights + 3 composition + 1 asymmetric orientation + 3 Gabor + 2 pad = 47 floats = 188 bytes (192 allocated)
         const data = new Float32Array([
             p.dt * p.timeScale * (p.paused ? 0 : 1), p.K0, p.range, p.ruleMode,
             this.gridSize, this.gridSize, p.harmonicA, p.globalCoupling ? 1.0 : 0.0,
             p.delaySteps, p.sigma, p.sigma2, p.beta,
             p.showOrder ? 1.0 : 0.0, p.colormap, p.noiseStrength, p.frameTime,
-            p.harmonicB, p.viewMode, 0, 0
+            p.harmonicB, p.viewMode, p.kernelShape, p.kernelOrientation,
+            p.kernelAspect, p.kernelScale2Weight, p.kernelScale3Weight, p.kernelAsymmetry,
+            p.kernelRings, 
+            // Ring widths (5 individual fields)
+            p.kernelRingWidths[0], p.kernelRingWidths[1], p.kernelRingWidths[2],
+            p.kernelRingWidths[3], p.kernelRingWidths[4],
+            // Ring weights (5 individual fields)
+            p.kernelRingWeights[0], p.kernelRingWeights[1], p.kernelRingWeights[2],
+            p.kernelRingWeights[3], p.kernelRingWeights[4],
+            // Composition parameters
+            p.kernelCompositionEnabled ? 1.0 : 0.0, p.kernelSecondary, p.kernelMixRatio,
+            p.kernelAsymmetricOrientation,
+            // Gabor parameters
+            p.kernelSpatialFreqMag, p.kernelSpatialFreqAngle, p.kernelGaborPhase,
+            0, 0 // pad1, pad2
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }

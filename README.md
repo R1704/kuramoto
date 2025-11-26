@@ -74,7 +74,7 @@ The simulation implements 6 different coupling mechanisms:
 | **1: Coherence-Gated** | Coupling weakens in synchronized regions | Grain domains, pattern fragmentation |
 | **2: Curvature-Aware** | Stronger coupling at phase gradients | Sharp waves, spiral enhancement |
 | **3: Harmonics** | 2nd + 3rd harmonic coupling | Multi-cluster patterns, checkerboards |
-| **4: Mexican-Hat** | Short-range excitation + long inhibition | **Chimera states**, pattern formation |
+| **4: Kernel-Based** | Spatial coupling kernels (Gaussian, elliptical, multi-scale, rings) | **Chimera states**, rich pattern formation |
 | **5: Delay-Coupled** | Uses delayed phase from past timesteps | Emergent spirals, spatiotemporal chaos |
 
 Switch rules using **keyboard 0-5** or the dropdown menu.
@@ -157,7 +157,45 @@ Press **O** to toggle brightness modulation by local order:
 - **2nd Harmonic (a₂)**: 0-1, default 0.4 (anti-phase clustering)
 - **3rd Harmonic (a₃)**: 0-1, default 0.0 (three-cluster patterns)
 
-#### Rule 4: Mexican-Hat
+#### Rule 4: Kernel-Based
+
+Spatial coupling kernel with multiple shape options:
+
+**Kernel Shapes:**
+- **Isotropic (Circular)**: Classic Mexican-hat (Gaussian excitation - inhibition)
+  - Rotationally symmetric patterns
+- **Anisotropic (Elliptical)**: Directional coupling
+  - Creates stripes and waves along orientation axis
+  - **Orientation**: 0-360° rotation angle
+  - **Aspect Ratio**: 1.0-5.0 elongation factor
+- **Multi-Scale (Nested)**: Superposition of 3 scales (1×, 2×, 3×)
+  - Nested patterns with large features containing smaller eddies
+  - **Scale 2 Weight**: -0.5 to 0.5 (2× size component)
+  - **Scale 3 Weight**: -0.5 to 0.5 (3× size component)
+- **Asymmetric (Directional)**: Different forward/backward coupling
+  - Creates propagating patterns with directional bias
+  - **Orientation**: 0-360° propagation direction
+  - **Asymmetry**: -1.0 to 1.0 (forward vs backward bias)
+- **Step (Rectangular)**: Constant weight within radius, sharp cutoff
+  - Binary coupling regions with hard boundaries
+- **Multi-Ring (Concentric)**: Up to 5 customizable rings with individual widths and weights
+  - Each ring has independent outer radius (cumulative) and weight
+  - Creates complex nested patterns (e.g., 3-ring target waves with alternating excitation/inhibition)
+  - Ring weights can be positive (excitatory) or negative (inhibitory)
+  - **Number of Rings**: 1-5
+  - **Ring N Outer Radius**: Normalized radius relative to sigma2 (0.05-1.0)
+  - **Ring N Weight**: Coupling strength for that ring (-1.0 to 1.0)
+
+**Kernel Composition** (mix two shapes):
+- Enable to blend two kernel shapes together
+- **Secondary Shape**: Choose second kernel (0-5)
+- **Mix Ratio**: 0 = all secondary, 1 = all primary
+- *Example use cases:*
+  - Asymmetric + Multi-ring → Directional nested patterns
+  - Anisotropic + Step → Elliptical hard boundaries
+  - Multi-scale + Multi-ring → Hierarchical nested structures
+
+**Base Parameters:**
 - **Sigma (σ)**: 0.3-4.0, default 1.2 (excitation width)
 - **Sigma2 (σ₂)**: 0.3-6.0, default 2.2 (inhibition width)
 - **Beta (β)**: 0-1.5, default 0.6 (inhibition strength)
@@ -327,7 +365,7 @@ kuramoto/
 │   ├── shaders.js         # WGSL shader code (compute + render)
 │   ├── ui.js              # UI controls & event handling
 │   ├── presets.js         # Preset configurations
-│   ├── kernel.js          # Mexican-hat kernel visualization
+│   ├── kernel.js          # Spatial kernel visualization (1D/2D)
 │   └── common.js          # Camera & math utilities
 ├── DOCUMENTATION.md        # Comprehensive mathematical documentation
 ├── EXTENSIONS.md          # Future extensions (graphs, layers, etc.)
@@ -376,7 +414,7 @@ Different combinations create distinct patterns:
 3. **Traveling Waves**: Gradient θ₀, uniform ω, moderate K
 4. **Target Waves**: Radial θ₀, center-fast ω
 5. **Spiral Waves**: Angular θ₀, radial ω
-6. **Chimera States**: Mexican-hat kernel, split domain initial condition
+6. **Chimera States**: Kernel-based (Rule 4), split domain initial condition
 7. **Turbulence**: Weak K, heterogeneous ω, noise
 
 ### Topological Defects

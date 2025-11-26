@@ -239,25 +239,25 @@ $$a_2 = 0.6: \text{ More fragmented two-cluster state}$$
 
 ---
 
-### Rule 4: Non-Local Kernel (Mexican-Hat)
+### Rule 4: Kernel-Based Spatial Coupling
 
-Uses a **spatially dependent coupling kernel** instead of simple neighborhoods:
+Uses **spatially dependent coupling kernels** with multiple shape options:
 
 $$\frac{d\theta_i}{dt} = \omega_i + K \sum_j w(r_{ij}) \sin(\theta_j - \theta_i)$$
 
-Where the kernel is a **Mexican-hat** (sombrero-shaped) function:
+Where the kernel $w(r)$ can take various forms:
+
+#### Base Kernel: Difference of Gaussians (Mexican-Hat)
 
 $$w(r) = \exp\left(-\frac{r^2}{2\sigma^2}\right) - \beta \exp\left(-\frac{r^2}{2\sigma_2^2}\right)$$
 
 **Components:**
 
 1. **Excitatory lobe** (Gaussian, width $\sigma$):
-   $$w_{\text{exc}}(r) = \exp\left(-\frac{r^2}{2\sigma^2}\right)$$
    - Short-range attraction
    - Synchronizes nearby oscillators
 
 2. **Inhibitory lobe** (Gaussian, width $\sigma_2 > \sigma$, strength $\beta$):
-   $$w_{\text{inh}}(r) = -\beta \exp\left(-\frac{r^2}{2\sigma_2^2}\right)$$
    - Long-range repulsion
    - Desynchronizes distant oscillators
 
@@ -273,47 +273,51 @@ $$w(r) = \exp\left(-\frac{r^2}{2\sigma^2}\right) - \beta \exp\left(-\frac{r^2}{2
      -β |          ╲╱╲
         └──────────────→ r
         0     σ    σ₂
-        
-        ↑
-     excite
-     (blue)
-        
-      inhibit
-      (red)
-        ↓
 ```
 
-**Parameter interpretation:**
+#### Kernel Shape Options
+
+The base kernel can be modified by shape:
+
+1. **Isotropic (Circular)**: Default Mexican-hat
+   - Rotationally symmetric
+   - Good for general pattern formation
+
+2. **Anisotropic (Elliptical)**: Directional coupling
+   - Apply rotation matrix and aspect ratio scaling
+   - Creates stripes, waves, and directional patterns
+   - Parameters: orientation angle θ, aspect ratio a
+
+3. **Multi-Scale (Nested)**: Superposition of scales
+   - Sum of kernels at 1×, 2×, 3× base scale
+   - Creates hierarchical nested patterns
+   - Parameters: weights for 2× and 3× components
+
+4. **Asymmetric**: Different forward/backward strengths (upcoming)
+   - Enables wave propagation and directional dynamics
+
+5. **Step/Rectangular**: Sharp boundaries (upcoming)
+   - Constant weight within range, zero outside
+
+6. **Multi-Ring**: Concentric alternating rings (upcoming)
+   - Multiple excitation/inhibition zones
+
+**Base Parameters:**
 
 | Parameter | Range | Effect |
 |-----------|-------|--------|
-| $\sigma$ | 0.3 - 4.0 | Width of excitatory region (larger = broader synchronization) |
-| $\sigma_2$ | 0.3 - 6.0 | Width of inhibitory region (larger = extends further) |
-| $\beta$ | 0.0 - 1.5 | Inhibition strength (larger = stronger repulsion) |
-| Ratio $\sigma_2/\sigma$ | 2.5 - 3.0 | Critical for pattern formation |
+| $\sigma$ | 0.3 - 4.0 | Width of excitatory region |
+| $\sigma_2$ | 0.3 - 6.0 | Width of inhibitory region |
+| $\beta$ | 0.0 - 1.5 | Inhibition strength |
+| Ratio $\sigma_2/\sigma$ | 2.5 - 3.0 | Critical for chimera states |
 
-**Key property:** The Mexican-hat is **the kernel that enables chimera states** (coexistence of synchronized and chaotic regions).
-
-**Pattern formation mechanism:**
-
-```
-σ = 1.2, σ₂ = 2.2, β = 0.6:
-
-Near distance:   EXCITE → oscillators sync up
-Intermediate:    Zero crossing (transition)
-Far distance:    INHIBIT → oscillators push apart
-
-Result: Local clusters form and repel each other
-        → Spatially patterned synchronization
-```
+**Key property:** These spatial kernels enable **chimera states** (coexistence of synchronized and chaotic regions) and rich pattern formation.
 
 **When to use:**
 - **Chimera states** (one of the most interesting phenomena)
 - **Self-organized pattern formation**
 - Modeling neural fields and cortical dynamics
 - Studying **critical phenomena** and bifurcations
-
-**Computational note:** Rule 4 is the slowest because it evaluates all-to-all distances up to $3\sigma_2$ cutoff.
 
 ---
 
@@ -1228,20 +1232,20 @@ This ensures:
 
 ---
 
-## Kernels in Detail
+## Spatial Kernels in Detail
 
-### Mexican-Hat Kernel (Rule 4)
+### Kernel-Based Coupling (Rule 4)
 
-The **Mexican-hat** (or **Ricker wavelet**) is a spatially extended coupling function that combines **short-range excitation** and **long-range inhibition**.
+Spatial coupling kernels combine **short-range excitation** and **long-range inhibition** with multiple shape options for rich pattern formation.
 
-**Functional form:**
+**Base Functional Form (Difference of Gaussians):**
 
-$$w(r) = \exp\left(-\frac{r^2}{2\sigma_{\text{in}}^2}\right) - \beta \exp\left(-\frac{r^2}{2\sigma_{\text{out}}^2}\right)$$
+$$w(r) = \exp\left(-\frac{r^2}{2\sigma^2}\right) - \beta \exp\left(-\frac{r^2}{2\sigma_2^2}\right)$$
 
 Where:
-- $r$ = Euclidean distance: $r = \sqrt{(\Delta x)^2 + (\Delta y)^2}$
-- $\sigma_{\text{in}} = \sigma$ (inner Gaussian width)
-- $\sigma_{\text{out}} = \sigma_2$ (outer Gaussian width)
+- $r$ = Euclidean distance (or transformed by shape)
+- $\sigma$ = excitation width
+- $\sigma_2$ = inhibition width  
 - $\beta$ = inhibition strength
 
 **Graphical profile:**
@@ -1260,9 +1264,80 @@ Where:
        Excite  Inhibit
 ```
 
+### Kernel Shape Transformations
+
+1. **Isotropic**: $r^2 = \Delta x^2 + \Delta y^2$ (circular symmetry)
+
+2. **Anisotropic**: Apply rotation and scaling
+   - Rotate by angle $\theta$: $(\Delta x', \Delta y') = R(\theta) \cdot (\Delta x, \Delta y)$
+   - Scale $\Delta y'$ by aspect ratio $a$: $r^2 = \Delta x'^2 + (\Delta y' / a)^2$
+   - Creates elliptical coupling regions
+
+3. **Multi-Scale**: Superposition of scales
+   - $w(r) = w_1(r) + w_2 \cdot w_1(r/2) + w_3 \cdot w_1(r/3)$
+   - Adds nested spatial structure
+
+4. **Asymmetric**: Directional bias with angle-dependent modulation
+   - $w(r, \phi) = [1 + a \cos(\phi - \theta)] \cdot w_{\text{base}}(r)$
+   - where $\phi = \text{atan2}(\Delta y, \Delta x)$ is the angle from center to point
+   - $\theta$ = orientation angle (preferred direction)
+   - $a \in [-1, 1]$ = asymmetry factor (forward vs backward bias)
+   - Creates propagating patterns with directional preference
+
+5. **Step**: Constant weight within radius, zero outside
+   - Excitatory core: $w = 1$ for $r < \sigma$
+   - Inhibitory surround: $w = -\beta$ for $\sigma < r < \sigma_2$
+   - Zero elsewhere: $w = 0$ for $r > \sigma_2$
+   - Creates sharp boundaries and binary coupling regions
+
+6. **Multi-Ring**: Customizable concentric rings with individual properties
+   - Up to 5 rings with independent widths and weights
+   - Each ring $i$ defined by:
+     - **Outer radius** $r_i$: normalized distance relative to $\sigma_2$ (cumulative)
+     - **Weight** $w_i \in [-1, 1]$: coupling strength (positive = excitatory, negative = inhibitory)
+   - Ring boundaries are cumulative: ring 2 starts where ring 1 ends
+   - Within each ring, Gaussian falloff from ring center:
+     $$w_{\text{ring}}(r) = w_i \cdot \exp\left(-\frac{(r - r_{\text{center}})^2}{2\sigma^2}\right)$$
+     where $r_{\text{center}}$ is the midpoint of the ring's radial extent
+   - **Example 3-ring configuration:**
+     - Ring 1: $r_1 = 0.3\sigma_2$, $w_1 = +1.0$ (inner excitation)
+     - Ring 2: $r_2 = 0.6\sigma_2$, $w_2 = -0.8$ (middle inhibition)
+     - Ring 3: $r_3 = 1.0\sigma_2$, $w_3 = +0.5$ (outer excitation)
+     - Creates target-wave pattern with alternating bands
+
+### Kernel Composition
+
+**Mixing two kernel shapes** allows hybrid coupling patterns:
+
+$$w_{\text{composite}}(r) = (1 - \alpha) \cdot w_{\text{secondary}}(r) + \alpha \cdot w_{\text{primary}}(r)$$
+
+where:
+- $w_{\text{primary}}(r)$ = main kernel shape (selected via dropdown)
+- $w_{\text{secondary}}(r)$ = second kernel shape
+- $\alpha \in [0, 1]$ = mix ratio (0 = all secondary, 1 = all primary)
+
+**Use cases:**
+1. **Asymmetric + Multi-ring**: Directional nested patterns
+   - Multi-ring provides radial structure
+   - Asymmetric adds angular bias → spiraling rings
+   
+2. **Anisotropic + Step**: Elliptical hard boundaries
+   - Step provides sharp cutoff
+   - Anisotropic stretches in preferred direction → stripe domains
+   
+3. **Multi-scale + Multi-ring**: Hierarchical nested structures
+   - Multi-ring provides discrete bands
+   - Multi-scale adds fine detail within each band
+   
+4. **Isotropic + Asymmetric**: Slight directional bias on symmetric base
+   - Useful for perturbing symmetric patterns to observe stability
+
+**Implementation detail:**
+Both kernels are evaluated with the same base parameters ($\sigma$, $\sigma_2$, $\beta$) but shape-specific modulations differ.
+
 ### Phase Diagram: Parameter Space
 
-The Mexican-hat coupling exhibits rich behavior depending on parameters:
+Kernel coupling exhibits rich behavior depending on parameters:
 
 ```
            β (inhibition strength)
@@ -2039,4 +2114,195 @@ See `EXTENSIONS.md` for detailed proposals:
    - Adjust $\sigma_2$: changes domain size
 
 4. Measure coherence time:
-   -
+   - Reset simulation
+   - Observe how long chimera boundary persists
+
+---
+
+## Phase 3 Development Plan: Adaptive and Advanced Features
+
+### Overview
+
+Building on **Phase 1** (core simulation + 6 kernel shapes) and **Phase 2** (multi-ring customization + kernel composition), Phase 3 focuses on **adaptive dynamics** and **frequency-dependent coupling** to enable self-organizing spatial heterogeneity.
+
+### 1. Adaptive Sigma (Self-Organizing Spatial Scales)
+
+**Motivation:** Fixed spatial scales limit pattern diversity. Adaptive sigma allows the system to self-tune its coupling range based on local dynamics.
+
+**Implementation:**
+- Make $\sigma(i)$ and $\sigma_2(i)$ vary per oscillator based on local order parameter:
+  $$\sigma_i(t+1) = \sigma_i(t) + \epsilon_\sigma \cdot (R_{\text{target}} - R_i(t))$$
+  where $R_i$ is local synchronization, $R_{\text{target}}$ is desired coherence level
+  
+- **Use cases:**
+  - Synchronized regions shrink coupling range (stabilize)
+  - Chaotic regions expand coupling range (recruit neighbors)
+  - Creates spatially heterogeneous patterns with varying domain sizes
+
+**Parameters to add:**
+- `adaptiveSigma`: boolean flag (enable/disable)
+- `sigmaAdaptRate`: learning rate $\epsilon_\sigma$ (0.001-0.1)
+- `sigmaTargetOrder`: target order parameter $R_{\text{target}}$ (0.3-0.8)
+- `sigmaMin`, `sigmaMax`: bounds to prevent runaway adaptation
+
+**Buffer additions:**
+- Per-oscillator sigma values: `sigmaBuf` (N × float32)
+- Requires updating kernel evaluation to use `sigma[i]` instead of global value
+
+### 2. Adaptive Beta (Dynamic Inhibition Strength)
+
+**Motivation:** Fixed inhibition can be too strong (destroying patterns) or too weak (over-synchronizing). Adaptive beta stabilizes synchronized regions while maintaining chaotic zones.
+
+**Implementation:**
+- Make $\beta(i)$ vary based on local order:
+  $$\beta_i(t+1) = \beta_i(t) + \epsilon_\beta \cdot (\langle |\nabla R_i| \rangle - \nabla_{\text{target}})$$
+  where $\nabla R_i$ is spatial gradient of order (high at boundaries)
+  
+- **Use cases:**
+  - Domain boundaries increase inhibition (sharpen edges)
+  - Homogeneous regions reduce inhibition (allow slow drift)
+  - Creates self-maintaining chimera boundaries
+
+**Parameters to add:**
+- `adaptiveBeta`: boolean flag
+- `betaAdaptRate`: learning rate $\epsilon_\beta$
+- `betaTargetGradient`: target order gradient (0.1-0.5)
+- `betaMin`, `betaMax`: bounds (0.2-1.5)
+
+**Buffer additions:**
+- Per-oscillator beta values: `betaBuf` (N × float32)
+
+### 3. Frequency-Dependent Coupling (Selective Synchronization)
+
+**Motivation:** Current model couples all oscillators equally. In biological systems (e.g., neural oscillations), similar frequencies preferentially synchronize.
+
+**Implementation:**
+- Weight coupling by frequency similarity:
+  $$w_{ij}(\omega) = w_{\text{spatial}}(r_{ij}) \cdot \exp\left(-\frac{(\omega_i - \omega_j)^2}{2\sigma_\omega^2}\right)$$
+  where $\sigma_\omega$ controls frequency selectivity
+  
+- **Use cases:**
+  - Frequency clusters form spatial domains
+  - Multi-frequency patterns (e.g., alpha + beta bands)
+  - Resonance phenomena (oscillators "find" similar partners)
+
+**Parameters to add:**
+- `frequencySelectivity`: boolean flag
+- `sigmaOmega`: frequency bandwidth $\sigma_\omega$ (0.1-2.0)
+- Higher values → broad coupling (like current model)
+- Lower values → selective coupling (only similar ω couple)
+
+**Implementation note:**
+- Requires reading both $\omega_i$ and $\omega_j$ during coupling computation
+- Can be combined with spatial kernels multiplicatively
+
+### 4. Additional Kernel Shapes
+
+Expand beyond the current 6 shapes:
+
+**Gabor Kernel** (spatially localized oscillations):
+$$w(x, y) = \exp\left(-\frac{x^2 + y^2}{2\sigma^2}\right) \cdot \cos(k_x x + k_y y + \phi)$$
+- Creates oriented stripe patterns
+- Useful for visual cortex models
+- Parameters: $(k_x, k_y)$ = spatial frequency, $\phi$ = phase offset
+
+**Power-Law Kernel** (long-range interactions):
+$$w(r) = \frac{1}{(r + r_0)^\alpha}$$
+- $\alpha \in [1, 3]$ controls decay rate
+- Models scale-free networks, criticality
+- Useful for studying long-range synchronization
+
+**User-Drawable Kernel**:
+- Interactive canvas for drawing arbitrary 1D radial profile
+- Interpolate points, apply to 2D via rotation
+- Enables rapid exploration of novel coupling functions
+
+### 5. Implementation Priorities
+
+**High Priority (Phase 3A - 2-3 weeks):**
+1. ✅ Multi-ring customization (DONE)
+2. ✅ Kernel composition (DONE)
+3. Adaptive sigma (self-organizing scales)
+4. Frequency-dependent coupling
+
+**Medium Priority (Phase 3B - 3-4 weeks):**
+5. Adaptive beta (boundary sharpening)
+6. Gabor kernel shape
+7. Enhanced kernel visualization (2D heatmap + composition preview)
+
+**Low Priority (Phase 3C - long-term):**
+8. Power-law kernel
+9. User-drawable kernel
+10. Real-time parameter space exploration (scan K₀ vs β automatically)
+
+### 6. Technical Considerations
+
+**GPU Buffer Management:**
+- Current: 160 bytes uniform buffer (42 params)
+- With adaptive params: Need per-oscillator storage buffers
+  - `sigmaBuf`: N × 4 bytes
+  - `betaBuf`: N × 4 bytes
+  - Total: +8N bytes (e.g., +2 MB for 256×256 grid)
+  
+**Shader Complexity:**
+- Adaptive rules add conditional logic per oscillator
+- May reduce performance by 10-20%
+- Mitigation: Use compute shader barriers efficiently
+
+**UI Additions:**
+- New "Adaptive Dynamics" section with 6-8 controls
+- Visualization of spatial sigma/beta distributions (new colormap mode?)
+- Real-time statistics panel (mean sigma, beta variance, etc.)
+
+### 7. Research Opportunities
+
+**Questions to explore with adaptive features:**
+
+1. **Critical slowing down:** Does adaptive sigma exhibit critical behavior near synchronization transitions?
+2. **Emergent length scales:** Do self-organized domains follow power laws or exhibit characteristic sizes?
+3. **Stability of chimeras:** Does adaptive beta extend chimera lifetime beyond current transient behavior?
+4. **Frequency clustering:** Can frequency-selective coupling create multi-band patterns similar to EEG rhythms?
+5. **Hybrid kernels:** Which composition combinations produce novel emergent patterns?
+
+**Publication potential:**
+- "Self-Organizing Spatial Scales in Kuramoto Oscillator Arrays"
+- "Frequency-Selective Synchronization with Adaptive Coupling Kernels"
+- "Stabilizing Chimera States via Local Inhibition Plasticity"
+
+---
+
+## Appendix: Parameter Reference Table
+
+| Parameter | Symbol | Range | Default | Category |
+|-----------|--------|-------|---------|----------|
+| Coupling strength | K₀ | 0-3.0 | 1.0 | Core |
+| Time step | dt | 0.001-0.1 | 0.03 | Core |
+| Range | R | 1-8 | 2 | Core |
+| Global coupling | - | bool | false | Core |
+| Noise strength | ε | 0-0.5 | 0.0 | Core |
+| Inner sigma | σ | 0.3-4.0 | 1.2 | Kernel |
+| Outer sigma | σ₂ | 0.3-6.0 | 2.2 | Kernel |
+| Inhibition | β | 0-1.5 | 0.6 | Kernel |
+| Kernel shape | - | 0-5 | 0 | Kernel |
+| Orientation | θ | 0-2π | 0 | Kernel |
+| Aspect ratio | a | 1.0-5.0 | 2.0 | Kernel |
+| Asymmetry | a_asym | -1 to 1 | 0.5 | Kernel |
+| Num rings | N_ring | 1-5 | 3 | Multi-ring |
+| Ring N radius | r_N | 0.05-1.0 | varies | Multi-ring |
+| Ring N weight | w_N | -1 to 1 | varies | Multi-ring |
+| Composition enabled | - | bool | false | Composition |
+| Secondary shape | - | 0-5 | 0 | Composition |
+| Mix ratio | α | 0-1 | 0.5 | Composition |
+| Harmonic a₂ | a₂ | 0-1 | 0.4 | Rule 3 |
+| Harmonic a₃ | a₃ | 0-1 | 0.0 | Rule 3 |
+| Delay steps | τ | 1-30 | 10 | Rule 5 |
+
+*(Additional adaptive parameters planned for Phase 3)*
+
+---
+
+**Document Version:** 2.1  
+**Last Updated:** November 2025  
+**Phase Status:** Phase 2 Complete (Multi-ring + Composition)  
+**Next Milestone:** Phase 3A (Adaptive Sigma + Frequency Selection)
+```

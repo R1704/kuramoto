@@ -46,6 +46,262 @@ export class UIManager {
         bind('delay-slider', 'delaySteps', 'int');
         bind('noise-slider', 'noiseStrength');
         
+        // Kernel shape controls
+        const kernelShapeSelect = document.getElementById('kernel-shape-select');
+        if (kernelShapeSelect) {
+            kernelShapeSelect.addEventListener('change', () => {
+                this.state.kernelShape = parseInt(kernelShapeSelect.value);
+                this.cb.onParamChange();
+                this.updateDisplay(); // Update visibility of shape-specific controls
+            });
+        }
+        
+        bind('kernel-orientation-slider', 'kernelOrientation');
+        bind('kernel-aspect-slider', 'kernelAspect');
+        bind('kernel-scale2-slider', 'kernelScale2Weight');
+        bind('kernel-scale3-slider', 'kernelScale3Weight');
+        bind('kernel-asymmetry-slider', 'kernelAsymmetry');
+        bind('kernel-rings-slider', 'kernelRings', 'int');
+        
+        // Gabor kernel parameters
+        bind('kernel-spatial-freq-slider', 'kernelSpatialFreqMag');
+        bind('kernel-freq-angle-slider', 'kernelSpatialFreqAngle');
+        bind('kernel-gabor-phase-slider', 'kernelGaborPhase');
+        
+        // Secondary kernel parameters (bind to same state - each kernel uses what it needs)
+        bind('secondary-kernel-orientation-slider', 'kernelOrientation');
+        bind('secondary-kernel-aspect-slider', 'kernelAspect');
+        bind('secondary-kernel-scale2-slider', 'kernelScale2Weight');
+        bind('secondary-kernel-scale3-slider', 'kernelScale3Weight');
+        bind('secondary-kernel-asymmetric-orientation-slider', 'kernelAsymmetricOrientation');
+        bind('secondary-kernel-asymmetry-slider', 'kernelAsymmetry');
+        bind('secondary-kernel-spatial-freq-slider', 'kernelSpatialFreqMag');
+        bind('secondary-kernel-freq-angle-slider', 'kernelSpatialFreqAngle');
+        bind('secondary-kernel-gabor-phase-slider', 'kernelGaborPhase');
+        
+        // Note: Secondary multi-ring controls use custom handlers below (they use arrays)
+        
+        // Bind individual ring width/weight sliders
+        for (let i = 1; i <= 5; i++) {
+            const widthSlider = document.getElementById(`ring-${i}-width-slider`);
+            const weightSlider = document.getElementById(`ring-${i}-weight-slider`);
+            
+            if (widthSlider) {
+                widthSlider.addEventListener('input', () => {
+                    this.state.kernelRingWidths[i - 1] = parseFloat(widthSlider.value);
+                    const disp = document.getElementById(`ring-${i}-width-value`);
+                    if (disp) disp.textContent = parseFloat(widthSlider.value).toFixed(2);
+                    this.cb.onParamChange();
+                });
+            }
+            
+            if (weightSlider) {
+                weightSlider.addEventListener('input', () => {
+                    this.state.kernelRingWeights[i - 1] = parseFloat(weightSlider.value);
+                    const disp = document.getElementById(`ring-${i}-weight-value`);
+                    if (disp) disp.textContent = parseFloat(weightSlider.value).toFixed(2);
+                    this.cb.onParamChange();
+                });
+            }
+        }
+        
+        // Special handler for kernelRings to update ring control visibility
+        const ringsSlider = document.getElementById('kernel-rings-slider');
+        if (ringsSlider) {
+            ringsSlider.addEventListener('input', () => {
+                this.state.kernelRings = parseInt(ringsSlider.value);
+                const disp = document.getElementById('kernel-rings-value');
+                if (disp) disp.textContent = this.state.kernelRings;
+                this.updateDisplay(); // Update ring control visibility
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Secondary number of rings slider
+        const secondaryRingsSlider = document.getElementById('secondary-kernel-rings-slider');
+        if (secondaryRingsSlider) {
+            secondaryRingsSlider.addEventListener('input', () => {
+                this.state.kernelRings = parseInt(secondaryRingsSlider.value);
+                const disp = document.getElementById('secondary-kernel-rings-value');
+                if (disp) disp.textContent = this.state.kernelRings;
+                // Also update primary display
+                const primaryDisp = document.getElementById('kernel-rings-value');
+                if (primaryDisp) primaryDisp.textContent = this.state.kernelRings;
+                this.updateDisplay(); // Update ring control visibility
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Secondary kernel dropdown (no checkbox, -1 = None)
+        const secondaryDropdown = document.getElementById('kernel-secondary-dropdown');
+        if (secondaryDropdown) {
+            secondaryDropdown.addEventListener('change', () => {
+                const secondaryValue = parseInt(secondaryDropdown.value);
+                this.state.kernelSecondary = secondaryValue;
+                this.state.kernelCompositionEnabled = secondaryValue >= 0; // Enable composition if not "None"
+                
+                // Show/hide secondary kernel parameters
+                const secondaryParams = document.getElementById('secondary-kernel-params');
+                if (secondaryParams) {
+                    secondaryParams.style.display = secondaryValue >= 0 ? 'flex' : 'none';
+                }
+                
+                // Show/hide mix ratio container
+                const mixRatioContainer = document.getElementById('kernel-mix-ratio-container');
+                if (mixRatioContainer) {
+                    mixRatioContainer.style.display = secondaryValue >= 0 ? 'block' : 'none';
+                }
+                
+                this.updateDisplay(); // Update shape-specific controls visibility
+                this.cb.onParamChange();
+            });
+        }
+        
+        const mixRatioSlider = document.getElementById('kernel-mix-ratio-slider');
+        if (mixRatioSlider) {
+            mixRatioSlider.addEventListener('input', () => {
+                this.state.kernelMixRatio = parseFloat(mixRatioSlider.value);
+                const disp = document.getElementById('kernel-mix-ratio-value');
+                if (disp) disp.textContent = parseFloat(mixRatioSlider.value).toFixed(2);
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Update kernel orientation display to show degrees (for anisotropic)
+        const orientationEl = document.getElementById('kernel-orientation-slider');
+        if (orientationEl) {
+            orientationEl.addEventListener('input', () => {
+                const radians = parseFloat(orientationEl.value);
+                this.state.kernelOrientation = radians;
+                const disp = document.getElementById('kernel-orientation-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Update asymmetric orientation display (separate slider)
+        const asymmetricOrientationEl = document.getElementById('kernel-asymmetric-orientation-slider');
+        if (asymmetricOrientationEl) {
+            asymmetricOrientationEl.addEventListener('input', () => {
+                const radians = parseFloat(asymmetricOrientationEl.value);
+                this.state.kernelAsymmetricOrientation = radians;
+                const disp = document.getElementById('kernel-asymmetric-orientation-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Gabor frequency angle display (in degrees)
+        const freqAngleEl = document.getElementById('kernel-freq-angle-slider');
+        if (freqAngleEl) {
+            freqAngleEl.addEventListener('input', () => {
+                const radians = parseFloat(freqAngleEl.value);
+                this.state.kernelSpatialFreqAngle = radians;
+                const disp = document.getElementById('kernel-freq-angle-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Gabor phase display (in degrees)
+        const gaborPhaseEl = document.getElementById('kernel-gabor-phase-slider');
+        if (gaborPhaseEl) {
+            gaborPhaseEl.addEventListener('input', () => {
+                const radians = parseFloat(gaborPhaseEl.value);
+                this.state.kernelGaborPhase = radians;
+                const disp = document.getElementById('kernel-gabor-phase-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Secondary kernel angle displays (all in degrees)
+        const secOrientationEl = document.getElementById('secondary-kernel-orientation-slider');
+        if (secOrientationEl) {
+            secOrientationEl.addEventListener('input', () => {
+                const radians = parseFloat(secOrientationEl.value);
+                this.state.kernelOrientation = radians;
+                const disp = document.getElementById('secondary-kernel-orientation-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                // Also update primary display
+                const primaryDisp = document.getElementById('kernel-orientation-value');
+                if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        const secAsymOrientationEl = document.getElementById('secondary-kernel-asymmetric-orientation-slider');
+        if (secAsymOrientationEl) {
+            secAsymOrientationEl.addEventListener('input', () => {
+                const radians = parseFloat(secAsymOrientationEl.value);
+                this.state.kernelAsymmetricOrientation = radians;
+                const disp = document.getElementById('secondary-kernel-asymmetric-orientation-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                // Also update primary display
+                const primaryDisp = document.getElementById('kernel-asymmetric-orientation-value');
+                if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        const secFreqAngleEl = document.getElementById('secondary-kernel-freq-angle-slider');
+        if (secFreqAngleEl) {
+            secFreqAngleEl.addEventListener('input', () => {
+                const radians = parseFloat(secFreqAngleEl.value);
+                this.state.kernelSpatialFreqAngle = radians;
+                const disp = document.getElementById('secondary-kernel-freq-angle-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                // Also update primary display
+                const primaryDisp = document.getElementById('kernel-freq-angle-value');
+                if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        const secGaborPhaseEl = document.getElementById('secondary-kernel-gabor-phase-slider');
+        if (secGaborPhaseEl) {
+            secGaborPhaseEl.addEventListener('input', () => {
+                const radians = parseFloat(secGaborPhaseEl.value);
+                this.state.kernelGaborPhase = radians;
+                const disp = document.getElementById('secondary-kernel-gabor-phase-value');
+                if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                // Also update primary display
+                const primaryDisp = document.getElementById('kernel-gabor-phase-value');
+                if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
+                this.cb.onParamChange();
+            });
+        }
+        
+        // Secondary multi-ring controls need custom handlers (arrays, not simple bind)
+        for (let i = 1; i <= 5; i++) {
+            const widthSlider = document.getElementById(`secondary-kernel-ring${i}-width-slider`);
+            const weightSlider = document.getElementById(`secondary-kernel-ring${i}-weight-slider`);
+            
+            if (widthSlider) {
+                widthSlider.addEventListener('input', () => {
+                    this.state.kernelRingWidths[i - 1] = parseFloat(widthSlider.value);
+                    const disp = document.getElementById(`secondary-kernel-ring${i}-width-value`);
+                    if (disp) disp.textContent = parseFloat(widthSlider.value).toFixed(2);
+                    // Also update primary display
+                    const primaryDisp = document.getElementById(`ring-${i}-width-value`);
+                    if (primaryDisp) primaryDisp.textContent = parseFloat(widthSlider.value).toFixed(2);
+                    this.cb.onParamChange();
+                });
+            }
+            
+            if (weightSlider) {
+                weightSlider.addEventListener('input', () => {
+                    this.state.kernelRingWeights[i - 1] = parseFloat(weightSlider.value);
+                    const disp = document.getElementById(`secondary-kernel-ring${i}-weight-value`);
+                    if (disp) disp.textContent = parseFloat(weightSlider.value).toFixed(2);
+                    // Also update primary display
+                    const primaryDisp = document.getElementById(`ring-${i}-weight-value`);
+                    if (primaryDisp) primaryDisp.textContent = parseFloat(weightSlider.value).toFixed(2);
+                    this.cb.onParamChange();
+                });
+            }
+        }
+        
         // Rule select with special handling to update UI visibility
         const ruleSelect = document.getElementById('rule-select');
         if (ruleSelect) {
@@ -310,6 +566,197 @@ export class UIManager {
         update('noise-slider', this.state.noiseStrength);
         update('omega-amplitude-slider', this.state.omegaAmplitude);
         
+        // Update kernel shape controls
+        const kernelShapeSelect = document.getElementById('kernel-shape-select');
+        if (kernelShapeSelect) kernelShapeSelect.value = this.state.kernelShape;
+        
+        update('kernel-orientation-slider', this.state.kernelOrientation);
+        update('kernel-aspect-slider', this.state.kernelAspect);
+        update('kernel-scale2-slider', this.state.kernelScale2Weight);
+        update('kernel-scale3-slider', this.state.kernelScale3Weight);
+        update('kernel-asymmetric-orientation-slider', this.state.kernelAsymmetricOrientation);
+        update('kernel-asymmetry-slider', this.state.kernelAsymmetry);
+        update('kernel-rings-slider', this.state.kernelRings);
+        
+        // Gabor parameters
+        update('kernel-spatial-freq-slider', this.state.kernelSpatialFreqMag);
+        update('kernel-freq-angle-slider', this.state.kernelSpatialFreqAngle);
+        update('kernel-gabor-phase-slider', this.state.kernelGaborPhase);
+        
+        // Update kernel orientation display to show degrees
+        const orientationDisp = document.getElementById('kernel-orientation-value');
+        if (orientationDisp) {
+            orientationDisp.textContent = Math.round(this.state.kernelOrientation * 180 / Math.PI) + '°';
+        }
+        const asymmetricOrientationDisp = document.getElementById('kernel-asymmetric-orientation-value');
+        if (asymmetricOrientationDisp) {
+            asymmetricOrientationDisp.textContent = Math.round(this.state.kernelAsymmetricOrientation * 180 / Math.PI) + '°';
+        }
+        
+        const freqAngleDisp = document.getElementById('kernel-freq-angle-value');
+        if (freqAngleDisp) {
+            freqAngleDisp.textContent = Math.round(this.state.kernelSpatialFreqAngle * 180 / Math.PI) + '°';
+        }
+        
+        const gaborPhaseDisp = document.getElementById('kernel-gabor-phase-value');
+        if (gaborPhaseDisp) {
+            gaborPhaseDisp.textContent = Math.round(this.state.kernelGaborPhase * 180 / Math.PI) + '°';
+        }
+        
+        // Show/hide kernel shape-specific controls
+        // Show controls based on PRIMARY kernel selection only
+        const primaryShape = this.state.kernelShape;
+        
+        const anisotropicControls = document.getElementById('anisotropic-controls');
+        if (anisotropicControls) {
+            anisotropicControls.style.display = primaryShape === 1 ? 'flex' : 'none';
+        }
+        
+        const multiscaleControls = document.getElementById('multiscale-controls');
+        if (multiscaleControls) {
+            multiscaleControls.style.display = primaryShape === 2 ? 'flex' : 'none';
+        }
+        
+        const asymmetricControls = document.getElementById('asymmetric-controls');
+        if (asymmetricControls) {
+            asymmetricControls.style.display = primaryShape === 3 ? 'flex' : 'none';
+        }
+        
+        const multiringControls = document.getElementById('multiring-controls');
+        if (multiringControls) {
+            multiringControls.style.display = primaryShape === 5 ? 'flex' : 'none';
+        }
+        
+        const gaborControls = document.getElementById('gabor-controls');
+        if (gaborControls) {
+            gaborControls.style.display = primaryShape === 6 ? 'flex' : 'none';
+        }
+        
+        // Update individual ring controls visibility and values
+        // Show rings based on primary kernel (multi-ring only)
+        const showRings = primaryShape === 5;
+        
+        for (let i = 1; i <= 5; i++) {
+            const ringControl = document.getElementById(`ring-${i}-controls`);
+            if (ringControl) {
+                ringControl.style.display = (showRings && i <= this.state.kernelRings) ? 'flex' : 'none';
+            }
+            
+            // Update ring slider values
+            const widthSlider = document.getElementById(`ring-${i}-width-slider`);
+            const weightSlider = document.getElementById(`ring-${i}-weight-slider`);
+            const widthDisp = document.getElementById(`ring-${i}-width-value`);
+            const weightDisp = document.getElementById(`ring-${i}-weight-value`);
+            
+            if (widthSlider && this.state.kernelRingWidths[i - 1] !== undefined) {
+                widthSlider.value = this.state.kernelRingWidths[i - 1];
+                if (widthDisp) widthDisp.textContent = this.state.kernelRingWidths[i - 1].toFixed(2);
+            }
+            
+            if (weightSlider && this.state.kernelRingWeights[i - 1] !== undefined) {
+                weightSlider.value = this.state.kernelRingWeights[i - 1];
+                if (weightDisp) weightDisp.textContent = this.state.kernelRingWeights[i - 1].toFixed(2);
+            }
+        }
+        
+        // Update secondary kernel dropdown and parameters visibility
+        const secondaryDropdown = document.getElementById('kernel-secondary-dropdown');
+        if (secondaryDropdown) {
+            // Set dropdown value (-1 for None, or the actual secondary kernel)
+            const dropdownValue = this.state.kernelCompositionEnabled ? this.state.kernelSecondary : -1;
+            secondaryDropdown.value = dropdownValue;
+        }
+        
+        const secondaryParams = document.getElementById('secondary-kernel-params');
+        if (secondaryParams) {
+            secondaryParams.style.display = this.state.kernelCompositionEnabled ? 'flex' : 'none';
+        }
+        
+        // Show/hide mix ratio container
+        const mixRatioContainer = document.getElementById('kernel-mix-ratio-container');
+        if (mixRatioContainer) {
+            mixRatioContainer.style.display = this.state.kernelCompositionEnabled ? 'block' : 'none';
+        }
+        
+        // Show/hide secondary kernel shape-specific parameter indicators
+        if (this.state.kernelCompositionEnabled) {
+            const secondaryShape = this.state.kernelSecondary || 0;
+            
+            const secAnisotropic = document.getElementById('secondary-anisotropic-controls');
+            if (secAnisotropic) {
+                secAnisotropic.style.display = secondaryShape === 1 ? 'flex' : 'none';
+                // Update secondary slider values to match state
+                if (secondaryShape === 1) {
+                    update('secondary-kernel-orientation-slider', this.state.kernelOrientation);
+                    update('secondary-kernel-aspect-slider', this.state.kernelAspect);
+                    const secOrientDisp = document.getElementById('secondary-kernel-orientation-value');
+                    if (secOrientDisp) secOrientDisp.textContent = Math.round(this.state.kernelOrientation * 180 / Math.PI) + '°';
+                }
+            }
+            
+            const secMultiscale = document.getElementById('secondary-multiscale-controls');
+            if (secMultiscale) {
+                secMultiscale.style.display = secondaryShape === 2 ? 'flex' : 'none';
+                if (secondaryShape === 2) {
+                    update('secondary-kernel-scale2-slider', this.state.kernelScale2Weight);
+                    update('secondary-kernel-scale3-slider', this.state.kernelScale3Weight);
+                }
+            }
+            
+            const secAsymmetric = document.getElementById('secondary-asymmetric-controls');
+            if (secAsymmetric) {
+                secAsymmetric.style.display = secondaryShape === 3 ? 'flex' : 'none';
+                if (secondaryShape === 3) {
+                    update('secondary-kernel-asymmetric-orientation-slider', this.state.kernelAsymmetricOrientation);
+                    update('secondary-kernel-asymmetry-slider', this.state.kernelAsymmetry);
+                    const secAsymOrientDisp = document.getElementById('secondary-kernel-asymmetric-orientation-value');
+                    if (secAsymOrientDisp) secAsymOrientDisp.textContent = Math.round(this.state.kernelAsymmetricOrientation * 180 / Math.PI) + '°';
+                }
+            }
+            
+            const secMultiring = document.getElementById('secondary-multiring-controls');
+            if (secMultiring) {
+                secMultiring.style.display = secondaryShape === 5 ? 'flex' : 'none';
+                if (secondaryShape === 5) {
+                    // Update number of rings slider
+                    update('secondary-kernel-rings-slider', this.state.kernelRings);
+                    
+                    // Update all secondary multi-ring slider values
+                    for (let i = 1; i <= 5; i++) {
+                        // Show/hide individual ring controls based on kernelRings
+                        const ringControl = document.getElementById(`secondary-ring-${i}-controls`);
+                        if (ringControl) {
+                            ringControl.style.display = (i <= this.state.kernelRings) ? 'flex' : 'none';
+                        }
+                        
+                        // Update slider values
+                        if (this.state.kernelRingWidths[i - 1] !== undefined) {
+                            update(`secondary-kernel-ring${i}-width-slider`, this.state.kernelRingWidths[i - 1]);
+                        }
+                        if (this.state.kernelRingWeights[i - 1] !== undefined) {
+                            update(`secondary-kernel-ring${i}-weight-slider`, this.state.kernelRingWeights[i - 1]);
+                        }
+                    }
+                }
+            }
+            
+            const secGabor = document.getElementById('secondary-gabor-controls');
+            if (secGabor) {
+                secGabor.style.display = secondaryShape === 6 ? 'flex' : 'none';
+                if (secondaryShape === 6) {
+                    update('secondary-kernel-spatial-freq-slider', this.state.kernelSpatialFreqMag);
+                    update('secondary-kernel-freq-angle-slider', this.state.kernelSpatialFreqAngle);
+                    update('secondary-kernel-gabor-phase-slider', this.state.kernelGaborPhase);
+                    const secFreqAngleDisp = document.getElementById('secondary-kernel-freq-angle-value');
+                    if (secFreqAngleDisp) secFreqAngleDisp.textContent = Math.round(this.state.kernelSpatialFreqAngle * 180 / Math.PI) + '°';
+                    const secPhaseDisp = document.getElementById('secondary-kernel-gabor-phase-value');
+                    if (secPhaseDisp) secPhaseDisp.textContent = Math.round(this.state.kernelGaborPhase * 180 / Math.PI) + '°';
+                }
+            }
+        }
+        
+        update('kernel-mix-ratio-slider', this.state.kernelMixRatio);
+        
         // Update rule mode select
         const ruleSelect = document.getElementById('rule-select');
         if (ruleSelect) ruleSelect.value = this.state.ruleMode;
@@ -381,6 +828,18 @@ export class UIManager {
         const gridSizeValue = document.getElementById('grid-size-value');
         if (gridSizeInput) gridSizeInput.value = this.state.gridSize;
         if (gridSizeValue) gridSizeValue.textContent = this.state.gridSize;
+        
+        // Show/hide visualizer panel based on whether kernel is being used
+        const visualizerPanel = document.getElementById('visualizer-panel');
+        if (visualizerPanel) {
+            if (this.state.ruleMode === 4) {
+                // Mexican-hat rule uses kernel - show visualizer
+                visualizerPanel.style.display = 'flex';
+            } else {
+                // Other rules don't use kernel - hide visualizer
+                visualizerPanel.style.display = 'none';
+            }
+        }
         
         // Update kernel visualization if Mexican-hat rule is active
         if (this.state.ruleMode === 4 && this.cb.onDrawKernel) {

@@ -4,7 +4,13 @@ struct Params {
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
     show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, pad2: f32, pad3: f32,
+    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
 }
 
 @group(0) @binding(0) var<storage, read> theta_in: array<f32>;
@@ -60,12 +66,192 @@ fn localOrder(i: u32, cols: u32, rows: u32, rng: i32) -> f32 {
     return sqrt((sx/cnt)*(sx/cnt) + (sy/cnt)*(sy/cnt));
 }
 
-fn mexhat_weight(dist: f32) -> f32 {
+// Helper function to compute kernel weight for a specific shape
+fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
     let s1 = params.sigma;
     let s2 = params.sigma2;
-    let w1 = exp(-dist * dist / (2.0 * s1 * s1));
-    let w2 = exp(-dist * dist / (2.0 * s2 * s2));
-    return w1 - params.beta * w2;
+    
+    var dist_sq = 0.0;
+    var base_weight = 0.0;
+    
+    // Shape 0: Isotropic (circular) - original Mexican-hat
+    if (shape == 0) {
+        dist_sq = dx * dx + dy * dy;
+        let w1 = exp(-dist_sq / (2.0 * s1 * s1));
+        let w2 = exp(-dist_sq / (2.0 * s2 * s2));
+        base_weight = w1 - params.beta * w2;
+    }
+    
+    // Shape 1: Anisotropic (elliptical) - rotate and scale
+    else if (shape == 1) {
+        let angle = params.kernel_orientation;
+        let aspect = params.kernel_aspect;
+        
+        // Rotate coordinates
+        let cos_a = cos(angle);
+        let sin_a = sin(angle);
+        let dx_rot = dx * cos_a + dy * sin_a;
+        let dy_rot = -dx * sin_a + dy * cos_a;
+        
+        // Apply anisotropic scaling
+        dist_sq = (dx_rot * dx_rot) + (dy_rot * dy_rot) / (aspect * aspect);
+        let w1 = exp(-dist_sq / (2.0 * s1 * s1));
+        let w2 = exp(-dist_sq / (2.0 * s2 * s2));
+        base_weight = w1 - params.beta * w2;
+    }
+    
+    // Shape 2: Multi-scale (sum of Gaussians at different scales)
+    else if (shape == 2) {
+        dist_sq = dx * dx + dy * dy;
+        
+        // Base scale
+        let w1 = exp(-dist_sq / (2.0 * s1 * s1));
+        let w2 = exp(-dist_sq / (2.0 * s2 * s2));
+        base_weight = w1 - params.beta * w2;
+        
+        // Second scale at 2× size
+        let s1_2 = s1 * 2.0;
+        let s2_2 = s2 * 2.0;
+        let w1_2 = exp(-dist_sq / (2.0 * s1_2 * s1_2));
+        let w2_2 = exp(-dist_sq / (2.0 * s2_2 * s2_2));
+        base_weight = base_weight + params.kernel_scale2_weight * (w1_2 - params.beta * w2_2);
+        
+        // Third scale at 3× size
+        let s1_3 = s1 * 3.0;
+        let s2_3 = s2 * 3.0;
+        let w1_3 = exp(-dist_sq / (2.0 * s1_3 * s1_3));
+        let w2_3 = exp(-dist_sq / (2.0 * s2_3 * s2_3));
+        base_weight = base_weight + params.kernel_scale3_weight * (w1_3 - params.beta * w2_3);
+    }
+    
+    // Shape 3: Asymmetric (different forward/backward coupling)
+    else if (shape == 3) {
+        let angle = params.kernel_asymmetric_orientation;
+        let asymmetry = params.kernel_asymmetry; // -1 to 1
+        
+        // Compute angle from center to point
+        let point_angle = atan2(dy, dx);
+        
+        // Directional modulation: 1.0 along orientation, varies with angle difference
+        let angle_diff = point_angle - angle;
+        let directional_factor = 1.0 + asymmetry * cos(angle_diff);
+        
+        dist_sq = dx * dx + dy * dy;
+        let w1 = exp(-dist_sq / (2.0 * s1 * s1));
+        let w2 = exp(-dist_sq / (2.0 * s2 * s2));
+        base_weight = directional_factor * (w1 - params.beta * w2);
+    }
+    
+    // Shape 4: Step/Rectangular (constant within sigma, zero outside)
+    else if (shape == 4) {
+        let dist = sqrt(dx * dx + dy * dy);
+        if (dist < s1) {
+            base_weight = 1.0;
+        } else if (dist < s2) {
+            base_weight = -params.beta;
+        } else {
+            base_weight = 0.0;
+        }
+    }
+    
+    // Shape 5: Multi-ring (customizable ring widths and weights)
+    else if (shape == 5) {
+        let r = sqrt(dx * dx + dy * dy);
+        let r_norm = r / s2; // normalize to [0, 1] range (sigma2 = max radius)
+        let num_rings = i32(params.kernel_rings);
+        
+        base_weight = 0.0; // outside all rings
+        
+        // Check each ring (unrolled for efficiency)
+        if (num_rings >= 1 && r_norm < params.ring_width_1) {
+            let ring_center = params.ring_width_1 * 0.5 * s2;
+            let dist_from_center = abs(r - ring_center);
+            let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
+            base_weight = params.ring_weight_1 * gaussian;
+        }
+        else if (num_rings >= 2 && r_norm < params.ring_width_2) {
+            let ring_inner = params.ring_width_1;
+            let ring_center = (ring_inner + params.ring_width_2) * 0.5 * s2;
+            let dist_from_center = abs(r - ring_center);
+            let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
+            base_weight = params.ring_weight_2 * gaussian;
+        }
+        else if (num_rings >= 3 && r_norm < params.ring_width_3) {
+            let ring_inner = params.ring_width_2;
+            let ring_center = (ring_inner + params.ring_width_3) * 0.5 * s2;
+            let dist_from_center = abs(r - ring_center);
+            let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
+            base_weight = params.ring_weight_3 * gaussian;
+        }
+        else if (num_rings >= 4 && r_norm < params.ring_width_4) {
+            let ring_inner = params.ring_width_3;
+            let ring_center = (ring_inner + params.ring_width_4) * 0.5 * s2;
+            let dist_from_center = abs(r - ring_center);
+            let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
+            base_weight = params.ring_weight_4 * gaussian;
+        }
+        else if (num_rings >= 5 && r_norm < params.ring_width_5) {
+            let ring_inner = params.ring_width_4;
+            let ring_center = (ring_inner + params.ring_width_5) * 0.5 * s2;
+            let dist_from_center = abs(r - ring_center);
+            let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
+            base_weight = params.ring_weight_5 * gaussian;
+        }
+    }
+    
+    // Shape 6: Gabor (Gaussian envelope × sinusoidal carrier)
+    else if (shape == 6) {
+        // Gabor with Mexican-hat structure: (w1 - β·w2) · cos(k·r + φ)
+        // This allows inhibitory surround while maintaining oscillatory pattern
+        // where k_x = k·cos(θ), k_y = k·sin(θ)
+        
+        let dist_sq = dx * dx + dy * dy;
+        let w1 = exp(-dist_sq / (2.0 * s1 * s1)); // excitatory envelope
+        let w2 = exp(-dist_sq / (2.0 * s2 * s2)); // inhibitory envelope
+        let envelope = w1 - params.beta * w2; // Mexican-hat envelope
+        
+        // Spatial frequency components
+        let k = params.kernel_spatial_freq_mag;
+        let theta = params.kernel_spatial_freq_angle;
+        let k_x = k * cos(theta);
+        let k_y = k * sin(theta);
+        
+        // Sinusoidal carrier with phase offset
+        let phase = k_x * dx + k_y * dy + params.kernel_gabor_phase;
+        let carrier = cos(phase);
+        
+        base_weight = envelope * carrier;
+    }
+    
+    else {
+        // Default to isotropic
+        dist_sq = dx * dx + dy * dy;
+        let w1 = exp(-dist_sq / (2.0 * s1 * s1));
+        let w2 = exp(-dist_sq / (2.0 * s2 * s2));
+        base_weight = w1 - params.beta * w2;
+    }
+    
+    return base_weight;
+}
+
+fn mexhat_weight(dx: f32, dy: f32) -> f32 {
+    let primary_shape = i32(params.kernel_shape);
+    
+    // Check if composition is enabled
+    if (params.kernel_composition_enabled > 0.5) {
+        let secondary_shape = i32(params.kernel_secondary);
+        let mix_ratio = params.kernel_mix_ratio;
+        
+        // Evaluate both kernels
+        let primary_weight = mexhat_weight_for_shape(dx, dy, primary_shape);
+        let secondary_weight = mexhat_weight_for_shape(dx, dy, secondary_shape);
+        
+        // Mix: 0 = all secondary, 1 = all primary
+        return mix(secondary_weight, primary_weight, mix_ratio);
+    } else {
+        // Single kernel mode
+        return mexhat_weight_for_shape(dx, dy, primary_shape);
+    }
 }
 
 fn rule_classic(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
@@ -207,8 +393,7 @@ fn rule_kernel(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
             if (rr < 0) { rr = rr + i32(rows); }
             if (cc < 0) { cc = cc + i32(cols); }
             let j = u32(rr) * cols + u32(cc);
-            let dist = sqrt(f32(dr * dr + dc * dc));
-            let w = mexhat_weight(dist);
+            let w = mexhat_weight(f32(dc), f32(dr));
             sum = sum + w * sin(theta_in[j] - t);
             wtotal = wtotal + abs(w);
         }
@@ -279,7 +464,13 @@ struct Params {
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
     show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, pad2: f32, pad3: f32,
+    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
 }
 @group(0) @binding(0) var<storage, read> theta: array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
@@ -497,7 +688,13 @@ struct Params {
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
     show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, pad2: f32, pad3: f32,
+    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;

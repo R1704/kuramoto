@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Kuramoto Modular - 2D/3D</title>
+    <title>Kuramoto - 2D/3D</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -13,16 +13,24 @@
             height: 100vh;
         }
         #app {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr auto 360px;
+            grid-template-areas: "canvas visualizer controls";
             height: 100vh;
             gap: 0;
         }
         #canvas-container {
-            flex: 1;
+            grid-area: canvas;
             display: flex;
             align-items: center;
             justify-content: center;
             background: #000;
+        }
+        #control-panel {
+            grid-area: controls;
+        }
+        #visualizer-panel {
+            grid-area: visualizer;
         }
         canvas { 
             border: 1px solid #333;
@@ -39,15 +47,52 @@
             image-rendering: pixelated;
         }
         
-        #panel {
-            width: 320px;
+        #control-panel {
             background: #1a1a1a;
             border-left: 1px solid #333;
             overflow-y: auto;
             padding: 20px;
+            padding-bottom: 60px;
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 28px;
+        }
+        
+        #visualizer-panel {
+            width: 300px;
+            background: #151515;
+            border-left: 1px solid #333;
+            border-right: 1px solid #333;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            transition: width 0.2s ease, padding 0.2s ease;
+        }
+        
+        /* Collapsed state when hidden */
+        #visualizer-panel[style*="display: none"] {
+            width: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            overflow: hidden !important;
+        }
+        
+        .viz-section {
+            background: rgba(255,255,255,0.02);
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid #2a2a2a;
+        }
+        
+        .viz-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
         }
         
         h1 {
@@ -67,6 +112,7 @@
             display: flex;
             flex-direction: column;
             gap: 16px;
+            margin-bottom: 16px;
         }
         
         .section-title {
@@ -77,6 +123,41 @@
             letter-spacing: 0.5px;
             border-bottom: 1px solid #333;
             padding-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: color 0.2s;
+        }
+        
+        .section-title:hover {
+            color: #ddd;
+        }
+        
+        .section-title::after {
+            content: '▼';
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        
+        .section-title.collapsed::after {
+            transform: rotate(-90deg);
+        }
+        
+        .section-content {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            opacity: 1;
+        }
+        
+        .section-content.collapsed {
+            max-height: 0;
+            opacity: 0;
         }
         
         .control-group {
@@ -277,9 +358,9 @@
             <canvas id="canvas" width="1000" height="800"></canvas>
         </div>
         
-        <div id="panel">
+        <div id="control-panel">
             <div>
-                <h1>Kuramoto Modular</h1>
+                <h1>Kuramoto</h1>
                 <div class="subtitle">2D/3D WebGPU Visualization</div>
                 <div class="stats" id="stats">
                     <div><span>FPS</span><span class="value" id="fps">--</span></div>
@@ -481,39 +562,477 @@
                 </div>
                 
                 <div style="display: flex; flex-direction: column; gap: 24px;">
-                    <div class="control-group">
-                        <div class="control-label">
-                            <span>Inner σ (excitation)</span>
-                            <span class="control-value" id="sigma-value">1.20</span>
+                    <!-- Global Parameters -->
+                    <div style="display: flex; flex-direction: column; gap: 12px; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                        <div style="font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Global Parameters</div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Inner σ (excitation)</span>
+                                <span class="control-value" id="sigma-value">1.20</span>
+                            </div>
+                            <input type="range" id="sigma-slider" min="0.3" max="4" step="0.1" value="1.2">
                         </div>
-                        <input type="range" id="sigma-slider" min="0.3" max="4" step="0.1" value="1.2">
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Outer σ2 (inhibition width)</span>
+                                <span class="control-value" id="sigma2-value">2.20</span>
+                            </div>
+                            <input type="range" id="sigma2-slider" min="0.3" max="6" step="0.1" value="2.2">
+                        </div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Kernel β (inhibition)</span>
+                                <span class="control-value" id="beta-value">0.60</span>
+                            </div>
+                            <input type="range" id="beta-slider" min="0" max="1.5" step="0.05" value="0.6">
+                        </div>
                     </div>
                     
-                    <div class="control-group">
-                        <div class="control-label">
-                            <span>Outer σ2 (inhibition width)</span>
-                            <span class="control-value" id="sigma2-value">2.20</span>
+                    <!-- Primary Kernel -->
+                    <div style="display: flex; flex-direction: column; gap: 16px; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                        <div style="font-size: 10px; color: #8cf; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Primary Kernel</div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Shape</span>
+                            </div>
+                            <select id="kernel-shape-select">
+                                <option value="0">Isotropic (circular)</option>
+                                <option value="1">Anisotropic (elliptical)</option>
+                                <option value="2">Multi-Scale (nested)</option>
+                                <option value="3">Asymmetric (directional)</option>
+                                <option value="4">Step (rectangular)</option>
+                                <option value="5">Multi-Ring (concentric)</option>
+                                <option value="6">Gabor (oscillatory)</option>
+                            </select>
                         </div>
-                        <input type="range" id="sigma2-slider" min="0.3" max="6" step="0.1" value="2.2">
+                    
+                    <!-- Primary: Anisotropic controls -->
+                    <div id="anisotropic-controls" style="display: none; flex-direction: column; gap: 16px; padding-left: 12px; border-left: 2px solid #333;">
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Orientation (angle)</span>
+                                <span class="control-value" id="kernel-orientation-value">0°</span>
+                            </div>
+                            <input type="range" id="kernel-orientation-slider" min="0" max="6.28318" step="0.0873" value="0">
+                        </div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Aspect Ratio</span>
+                                <span class="control-value" id="kernel-aspect-value">1.0</span>
+                            </div>
+                            <input type="range" id="kernel-aspect-slider" min="1" max="5" step="0.1" value="1">
+                        </div>
                     </div>
                     
-                    <div class="control-group">
-                        <div class="control-label">
-                            <span>Kernel β (inhibition)</span>
-                            <span class="control-value" id="beta-value">0.60</span>
+                    <!-- Multi-scale controls (hidden by default) -->
+                    <div id="multiscale-controls" style="display: none; flex-direction: column; gap: 16px; padding-left: 12px; border-left: 2px solid #333;">
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Scale 2 Weight (2× size)</span>
+                                <span class="control-value" id="kernel-scale2-value">0.0</span>
+                            </div>
+                            <input type="range" id="kernel-scale2-slider" min="-0.5" max="0.5" step="0.05" value="0">
                         </div>
-                        <input type="range" id="beta-slider" min="0" max="1.5" step="0.05" value="0.6">
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Scale 3 Weight (3× size)</span>
+                                <span class="control-value" id="kernel-scale3-value">0.0</span>
+                            </div>
+                            <input type="range" id="kernel-scale3-slider" min="-0.5" max="0.5" step="0.05" value="0">
+                        </div>
                     </div>
-                </div>
-                
-                <div style="background: #0d0d0d; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-top: 20px;">
-                    <div style="font-size: 11px; color: #888; margin-bottom: 8px;">1D Kernel Profile</div>
-                    <canvas id="kernel-canvas-1d" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px;"></canvas>
-                </div>
-                
-                <div style="background: #0d0d0d; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-top: 20px;">
-                    <div style="font-size: 11px; color: #888; margin-bottom: 8px;">2D Kernel (Top View)</div>
-                    <canvas id="kernel-canvas-2d" width="280" height="280" style="width: 100%; height: 280px; border-radius: 4px;"></canvas>
+                    
+                    <!-- Asymmetric controls (hidden by default) -->
+                    <div id="asymmetric-controls" style="display: none; flex-direction: column; gap: 16px; padding-left: 12px; border-left: 2px solid #333;">
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Orientation (direction)</span>
+                                <span class="control-value" id="kernel-asymmetric-orientation-value">0°</span>
+                            </div>
+                            <input type="range" id="kernel-asymmetric-orientation-slider" min="0" max="6.28318" step="0.0873" value="0">
+                        </div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Asymmetry</span>
+                                <span class="control-value" id="kernel-asymmetry-value">0.0</span>
+                            </div>
+                            <input type="range" id="kernel-asymmetry-slider" min="-1" max="1" step="0.1" value="0">
+                        </div>
+                    </div>
+                    
+                    <!-- Multi-ring controls (hidden by default) -->
+                    <div id="multiring-controls" style="display: none; flex-direction: column; gap: 16px; padding-left: 12px; border-left: 2px solid #333;">
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Number of Rings</span>
+                                <span class="control-value" id="kernel-rings-value">3</span>
+                            </div>
+                            <input type="range" id="kernel-rings-slider" min="1" max="5" step="1" value="3">
+                        </div>
+                        
+                        <div style="font-size: 10px; color: #666; padding: 8px; background: rgba(255,255,0,0.05); border-radius: 4px; margin-top: 8px;">
+                            💡 Tip: Each ring's outer radius should be larger than the previous ring's radius for proper nesting
+                        </div>
+                        
+                        <!-- Individual ring controls -->
+                        <div id="ring-1-controls" class="ring-control" style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 1 (innermost)</div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Outer radius</span>
+                                    <span class="control-value" id="ring-1-width-value">0.20</span>
+                                </div>
+                                <input type="range" id="ring-1-width-slider" min="0.05" max="1.0" step="0.05" value="0.2">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Weight</span>
+                                    <span class="control-value" id="ring-1-weight-value">1.00</span>
+                                </div>
+                                <input type="range" id="ring-1-weight-slider" min="-1" max="1" step="0.1" value="1.0">
+                            </div>
+                        </div>
+                        
+                        <div id="ring-2-controls" class="ring-control" style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 2</div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Outer radius</span>
+                                    <span class="control-value" id="ring-2-width-value">0.40</span>
+                                </div>
+                                <input type="range" id="ring-2-width-slider" min="0.05" max="1.0" step="0.05" value="0.4">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Weight</span>
+                                    <span class="control-value" id="ring-2-weight-value">-0.60</span>
+                                </div>
+                                <input type="range" id="ring-2-weight-slider" min="-1" max="1" step="0.1" value="-0.6">
+                            </div>
+                        </div>
+                        
+                        <div id="ring-3-controls" class="ring-control" style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 3</div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Outer radius</span>
+                                    <span class="control-value" id="ring-3-width-value">0.60</span>
+                                </div>
+                                <input type="range" id="ring-3-width-slider" min="0.05" max="1.0" step="0.05" value="0.6">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Weight</span>
+                                    <span class="control-value" id="ring-3-weight-value">0.80</span>
+                                </div>
+                                <input type="range" id="ring-3-weight-slider" min="-1" max="1" step="0.1" value="0.8">
+                            </div>
+                        </div>
+                        
+                        <div id="ring-4-controls" class="ring-control" style="display: none; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 4</div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Outer radius</span>
+                                    <span class="control-value" id="ring-4-width-value">0.80</span>
+                                </div>
+                                <input type="range" id="ring-4-width-slider" min="0.05" max="1.0" step="0.05" value="0.8">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Weight</span>
+                                    <span class="control-value" id="ring-4-weight-value">-0.40</span>
+                                </div>
+                                <input type="range" id="ring-4-weight-slider" min="-1" max="1" step="0.1" value="-0.4">
+                            </div>
+                        </div>
+                        
+                        <div id="ring-5-controls" class="ring-control" style="display: none; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 5 (outermost)</div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Outer radius</span>
+                                    <span class="control-value" id="ring-5-width-value">1.00</span>
+                                </div>
+                                <input type="range" id="ring-5-width-slider" min="0.05" max="1.0" step="0.05" value="1.0">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span style="font-size: 11px;">Weight</span>
+                                    <span class="control-value" id="ring-5-weight-value">0.50</span>
+                                </div>
+                                <input type="range" id="ring-5-weight-slider" min="-1" max="1" step="0.1" value="0.5">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Gabor controls (hidden by default) -->
+                    <div id="gabor-controls" style="display: none; flex-direction: column; gap: 16px; padding-left: 12px; border-left: 2px solid #333;">
+                        <div style="font-size: 10px; color: #888; padding: 8px; background: rgba(255,200,100,0.05); border-radius: 4px;">
+                            🌊 Gabor kernels create oriented, wavelike patterns — like visual cortex receptive fields. Adjust spatial frequency magnitude and direction.
+                        </div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Spatial Frequency (k)</span>
+                                <span class="control-value" id="kernel-spatial-freq-value">2.0</span>
+                            </div>
+                            <input type="range" id="kernel-spatial-freq-slider" min="0.5" max="8" step="0.1" value="2.0">
+                        </div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Frequency Direction (θ)</span>
+                                <span class="control-value" id="kernel-freq-angle-value">0°</span>
+                            </div>
+                            <input type="range" id="kernel-freq-angle-slider" min="0" max="6.28318" step="0.0873" value="0">
+                        </div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Phase Offset (φ)</span>
+                                <span class="control-value" id="kernel-gabor-phase-value">0°</span>
+                            </div>
+                            <input type="range" id="kernel-gabor-phase-slider" min="0" max="6.28318" step="0.0873" value="0">
+                        </div>
+                    </div>
+                    </div>
+                    
+                    <!-- Secondary Kernel -->
+                    <div style="display: flex; flex-direction: column; gap: 16px; padding: 12px; background: rgba(100,200,255,0.03); border-radius: 4px; border: 1px solid rgba(100,200,255,0.2);">
+                        <div style="font-size: 10px; color: #8cf; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Secondary Kernel (Optional)</div>
+                        
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Shape</span>
+                            </div>
+                            <select id="kernel-secondary-dropdown" style="padding: 4px 8px; background: #1a1a1a; color: #eee; border: 1px solid #444; border-radius: 4px; font-size: 11px;">
+                                <option value="-1">None</option>
+                                <option value="0">Isotropic</option>
+                                <option value="1">Anisotropic</option>
+                                <option value="2">Multi-scale</option>
+                                <option value="3">Asymmetric</option>
+                                <option value="4">Step</option>
+                                <option value="5">Multi-ring</option>
+                                <option value="6">Gabor</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Secondary kernel parameters (shown when secondary != None) -->
+                        <div id="secondary-kernel-params" style="display: none; flex-direction: column; gap: 12px;">
+                            
+                            <!-- Secondary: Anisotropic controls -->
+                            <div id="secondary-anisotropic-controls" style="display: none; flex-direction: column; gap: 12px;">
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Orientation (angle)</span>
+                                        <span class="control-value" id="secondary-kernel-orientation-value">0°</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-orientation-slider" min="0" max="6.28318" step="0.0873" value="0">
+                                </div>
+                                
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Aspect Ratio</span>
+                                        <span class="control-value" id="secondary-kernel-aspect-value">1.0</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-aspect-slider" min="1" max="5" step="0.1" value="1">
+                                </div>
+                            </div>
+                            
+                            <!-- Secondary: Multi-scale controls -->
+                            <div id="secondary-multiscale-controls" style="display: none; flex-direction: column; gap: 12px;">
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Scale 2 Weight (2× size)</span>
+                                        <span class="control-value" id="secondary-kernel-scale2-value">0.0</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-scale2-slider" min="-0.5" max="0.5" step="0.05" value="0">
+                                </div>
+                                
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Scale 3 Weight (3× size)</span>
+                                        <span class="control-value" id="secondary-kernel-scale3-value">0.0</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-scale3-slider" min="-0.5" max="0.5" step="0.05" value="0">
+                                </div>
+                            </div>
+                            
+                            <!-- Secondary: Asymmetric controls -->
+                            <div id="secondary-asymmetric-controls" style="display: none; flex-direction: column; gap: 12px;">
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Orientation (direction)</span>
+                                        <span class="control-value" id="secondary-kernel-asymmetric-orientation-value">0°</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-asymmetric-orientation-slider" min="0" max="6.28318" step="0.0873" value="0">
+                                </div>
+                                
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Asymmetry</span>
+                                        <span class="control-value" id="secondary-kernel-asymmetry-value">0.0</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-asymmetry-slider" min="-1" max="1" step="0.1" value="0">
+                                </div>
+                            </div>
+                            
+                            <!-- Secondary: Multi-ring controls -->
+                            <div id="secondary-multiring-controls" style="display: none; flex-direction: column; gap: 12px;">
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Number of Rings</span>
+                                        <span class="control-value" id="secondary-kernel-rings-value">2</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-rings-slider" min="1" max="5" step="1" value="2">
+                                </div>
+                                
+                                <!-- Ring 1 -->
+                                <div id="secondary-ring-1-controls" style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">
+                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 1 (center)</div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Outer radius</span>
+                                            <span class="control-value" id="secondary-kernel-ring1-width-value">0.20</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring1-width-slider" min="0.05" max="1" step="0.05" value="0.2">
+                                    </div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Weight</span>
+                                            <span class="control-value" id="secondary-kernel-ring1-weight-value">1.00</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring1-weight-slider" min="-1" max="1" step="0.05" value="1">
+                                    </div>
+                                </div>
+                                
+                                <!-- Ring 2 -->
+                                <div id="secondary-ring-2-controls" style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">
+                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 2</div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Outer radius</span>
+                                            <span class="control-value" id="secondary-kernel-ring2-width-value">0.40</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring2-width-slider" min="0.05" max="1" step="0.05" value="0.4">
+                                    </div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Weight</span>
+                                            <span class="control-value" id="secondary-kernel-ring2-weight-value">-0.50</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring2-weight-slider" min="-1" max="1" step="0.05" value="-0.5">
+                                    </div>
+                                </div>
+                                
+                                <!-- Ring 3 -->
+                                <div id="secondary-ring-3-controls" style="display: none; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">
+                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 3</div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Outer radius</span>
+                                            <span class="control-value" id="secondary-kernel-ring3-width-value">0.60</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring3-width-slider" min="0.05" max="1" step="0.05" value="0.6">
+                                    </div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Weight</span>
+                                            <span class="control-value" id="secondary-kernel-ring3-weight-value">0.00</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring3-weight-slider" min="-1" max="1" step="0.05" value="0">
+                                    </div>
+                                </div>
+                                
+                                <!-- Ring 4 -->
+                                <div id="secondary-ring-4-controls" style="display: none; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">
+                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 4</div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Outer radius</span>
+                                            <span class="control-value" id="secondary-kernel-ring4-width-value">0.80</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring4-width-slider" min="0.05" max="1" step="0.05" value="0.8">
+                                    </div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Weight</span>
+                                            <span class="control-value" id="secondary-kernel-ring4-weight-value">0.00</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring4-weight-slider" min="-1" max="1" step="0.05" value="0">
+                                    </div>
+                                </div>
+                                
+                                <!-- Ring 5 -->
+                                <div id="secondary-ring-5-controls" style="display: none; flex-direction: column; gap: 8px; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">
+                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Ring 5 (outermost)</div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Outer radius</span>
+                                            <span class="control-value" id="secondary-kernel-ring5-width-value">1.00</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring5-width-slider" min="0.05" max="1" step="0.05" value="1">
+                                    </div>
+                                    <div class="control-group" style="margin: 0;">
+                                        <div class="control-label">
+                                            <span style="font-size: 11px;">Weight</span>
+                                            <span class="control-value" id="secondary-kernel-ring5-weight-value">0.00</span>
+                                        </div>
+                                        <input type="range" id="secondary-kernel-ring5-weight-slider" min="-1" max="1" step="0.05" value="0">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Secondary: Gabor controls -->
+                            <div id="secondary-gabor-controls" style="display: none; flex-direction: column; gap: 12px;">
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Spatial Frequency (k)</span>
+                                        <span class="control-value" id="secondary-kernel-spatial-freq-value">2.0</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-spatial-freq-slider" min="0.5" max="8" step="0.1" value="2.0">
+                                </div>
+                                
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Frequency Direction (θ)</span>
+                                        <span class="control-value" id="secondary-kernel-freq-angle-value">0°</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-freq-angle-slider" min="0" max="6.28318" step="0.0873" value="0">
+                                </div>
+                                
+                                <div class="control-group">
+                                    <div class="control-label">
+                                        <span>Phase Offset (φ)</span>
+                                        <span class="control-value" id="secondary-kernel-gabor-phase-value">0°</span>
+                                    </div>
+                                    <input type="range" id="secondary-kernel-gabor-phase-slider" min="0" max="6.28318" step="0.0873" value="0">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Mix Ratio (outside secondary kernel box, only shows when composition enabled) -->
+                    <div id="kernel-mix-ratio-container" style="display: none;">
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Mix Ratio</span>
+                                <span class="control-value" id="kernel-mix-ratio-value">0.50</span>
+                            </div>
+                            <input type="range" id="kernel-mix-ratio-slider" min="0" max="1" step="0.05" value="0.5">
+                            <div style="font-size: 9px; color: #666; margin-top: 2px;">
+                                0.0 = all secondary | 0.5 = equal blend | 1.0 = all primary
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -596,7 +1115,53 @@
                 Scroll to zoom • Right-drag to pan
             </div>
         </div>
+        
+        <!-- VISUALIZER PANEL (Third Column) -->
+        <div id="visualizer-panel">
+            <div class="viz-section">
+                <div class="viz-title">1D Kernel Profile</div>
+                <canvas id="kernel-canvas-1d" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px;"></canvas>
+            </div>
+            
+            <div class="viz-section">
+                <div class="viz-title">2D Kernel (Top View)</div>
+                <canvas id="kernel-canvas-2d" width="280" height="280" style="width: 100%; height: 280px; border-radius: 4px;"></canvas>
+            </div>
+        </div>
     </div>
+    
+    <script>
+        // Make all sections collapsible
+        function toggleSection(titleEl) {
+            titleEl.classList.toggle('collapsed');
+            const content = titleEl.nextElementSibling;
+            if (content && content.classList.contains('section-content')) {
+                content.classList.toggle('collapsed');
+            }
+        }
+        
+        // Initialize all sections as collapsible
+        document.addEventListener('DOMContentLoaded', () => {
+            const titles = document.querySelectorAll('.section-title');
+            titles.forEach(title => {
+                if (!title.onclick) {
+                    title.onclick = () => toggleSection(title);
+                }
+                // Wrap content if not already wrapped
+                let next = title.nextElementSibling;
+                if (next && !next.classList.contains('section-content')) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'section-content';
+                    title.parentNode.insertBefore(wrapper, next);
+                    while (next && !next.classList.contains('section-title') && !next.classList.contains('section-content')) {
+                        const current = next;
+                        next = next.nextElementSibling;
+                        wrapper.appendChild(current);
+                    }
+                }
+            });
+        });
+    </script>
     
     <script type="module" src="./src/main.js"></script>
 </body>

@@ -27,7 +27,27 @@ const STATE = {
     omegaPattern: 'random',
     omegaAmplitude: 0.4,
     viewMode: 0, // 0 = 3D, 1 = 2D
-    gridSize: 256 // Adjustable grid size
+    gridSize: 256, // Adjustable grid size
+    // Kernel shape parameters
+    kernelShape: 0, // 0=isotropic, 1=anisotropic, 2=multi-scale, 3=asymmetric, 4=step, 5=multi-ring
+    kernelOrientation: 0.0, // radians, 0-2π (for anisotropic)
+    kernelAsymmetricOrientation: 0.0, // radians, 0-2π (for asymmetric - separate from anisotropic)
+    kernelAspect: 1.0, // aspect ratio for anisotropic, 1.0 = circular
+    kernelScale2Weight: 0.0, // weight for second scale (multi-scale)
+    kernelScale3Weight: 0.0, // weight for third scale (multi-scale)
+    kernelAsymmetry: 0.0, // forward/backward strength difference (-1 to 1)
+    kernelRings: 3, // number of rings for multi-ring (1-5)
+    // Multi-ring individual controls (cumulative radii 0-1, weights -1 to 1)
+    kernelRingWidths: [0.2, 0.4, 0.6, 0.8, 1.0],
+    kernelRingWeights: [1.0, -0.6, 0.8, -0.4, 0.5],
+    // Kernel composition (mixing two shapes)
+    kernelCompositionEnabled: false, // enable mixing of primary + secondary
+    kernelSecondary: 0, // secondary kernel shape (0-6)
+    kernelMixRatio: 0.5, // 0 = all secondary, 1 = all primary
+    // Gabor kernel parameters
+    kernelSpatialFreqMag: 2.0, // spatial frequency magnitude (k)
+    kernelSpatialFreqAngle: 0.0, // spatial frequency direction (radians)
+    kernelGaborPhase: 0.0 // phase offset (radians)
 };
 
 // Store the last external input canvas for pattern initialization
