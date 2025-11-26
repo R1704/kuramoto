@@ -1217,7 +1217,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (mode == 4) {
         // Image texture modulated by phase (matches 3D)
         // Flip Y to match 3D texcoord orientation, flip X for webcam mirror
-        let tex_uv = vec2<f32>(1.0 - uv.x, 1.0 - uv.y);
+        let tex_uv = vec2<f32>(uv.x, 1.0 - uv.y);
         let texColor = textureSample(externalTexture, textureSampler, tex_uv).rgb;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         col3 = texColor * (0.7 + 0.3 * phaseMod);
