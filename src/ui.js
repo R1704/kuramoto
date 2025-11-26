@@ -412,22 +412,47 @@ export class UIManager {
             };
         }
         
-        // Grid size controls
+        // Grid size controls - enforce 64-pixel alignment for bytesPerRow texture copy compatibility
+        // WebGPU requires bytesPerRow (grid_size * 4 bytes) to be 256-byte aligned
+        // So grid_size must be multiple of 64 (64 * 4 = 256)
         const gridSizeInput = document.getElementById('grid-size-input');
         const gridSizeValue = document.getElementById('grid-size-value');
         const applyGridBtn = document.getElementById('apply-grid-btn');
         
+        // Helper to align grid size to nearest multiple of 64
+        const alignGridSize = (size) => {
+            const aligned = Math.round(size / 64) * 64;
+            // Clamp to valid range
+            return Math.max(64, Math.min(1024, aligned));
+        };
+        
         if (gridSizeInput && gridSizeValue) {
             gridSizeInput.oninput = () => {
-                gridSizeValue.textContent = gridSizeInput.value;
+                const requested = parseInt(gridSizeInput.value);
+                const aligned = alignGridSize(requested);
+                
+                // Update display with aligned value
+                gridSizeValue.textContent = aligned;
+                
+                // Update input value if it got adjusted
+                if (aligned !== requested) {
+                    gridSizeInput.value = aligned;
+                }
             };
         }
         
         if (applyGridBtn && gridSizeInput) {
             applyGridBtn.onclick = () => {
-                const newSize = parseInt(gridSizeInput.value);
-                if (newSize >= 32 && newSize <= 1024 && this.cb.onResizeGrid) {
-                    this.cb.onResizeGrid(newSize);
+                const requested = parseInt(gridSizeInput.value);
+                const aligned = alignGridSize(requested);
+                
+                // Warn user if adjustment was made
+                if (aligned !== requested) {
+                    console.warn(`Grid size ${requested} adjusted to ${aligned} (must be multiple of 64 for bytesPerRow alignment)`);
+                }
+                
+                if (this.cb.onResizeGrid) {
+                    this.cb.onResizeGrid(aligned);
                 }
             };
         }
@@ -455,10 +480,10 @@ export class UIManager {
             else if (e.key === 'ArrowUp') {
                 e.preventDefault(); // Prevent scrolling
                 if (e.shiftKey) {
-                    // Shift+Up: Increase grid size
+                    // Shift+Up: Increase grid size (by 64 for bytesPerRow alignment)
                     const gridInput = document.getElementById('grid-size-input');
-                    const newSize = Math.min(1024, this.state.gridSize + 16);
-                    if (newSize >= 32 && newSize <= 1024 && this.cb.onResizeGrid) {
+                    const newSize = Math.min(1024, this.state.gridSize + 64);
+                    if (newSize >= 64 && newSize <= 1024 && this.cb.onResizeGrid) {
                         gridInput.value = newSize;
                         document.getElementById('grid-size-value').textContent = newSize;
                         this.cb.onResizeGrid(newSize);
@@ -473,10 +498,10 @@ export class UIManager {
             else if (e.key === 'ArrowDown') {
                 e.preventDefault(); // Prevent scrolling
                 if (e.shiftKey) {
-                    // Shift+Down: Decrease grid size
+                    // Shift+Down: Decrease grid size (by 64 for bytesPerRow alignment)
                     const gridInput = document.getElementById('grid-size-input');
-                    const newSize = Math.max(32, this.state.gridSize - 16);
-                    if (newSize >= 32 && newSize <= 1024 && this.cb.onResizeGrid) {
+                    const newSize = Math.max(64, this.state.gridSize - 64);
+                    if (newSize >= 64 && newSize <= 1024 && this.cb.onResizeGrid) {
                         gridInput.value = newSize;
                         document.getElementById('grid-size-value').textContent = newSize;
                         this.cb.onResizeGrid(newSize);

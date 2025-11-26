@@ -13,13 +13,71 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
 }
 
-@group(0) @binding(0) var<storage, read> theta_in: array<f32>;
+// Textures for theta state (better 2D spatial cache locality)
+@group(0) @binding(0) var theta_in: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read> omega: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 @group(0) @binding(3) var<storage, read_write> order: array<f32>;
 @group(0) @binding(4) var<storage, read> theta_delayed: array<f32>;
 @group(0) @binding(5) var<storage, read> global_order: vec2<f32>;
-@group(0) @binding(6) var<storage, read_write> theta_out: array<f32>;
+@group(0) @binding(6) var theta_out: texture_storage_2d<r32float, write>;
+
+// ============================================================================
+// SHARED MEMORY TILE for fast neighbor access
+// Tile size: 16x16 workgroup + 8 pixel border on each side = 32x32
+// This covers neighborhood range up to 8
+// ============================================================================
+const TILE_SIZE: u32 = 16u;
+const HALO: u32 = 8u;
+const SHARED_SIZE: u32 = 32u; // TILE_SIZE + 2 * HALO
+
+var<workgroup> shared_theta: array<f32, 1024>; // 32 * 32 = 1024
+
+// Helper to load from theta texture with 2D coordinates (for initial tile load)
+fn loadThetaGlobal(col: i32, row: i32, cols: i32, rows: i32) -> f32 {
+    // Wrap coordinates for periodic boundary
+    var c = col % cols;
+    var r = row % rows;
+    if (c < 0) { c = c + cols; }
+    if (r < 0) { r = r + rows; }
+    return textureLoad(theta_in, vec2<i32>(c, r), 0).r;
+}
+
+// Helper to read from shared memory tile
+fn loadThetaShared(local_c: i32, local_r: i32) -> f32 {
+    // Offset by HALO since shared memory includes border
+    let sc = u32(local_c + i32(HALO));
+    let sr = u32(local_r + i32(HALO));
+    return shared_theta[sr * SHARED_SIZE + sc];
+}
+
+// Cooperative tile loading - each thread loads multiple values to fill shared memory
+fn loadTile(
+    local_id: vec2<u32>,
+    tile_origin: vec2<i32>,
+    cols: i32,
+    rows: i32
+) {
+    let lid_x = i32(local_id.x);
+    let lid_y = i32(local_id.y);
+    
+    // Each thread in 16x16 workgroup loads 4 values to cover 32x32 tile
+    // Thread (lx, ly) loads positions:
+    //   (lx*2, ly*2), (lx*2+1, ly*2), (lx*2, ly*2+1), (lx*2+1, ly*2+1)
+    for (var dy = 0; dy < 2; dy = dy + 1) {
+        for (var dx = 0; dx < 2; dx = dx + 1) {
+            let shared_x = u32(lid_x * 2 + dx);
+            let shared_y = u32(lid_y * 2 + dy);
+            
+            if (shared_x < SHARED_SIZE && shared_y < SHARED_SIZE) {
+                let global_x = tile_origin.x - i32(HALO) + i32(shared_x);
+                let global_y = tile_origin.y - i32(HALO) + i32(shared_y);
+                
+                shared_theta[shared_y * SHARED_SIZE + shared_x] = loadThetaGlobal(global_x, global_y, cols, rows);
+            }
+        }
+    }
+}
 
 fn hash(n: u32) -> f32 {
     var x = (n ^ 61u) ^ (n >> 16u);
@@ -35,33 +93,34 @@ fn noise(i: u32) -> f32 {
     return (hash(seed) - 0.5) * params.noise_strength * 2.0;
 }
 
-fn localOrder(i: u32, cols: u32, rows: u32, rng: i32) -> f32 {
-    let c = i % cols;
-    let r = i / cols;
+// Local order using shared memory - reads from pre-loaded tile
+fn localOrderShared(local_c: i32, local_r: i32, rng: i32) -> f32 {
     var sx = 0.0; var sy = 0.0; var cnt = 0.0;
     
-    if (params.global_coupling > 0.5) {
-        // Global coupling: couple to ALL oscillators
-        for (var j = 0u; j < cols * rows; j = j + 1u) {
-            if (j == i) { continue; }
-            sx = sx + cos(theta_in[j]);
-            sy = sy + sin(theta_in[j]);
+    for (var dr = -rng; dr <= rng; dr = dr + 1) {
+        for (var dc = -rng; dc <= rng; dc = dc + 1) {
+            if (dr == 0 && dc == 0) { continue; }
+            let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+            sx = sx + cos(theta_j);
+            sy = sy + sin(theta_j);
             cnt = cnt + 1.0;
         }
-    } else {
-        for (var dr = -rng; dr <= rng; dr = dr + 1) {
-            for (var dc = -rng; dc <= rng; dc = dc + 1) {
-                if (dr == 0 && dc == 0) { continue; }
-                var rr = (i32(r) + dr) % i32(rows);
-                var cc = (i32(c) + dc) % i32(cols);
-                if (rr < 0) { rr = rr + i32(rows); }
-                if (cc < 0) { cc = cc + i32(cols); }
-                let j = u32(rr) * cols + u32(cc);
-                sx = sx + cos(theta_in[j]);
-                sy = sy + sin(theta_in[j]);
-                cnt = cnt + 1.0;
-            }
-        }
+    }
+    return sqrt((sx/cnt)*(sx/cnt) + (sy/cnt)*(sy/cnt));
+}
+
+// Local order for global coupling mode (needs global access)
+fn localOrderGlobal(i: u32, cols: u32, rows: u32) -> f32 {
+    var sx = 0.0; var sy = 0.0; var cnt = 0.0;
+    
+    for (var j = 0u; j < cols * rows; j = j + 1u) {
+        if (j == i) { continue; }
+        let jc = i32(j % cols);
+        let jr = i32(j / cols);
+        let theta_j = loadThetaGlobal(jc, jr, i32(cols), i32(rows));
+        sx = sx + cos(theta_j);
+        sy = sy + sin(theta_j);
+        cnt = cnt + 1.0;
     }
     return sqrt((sx/cnt)*(sx/cnt) + (sy/cnt)*(sy/cnt));
 }
@@ -254,32 +313,22 @@ fn mexhat_weight(dx: f32, dy: f32) -> f32 {
     }
 }
 
-fn rule_classic(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
-    let c = i % cols; let r = i / cols;
+fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
         // Use precomputed mean field: Z = (cos_avg, sin_avg)
-        // Coupling = K * Im(Z * e^(-iθ)) = K * sin(arg(Z) - θ)
         let Z_cos = global_order.x;
         let Z_sin = global_order.y;
-        
-        // Convert to phase difference: sin(θ_mean - θ_i)
-        // Z * e^(-iθ) = (Z_cos + i*Z_sin) * (cos(-θ) + i*sin(-θ))
-        //             = Z_cos*cos(θ) + Z_sin*sin(θ) + i*(Z_sin*cos(θ) - Z_cos*sin(θ))
-        // Im part = Z_sin*cos(θ) - Z_cos*sin(θ) = sin(atan2(Z_sin, Z_cos) - θ)
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
     } else {
+        // Use shared memory for local coupling
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
-                var rr = (i32(r) + dr) % i32(rows);
-                var cc = (i32(c) + dc) % i32(cols);
-                if (rr < 0) { rr = rr + i32(rows); }
-                if (cc < 0) { cc = cc + i32(cols); }
-                let j = u32(rr) * cols + u32(cc);
-                sum = sum + sin(theta_in[j] - t);
+                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+                sum = sum + sin(theta_j - t);
                 cnt = cnt + 1.0;
             }
         }
@@ -287,8 +336,7 @@ fn rule_classic(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     return params.K0 * (sum / cnt);
 }
 
-fn rule_coherence(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
-    let c = i % cols; let r = i / cols;
+fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -298,26 +346,22 @@ fn rule_coherence(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
     } else {
+        // Use shared memory for local coupling
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
-                var rr = (i32(r) + dr) % i32(rows);
-                var cc = (i32(c) + dc) % i32(cols);
-                if (rr < 0) { rr = rr + i32(rows); }
-                if (cc < 0) { cc = cc + i32(cols); }
-                let j = u32(rr) * cols + u32(cc);
-                sum = sum + sin(theta_in[j] - t);
+                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+                sum = sum + sin(theta_j - t);
                 cnt = cnt + 1.0;
             }
         }
     }
-    let ri = localOrder(i, cols, rows, rng);
+    let ri = localOrderShared(local_c, local_r, rng);
     let Ki = params.K0 * (1.0 - 0.8 * ri);
     return Ki * (sum / cnt);
 }
 
-fn rule_curvature(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
-    let c = i % cols; let r = i / cols;
+fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -327,15 +371,12 @@ fn rule_curvature(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
     } else {
+        // Use shared memory for local coupling
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
-                var rr = (i32(r) + dr) % i32(rows);
-                var cc = (i32(c) + dc) % i32(cols);
-                if (rr < 0) { rr = rr + i32(rows); }
-                if (cc < 0) { cc = cc + i32(cols); }
-                let j = u32(rr) * cols + u32(cc);
-                sum = sum + sin(theta_in[j] - t);
+                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+                sum = sum + sin(theta_j - t);
                 cnt = cnt + 1.0;
             }
         }
@@ -344,8 +385,7 @@ fn rule_curvature(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     return params.K0 * min(1.0, abs(lap) * 2.0) * lap;
 }
 
-fn rule_harmonics(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
-    let c = i % cols; let r = i / cols;
+fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
     var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -354,22 +394,18 @@ fn rule_harmonics(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
         let Z_sin = global_order.y;
         s1 = Z_sin * cos(t) - Z_cos * sin(t);
         
-        // For harmonics, we'd need additional reduction passes (not implemented here)
-        // For now, just use the fundamental with harmonic coefficients applied to magnitude
+        // For harmonics, use fundamental with harmonic coefficients
         let Z_mag = sqrt(Z_cos * Z_cos + Z_sin * Z_sin);
         s2 = s1 * params.harmonic_a * Z_mag;
         s3 = s1 * params.harmonic_b * Z_mag;
         cnt = 1.0;
     } else {
+        // Use shared memory for local coupling
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
-                var rr = (i32(r) + dr) % i32(rows);
-                var cc = (i32(c) + dc) % i32(cols);
-                if (rr < 0) { rr = rr + i32(rows); }
-                if (cc < 0) { cc = cc + i32(cols); }
-                let j = u32(rr) * cols + u32(cc);
-                let d = theta_in[j] - t;
+                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+                let d = theta_j - t;
                 s1 = s1 + sin(d);
                 s2 = s2 + sin(2.0 * d);
                 s3 = s3 + sin(3.0 * d);
@@ -380,39 +416,51 @@ fn rule_harmonics(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
     return params.K0 * ((s1 + params.harmonic_a * s2 + params.harmonic_b * s3) / cnt);
 }
 
-fn rule_kernel(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
-    let c = i % cols; let r = i / cols;
+// rule_kernel needs larger range - use shared memory when possible, fall back to global
+fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, t: f32) -> f32 {
     var sum = 0.0; var wtotal = 0.0;
     
     let rng_ext = i32(params.sigma2 * 3.0);
-    for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
-        for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
-            if (dr == 0 && dc == 0) { continue; }
-            var rr = (i32(r) + dr) % i32(rows);
-            var cc = (i32(c) + dc) % i32(cols);
-            if (rr < 0) { rr = rr + i32(rows); }
-            if (cc < 0) { cc = cc + i32(cols); }
-            let j = u32(rr) * cols + u32(cc);
-            let w = mexhat_weight(f32(dc), f32(dr));
-            sum = sum + w * sin(theta_in[j] - t);
-            wtotal = wtotal + abs(w);
+    
+    // If range fits in shared memory (halo = 8), use it
+    if (rng_ext <= i32(HALO)) {
+        for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
+            for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
+                if (dr == 0 && dc == 0) { continue; }
+                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+                let w = mexhat_weight(f32(dc), f32(dr));
+                sum = sum + w * sin(theta_j - t);
+                wtotal = wtotal + abs(w);
+            }
+        }
+    } else {
+        // Fall back to global texture access for large kernels
+        for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
+            for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
+                if (dr == 0 && dc == 0) { continue; }
+                let theta_j = loadThetaGlobal(global_c + dc, global_r + dr, cols, rows);
+                let w = mexhat_weight(f32(dc), f32(dr));
+                sum = sum + w * sin(theta_j - t);
+                wtotal = wtotal + abs(w);
+            }
         }
     }
+    
     if (wtotal > 0.0) {
         return params.K0 * (sum / wtotal);
     }
     return 0.0;
 }
 
-fn rule_delay(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
-    let c = i % cols; let r = i / cols;
+fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+    // Delay mode uses storage buffer for delayed theta values, not shared memory
     var sum = 0.0; var cnt = 0.0;
     
     for (var dr = -rng; dr <= rng; dr = dr + 1) {
         for (var dc = -rng; dc <= rng; dc = dc + 1) {
             if (dr == 0 && dc == 0) { continue; }
-            var rr = (i32(r) + dr) % i32(rows);
-            var cc = (i32(c) + dc) % i32(cols);
+            var rr = (i32(global_r) + dr) % i32(rows);
+            var cc = (i32(global_c) + dc) % i32(cols);
             if (rr < 0) { rr = rr + i32(rows); }
             if (cc < 0) { cc = cc + i32(cols); }
             let j = u32(rr) * cols + u32(cc);
@@ -424,26 +472,46 @@ fn rule_delay(i: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
 }
 
 @compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let c = id.x; let r = id.y;
+fn main(@builtin(global_invocation_id) id: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>,
+        @builtin(workgroup_id) wg_id: vec3<u32>) {
     let cols = u32(params.cols); let rows = u32(params.rows);
-    if (c >= cols || r >= rows) { return; }
     
-    let i = r * cols + c;
-    let t = theta_in[i];
+    // Local coordinates within workgroup (0-15)
+    let local_c = i32(lid.x);
+    let local_r = i32(lid.y);
+    
+    // Global coordinates
+    let global_c = id.x;
+    let global_r = id.y;
+    
+    // Tile origin in global coordinates (top-left of the 16x16 output area)
+    let tile_origin = vec2<i32>(i32(wg_id.x) * i32(TILE_SIZE), i32(wg_id.y) * i32(TILE_SIZE));
+    
+    // Cooperative tile loading using helper function
+    loadTile(lid.xy, tile_origin, i32(cols), i32(rows));
+    
+    // Synchronize: ensure all threads have loaded their data
+    workgroupBarrier();
+    
+    // Early exit for out-of-bounds threads (after loading!)
+    if (global_c >= cols || global_r >= rows) { return; }
+    
+    let i = global_r * cols + global_c;
+    let t = loadThetaShared(local_c, local_r);  // Center value from shared memory
     let rng = i32(params.range);
     
-    // Compute order parameter
-    order[i] = localOrder(i, cols, rows, rng);
+    // Compute order parameter using shared memory
+    order[i] = localOrderShared(local_c, local_r, rng);
     
     var dtheta = 0.0;
     let mode = i32(params.rule_mode);
-    if (mode == 0) { dtheta = rule_classic(i, cols, rows, rng, t); }
-    else if (mode == 1) { dtheta = rule_coherence(i, cols, rows, rng, t); }
-    else if (mode == 2) { dtheta = rule_curvature(i, cols, rows, rng, t); }
-    else if (mode == 3) { dtheta = rule_harmonics(i, cols, rows, rng, t); }
-    else if (mode == 4) { dtheta = rule_kernel(i, cols, rows, rng, t); }
-    else if (mode == 5) { dtheta = rule_delay(i, cols, rows, rng, t); }
+    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t); }
+    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t); }
+    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t); }
+    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t); }
+    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), t); }
+    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t); }
     
     // Add noise perturbation
     if (params.noise_strength > 0.001) {
@@ -454,7 +522,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let TWO_PI = 6.28318530718;
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
     if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
-    theta_out[i] = newTheta;
+    textureStore(theta_out, vec2<i32>(i32(global_c), i32(global_r)), vec4<f32>(newTheta, 0.0, 0.0, 1.0));
 }
 `;
 
@@ -472,12 +540,17 @@ struct Params {
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
 }
-@group(0) @binding(0) var<storage, read> theta: array<f32>;
+@group(0) @binding(0) var theta_tex: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<uniform> viewProj: mat4x4<f32>;
 @group(0) @binding(3) var<storage, read> order: array<f32>;
 @group(0) @binding(4) var textureSampler: sampler;
 @group(0) @binding(5) var externalTexture: texture_2d<f32>;
+
+// Helper to load theta from texture
+fn loadThetaRender(col: u32, row: u32) -> f32 {
+    return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), 0).r;
+}
 
 fn compute_gradient(ii: u32, cols: u32, rows: u32) -> f32 {
     let c = ii % cols;
@@ -488,10 +561,10 @@ fn compute_gradient(ii: u32, cols: u32, rows: u32) -> f32 {
     var ru = (r + 1u) % rows;
     var rd = (r + rows - 1u) % rows;
     
-    let right = theta[r * cols + cr];
-    let left = theta[r * cols + cl];
-    let up = theta[ru * cols + c];
-    let down = theta[rd * cols + c];
+    let right = loadThetaRender(cr, r);
+    let left = loadThetaRender(cl, r);
+    let up = loadThetaRender(c, ru);
+    let down = loadThetaRender(c, rd);
     
     var dx = right - left;
     var dy = up - down;
@@ -515,27 +588,29 @@ struct VertexOutput {
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexOutput {
     let cols = u32(params.cols);
-    let c = f32(ii % cols); let r = f32(ii / cols);
+    let rows = u32(params.rows);
+    let c = ii % cols; let r = ii / cols;
     let qx = f32(vi & 1u); let qz = f32((vi >> 1u) & 1u);
     
     // Use view_mode to control 2D vs 3D: 0.0 = 3D, 1.0 = 2D
     let is_3d = params.view_mode < 0.5;
-    let height_3d = sin(theta[ii]) * 2.0;
+    let theta_val = loadThetaRender(c, r);
+    let height_3d = sin(theta_val) * 2.0;
     // In 2D mode, use a small offset per oscillator to prevent Z-fighting
     let height_2d = f32(ii) * 0.0001;
     let h = select(height_2d, height_3d, is_3d);
     
-    let x = (c + qx) * 0.5 - params.cols * 0.5 * 0.5;
-    let z = (r + qz) * 0.5 - params.rows * 0.5 * 0.5;
+    let x = (f32(c) + qx) * 0.5 - params.cols * 0.5 * 0.5;
+    let z = (f32(r) + qz) * 0.5 - params.rows * 0.5 * 0.5;
     var output: VertexOutput;
     output.position = viewProj * vec4<f32>(x, h, z, 1.0);
     // Always pass the actual height value for coloring, not the flattened one
     output.height = height_3d;
     output.order_val = order[ii];
-    output.gradient = compute_gradient(ii, cols, u32(params.rows));
+    output.gradient = compute_gradient(ii, cols, rows);
     
     // Calculate texture coordinates (normalized grid position)
-    output.texcoord = vec2<f32>((c + qx) / params.cols, 1.0 - (r + qz) / params.rows);
+    output.texcoord = vec2<f32>((f32(c) + qx) / params.cols, 1.0 - (f32(r) + qz) / params.rows);
     
     return output;
 }

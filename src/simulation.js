@@ -15,14 +15,30 @@ export class Simulation {
     }
 
     initBuffers() {
-        const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+        const bufferUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
         
-        this.thetaBufs = [
-            this.device.createBuffer({ size: this.N * 4, usage }),
-            this.device.createBuffer({ size: this.N * 4, usage })
+        // Using textures for theta (better 2D spatial cache locality)
+        this.thetaTextures = [
+            this.device.createTexture({
+                size: [this.gridSize, this.gridSize],
+                format: 'r32float',
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+            }),
+            this.device.createTexture({
+                size: [this.gridSize, this.gridSize],
+                format: 'r32float',
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+            })
         ];
         this.thetaIndex = 0;
-        this.thetaBuf = this.thetaBufs[this.thetaIndex];
+        this.thetaTexture = this.thetaTextures[this.thetaIndex];
+        
+        // Staging buffer for reading back texture data (for delay buffers and reduction)
+        this.thetaStagingBuf = this.device.createBuffer({
+            size: this.N * 4,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        });
+        
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         // Params buffer: 43 floats = 172 bytes (rounded to 176 for alignment)
@@ -45,9 +61,9 @@ export class Simulation {
         // Initialize order buffer
         this.device.queue.writeBuffer(this.orderBuf, 0, new Float32Array(this.N).fill(0.5));
 
-        // Delay buffers
+        // Delay buffers (still use storage buffers - not on critical path)
         for (let i = 0; i < this.delayBufferSize; i++) {
-            this.delayBuffers.push(this.device.createBuffer({ size: this.N * 4, usage }));
+            this.delayBuffers.push(this.device.createBuffer({ size: this.N * 4, usage: bufferUsage }));
         }
     }
 
@@ -96,19 +112,19 @@ export class Simulation {
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
         
-        // Cache key based on delay index and active theta buffer
+        // Cache key based on delay index and active theta texture
         const cacheKey = `${delayIdx}:${currentIdx}`;
         if (!this.bindGroupCache.has(cacheKey)) {
             this.bindGroupCache.set(cacheKey, this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: { buffer: this.thetaBufs[currentIdx] } },
+                    { binding: 0, resource: this.thetaTextures[currentIdx].createView() },
                     { binding: 1, resource: { buffer: this.omegaBuf } },
                     { binding: 2, resource: { buffer: this.paramsBuf } },
                     { binding: 3, resource: { buffer: this.orderBuf } },
                     { binding: 4, resource: { buffer: this.delayBuffers[delayIdx] } },
                     { binding: 5, resource: { buffer: this.globalOrderBuf } },
-                    { binding: 6, resource: { buffer: this.thetaBufs[nextIdx] } },
+                    { binding: 6, resource: this.thetaTextures[nextIdx].createView() },
                 ],
             }));
         }
@@ -158,19 +174,26 @@ export class Simulation {
     step(commandEncoder, delaySteps, globalCoupling) {
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
-        const currentTheta = this.thetaBufs[currentIdx];
+        const currentThetaTex = this.thetaTextures[currentIdx];
         
         // If global coupling is enabled, compute the global order parameter first
         if (globalCoupling) {
             // Reset atomic accumulators to zero
             commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 8);
             
-            // Stage 1: Parallel reduction with atomic accumulation
+            // Copy current theta texture to staging buffer for reduction shader
+            commandEncoder.copyTextureToBuffer(
+                { texture: currentThetaTex },
+                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4 },
+                [this.gridSize, this.gridSize]
+            );
+            
+            // Stage 1: Parallel reduction with atomic accumulation (uses staging buffer)
             if (!this.reductionBindGroups[currentIdx]) {
                 this.reductionBindGroups[currentIdx] = this.device.createBindGroup({
                     layout: this.reductionPipeline.getBindGroupLayout(0),
                     entries: [
-                        { binding: 0, resource: { buffer: currentTheta } },
+                        { binding: 0, resource: { buffer: this.thetaStagingBuf } },
                         { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
                     ],
                 });
@@ -191,29 +214,39 @@ export class Simulation {
             normalizePass.end();
         }
         
-        // Copy current theta to delay buffer history
-        commandEncoder.copyBufferToBuffer(currentTheta, 0, this.delayBuffers[this.delayBufferIndex], 0, this.N * 4);
+        // Copy current theta texture to delay buffer history (via staging buffer)
+        commandEncoder.copyTextureToBuffer(
+            { texture: currentThetaTex },
+            { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4 },
+            [this.gridSize, this.gridSize]
+        );
+        commandEncoder.copyBufferToBuffer(this.thetaStagingBuf, 0, this.delayBuffers[this.delayBufferIndex], 0, this.N * 4);
         this.delayBufferIndex = (this.delayBufferIndex + 1) % this.delayBufferSize;
 
         const pass = commandEncoder.beginComputePass();
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.getBindGroup(delaySteps));
-        const wgCount = Math.ceil(this.gridSize / 16); // Changed from 8 to 16
+        const wgCount = Math.ceil(this.gridSize / 16);
         pass.dispatchWorkgroups(wgCount, wgCount);
         pass.end();
 
-        // Swap buffers
+        // Swap textures
         this.thetaIndex = nextIdx;
-        this.thetaBuf = this.thetaBufs[this.thetaIndex];
+        this.thetaTexture = this.thetaTextures[this.thetaIndex];
     }
 
-    // Helper to write data directly
+    // Helper to write data directly to theta textures
     writeTheta(data) {
-        for (const buf of this.thetaBufs) {
-            this.device.queue.writeBuffer(buf, 0, data);
+        for (const tex of this.thetaTextures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                data,
+                { bytesPerRow: this.gridSize * 4 },
+                [this.gridSize, this.gridSize]
+            );
         }
-        this.thetaBuf = this.thetaBufs[this.thetaIndex];
-        // Sync delay buffers
+        this.thetaTexture = this.thetaTextures[this.thetaIndex];
+        // Sync delay buffers (storage buffers)
         for (let buf of this.delayBuffers) {
             this.device.queue.writeBuffer(buf, 0, data);
         }
@@ -225,9 +258,12 @@ export class Simulation {
     
     // Resize the simulation grid
     resize(newGridSize) {
-        // Destroy old buffers
-        for (const buf of this.thetaBufs) {
-            buf.destroy();
+        // Destroy old textures and buffers
+        for (const tex of this.thetaTextures) {
+            tex.destroy();
+        }
+        if (this.thetaStagingBuf) {
+            this.thetaStagingBuf.destroy();
         }
         this.omegaBuf.destroy();
         this.orderBuf.destroy();
@@ -239,7 +275,7 @@ export class Simulation {
         }
         this.delayBuffers = [];
         
-        // Clear bind group cache since buffers changed
+        // Clear bind group cache since textures/buffers changed
         this.bindGroupCache.clear();
         
         // Update size
@@ -247,7 +283,7 @@ export class Simulation {
         this.N = newGridSize * newGridSize;
         this.delayBufferIndex = 0;
         
-        // Recreate buffers
+        // Recreate textures and buffers
         this.initBuffers();
         
         // Recreate reduction bind groups with new buffers

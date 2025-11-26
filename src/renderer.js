@@ -38,7 +38,7 @@ export class Renderer {
 
         this.initPipeline();
         this.bindGroup = null; // Cache bind group
-        this.lastThetaBuffer = null;
+        this.lastThetaTexture = null;
     }
 
     initPipeline() {
@@ -61,23 +61,23 @@ export class Renderer {
         });
     }
     
-    // Call this when simulation buffers change
+    // Call this when simulation textures change
     invalidateBindGroup() {
         this.bindGroup = null;
         this.lastSim = null;
-        this.lastThetaBuffer = null;
+        this.lastThetaTexture = null;
     }
 
     draw(commandEncoder, sim, viewProjMatrix, N) {
         // Update camera uniform
         this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
 
-        // Create bind group only if it doesn't exist or buffers changed
-        if (!this.bindGroup || this.lastSim !== sim || this.lastThetaBuffer !== sim.thetaBuf) {
+        // Create bind group only if it doesn't exist or textures changed
+        if (!this.bindGroup || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
             this.bindGroup = this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: { buffer: sim.thetaBuf } },
+                    { binding: 0, resource: sim.thetaTexture.createView() },
                     { binding: 1, resource: { buffer: sim.paramsBuf } },
                     { binding: 2, resource: { buffer: this.cameraBuf } },
                     { binding: 3, resource: { buffer: sim.orderBuf } },
@@ -86,7 +86,7 @@ export class Renderer {
                 ],
             });
             this.lastSim = sim;
-            this.lastThetaBuffer = sim.thetaBuf;
+            this.lastThetaTexture = sim.thetaTexture;
         }
 
         const pass = commandEncoder.beginRenderPass({
