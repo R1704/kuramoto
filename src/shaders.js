@@ -21,6 +21,8 @@ struct Params {
 @group(0) @binding(4) var<storage, read> theta_delayed: array<f32>;
 @group(0) @binding(5) var<storage, read> global_order: vec2<f32>;
 @group(0) @binding(6) var theta_out: texture_storage_2d<r32float, write>;
+@group(0) @binding(7) var<storage, read> input_weights: array<f32>;
+@group(0) @binding(8) var<uniform> input_signal: f32;
 
 // ============================================================================
 // SHARED MEMORY TILE for fast neighbor access
@@ -519,7 +521,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         dtheta = dtheta + noise(i);
     }
     
-    var newTheta = t + (omega[i] + dtheta) * params.dt;
+    // Reservoir computing input: frequency modulation
+    // The input modulates the natural frequency, creating phase differences
+    // input_drive = weight * signal, where signal oscillates and weight marks input region
+    let input_drive = input_weights[i] * input_signal * 5.0; // 5x amplification
+    let omega_eff = omega[i] + input_drive;
+    
+    var newTheta = t + (omega_eff + dtheta) * params.dt;
+    
     let TWO_PI = 6.28318530718;
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
     if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
@@ -906,6 +915,117 @@ fn main() {
 `;
 
 // ============================================================================
+// LOCAL ORDER STATISTICS REDUCTION
+// Computes mean local R, fraction synchronized, and gradient magnitude
+// This gives a better picture of spatially-organized patterns
+// ============================================================================
+export const LOCAL_ORDER_STATS_SHADER = `
+@group(0) @binding(0) var<storage, read> local_order: array<f32>;  // Per-oscillator local R
+@group(0) @binding(1) var<storage, read> theta: array<f32>;         // Phases for gradient
+@group(0) @binding(2) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
+// stats_atomic[0] = sum of local R (scaled by 10000)
+// stats_atomic[1] = count of R > 0.7 (sync fraction numerator, scaled by 10000)
+// stats_atomic[2] = sum of gradient magnitude (scaled by 10000)
+// stats_atomic[3] = sum of R^2 for variance (scaled by 10000)
+@group(0) @binding(3) var<uniform> grid_size: u32;
+
+var<workgroup> shared_sums: array<vec4<f32>, 256>;
+
+// Compute phase gradient magnitude at a point
+fn phase_gradient(idx: u32, cols: u32, rows: u32) -> f32 {
+    let col = idx % cols;
+    let row = idx / cols;
+    
+    // Get neighbor phases with periodic boundaries
+    let left_col = (col + cols - 1u) % cols;
+    let right_col = (col + 1u) % cols;
+    let up_row = (row + rows - 1u) % rows;
+    let down_row = (row + 1u) % rows;
+    
+    let t_center = theta[idx];
+    let t_left = theta[row * cols + left_col];
+    let t_right = theta[row * cols + right_col];
+    let t_up = theta[up_row * cols + col];
+    let t_down = theta[down_row * cols + col];
+    
+    // Compute phase differences (handle wrap-around)
+    let dx = sin(t_right - t_center) + sin(t_center - t_left);
+    let dy = sin(t_down - t_center) + sin(t_center - t_up);
+    
+    return sqrt(dx * dx + dy * dy) * 0.5;
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let local_id = lid.x;
+    let global_id = gid.x;
+    let N = arrayLength(&local_order);
+    let cols = grid_size;
+    let rows = N / cols;
+    
+    // Each thread processes one oscillator
+    var sums = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    if (global_id < N) {
+        let r = local_order[global_id];
+        sums.x = r;                                    // Local R
+        sums.y = select(0.0, 1.0, r > 0.7);           // Sync count (R > 0.7)
+        sums.z = phase_gradient(global_id, cols, rows); // Gradient magnitude
+        sums.w = r * r;                               // R^2 for variance
+    }
+    
+    // Store in shared memory
+    shared_sums[local_id] = sums;
+    workgroupBarrier();
+    
+    // Tree reduction
+    for (var offset = 128u; offset > 0u; offset = offset / 2u) {
+        if (local_id < offset) {
+            shared_sums[local_id] = shared_sums[local_id] + shared_sums[local_id + offset];
+        }
+        workgroupBarrier();
+    }
+    
+    // First thread atomically adds to global result
+    if (local_id == 0u) {
+        atomicAdd(&stats_atomic[0], i32(shared_sums[0].x * 10000.0));
+        atomicAdd(&stats_atomic[1], i32(shared_sums[0].y * 10000.0));
+        atomicAdd(&stats_atomic[2], i32(shared_sums[0].z * 10000.0));
+        atomicAdd(&stats_atomic[3], i32(shared_sums[0].w * 10000.0));
+    }
+}
+`;
+
+// Normalize local order statistics
+export const LOCAL_ORDER_STATS_NORMALIZE_SHADER = `
+@group(0) @binding(0) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
+@group(0) @binding(1) var<storage, read_write> stats_out: array<f32, 5>;
+// stats_out[0] = mean local R
+// stats_out[1] = sync fraction (R > 0.7)
+// stats_out[2] = mean gradient magnitude
+// stats_out[3] = variance of local R
+// stats_out[4] = N (for reference)
+@group(0) @binding(2) var<uniform> N: u32;
+
+@compute @workgroup_size(1)
+fn main() {
+    let sum_r = f32(atomicLoad(&stats_atomic[0])) / 10000.0;
+    let sync_count = f32(atomicLoad(&stats_atomic[1])) / 10000.0;
+    let sum_grad = f32(atomicLoad(&stats_atomic[2])) / 10000.0;
+    let sum_r2 = f32(atomicLoad(&stats_atomic[3])) / 10000.0;
+    
+    let n = f32(N);
+    let mean_r = sum_r / n;
+    
+    stats_out[0] = mean_r;                           // Mean local R
+    stats_out[1] = sync_count / n;                   // Sync fraction
+    stats_out[2] = sum_grad / n;                     // Mean gradient (indicates waves)
+    stats_out[3] = (sum_r2 / n) - (mean_r * mean_r); // Var(R) = E[R^2] - E[R]^2
+    stats_out[4] = n;
+}
+`;
+
+// ============================================================================
 // FAST 2D RENDER SHADER - Full-screen quad with texture sampling
 // Much faster than instanced rendering for 2D mode
 // ============================================================================
@@ -922,7 +1042,7 @@ struct Params {
     ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, zoom: f32, panX: f32,
-    panY: f32, bilinear: f32, pad2: f32, pad3: f32,
+    panY: f32, bilinear: f32, smoothingMode: f32, pad3: f32,
 }
 
 @group(0) @binding(0) var theta_tex: texture_2d<f32>;
@@ -1020,6 +1140,131 @@ fn sample_theta_bilinear(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
     if (result >= 6.28318) { result -= 6.28318; }
     
     return result;
+}
+
+// Cubic interpolation helper (Catmull-Rom)
+fn cubic_weight(t: f32) -> vec4<f32> {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    return vec4<f32>(
+        -0.5 * t3 + t2 - 0.5 * t,
+        1.5 * t3 - 2.5 * t2 + 1.0,
+        -1.5 * t3 + 2.0 * t2 + 0.5 * t,
+        0.5 * t3 - 0.5 * t2
+    );
+}
+
+// Wrap phase difference to [-π, π]
+fn wrap_diff(d: f32) -> f32 {
+    var result = d;
+    if (result > 3.14159) { result -= 6.28318; }
+    if (result < -3.14159) { result += 6.28318; }
+    return result;
+}
+
+// Sample theta with wrapping
+fn sample_theta_wrapped(x: i32, y: i32, cols: i32, rows: i32) -> f32 {
+    let xw = ((x % cols) + cols) % cols;
+    let yw = ((y % rows) + rows) % rows;
+    return textureLoad(theta_tex, vec2<i32>(xw, yw), 0).r;
+}
+
+// Bicubic interpolation for smoother theta sampling
+fn sample_theta_bicubic(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
+    let gx = uv.x * cols - 0.5;
+    let gy = uv.y * rows - 0.5;
+    
+    let x0 = i32(floor(gx));
+    let y0 = i32(floor(gy));
+    let fx = fract(gx);
+    let fy = fract(gy);
+    
+    let cols_i = i32(cols);
+    let rows_i = i32(rows);
+    
+    // Get cubic weights
+    let wx = cubic_weight(fx);
+    let wy = cubic_weight(fy);
+    
+    // Sample 4x4 grid and use base point as reference for phase-aware interpolation
+    let base = sample_theta_wrapped(x0, y0, cols_i, rows_i);
+    
+    var sum = 0.0;
+    for (var dy = -1; dy <= 2; dy++) {
+        let y = y0 + dy;
+        let wY = select(select(select(wy.w, wy.z, dy == 1), wy.y, dy == 0), wy.x, dy == -1);
+        
+        for (var dx = -1; dx <= 2; dx++) {
+            let x = x0 + dx;
+            let wX = select(select(select(wx.w, wx.z, dx == 1), wx.y, dx == 0), wx.x, dx == -1);
+            
+            let t = sample_theta_wrapped(x, y, cols_i, rows_i);
+            let d = wrap_diff(t - base);
+            sum += wX * wY * d;
+        }
+    }
+    
+    var result = base + sum;
+    if (result < 0.0) { result += 6.28318; }
+    if (result >= 6.28318) { result -= 6.28318; }
+    
+    return result;
+}
+
+// Gaussian blur sampling (3x3 kernel)
+fn sample_theta_gaussian(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
+    let gx = uv.x * cols;
+    let gy = uv.y * rows;
+    
+    let x0 = i32(floor(gx));
+    let y0 = i32(floor(gy));
+    
+    let cols_i = i32(cols);
+    let rows_i = i32(rows);
+    
+    // Gaussian 3x3 kernel weights (normalized, sigma ≈ 0.85)
+    let w = array<f32, 9>(
+        0.0625, 0.125, 0.0625,
+        0.125,  0.25,  0.125,
+        0.0625, 0.125, 0.0625
+    );
+    
+    // Use center as reference for phase-aware blurring
+    let base = sample_theta_wrapped(x0, y0, cols_i, rows_i);
+    
+    var sum = 0.0;
+    var idx = 0;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let t = sample_theta_wrapped(x0 + dx, y0 + dy, cols_i, rows_i);
+            let d = wrap_diff(t - base);
+            sum += w[idx] * d;
+            idx++;
+        }
+    }
+    
+    var result = base + sum;
+    if (result < 0.0) { result += 6.28318; }
+    if (result >= 6.28318) { result -= 6.28318; }
+    
+    return result;
+}
+
+// Main sampling function that dispatches based on smoothing mode
+// mode 0: nearest, 1: bilinear, 2: bicubic, 3: gaussian
+fn sample_theta_smooth(uv: vec2<f32>, cols: f32, rows: f32, mode: f32) -> f32 {
+    if (mode < 0.5) {
+        // Nearest neighbor
+        let gx = i32(uv.x * cols);
+        let gy = i32(uv.y * rows);
+        return textureLoad(theta_tex, vec2<i32>(gx, gy), 0).r;
+    } else if (mode < 1.5) {
+        return sample_theta_bilinear(uv, cols, rows);
+    } else if (mode < 2.5) {
+        return sample_theta_bicubic(uv, cols, rows);
+    } else {
+        return sample_theta_gaussian(uv, cols, rows);
+    }
 }
 
 fn colormap_phase(t: f32) -> vec3<f32> {
@@ -1148,10 +1393,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
     
-    // Load theta value - use bilinear interpolation if enabled, otherwise nearest neighbor
+    // Load theta value - use smoothing based on mode
+    // smoothingMode: 0=nearest, 1=bilinear, 2=bicubic, 3=gaussian
     var theta: f32;
     if (params.bilinear > 0.5) {
-        theta = sample_theta_bilinear(uv, params.cols, params.rows);
+        theta = sample_theta_smooth(uv, params.cols, params.rows, params.smoothingMode);
     } else {
         theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
     }

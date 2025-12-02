@@ -10,6 +10,7 @@
 6. Initial Conditions
 7. Visualization & Analysis
 8. Implementation Details
+9. Reservoir Computing
 
 ---
 
@@ -1500,12 +1501,154 @@ where $A = 2.0$ (amplitude).
 - **Wave motion**: height field traveling across grid
 - **Spiral rotation**: height rotating around defect
 
+### Statistics Panel
+
+The statistics panel provides real-time analysis of system dynamics and criticality detection.
+
+#### Order Parameter R
+
+The **global order parameter** measures collective synchronization:
+
+$$R = \left| \frac{1}{N} \sum_{j=1}^{N} e^{i\theta_j} \right|$$
+
+| R Value | Interpretation |
+|---------|----------------|
+| R ≈ 0 | Complete desynchronization (chaos) |
+| R ≈ 0.5 | Near criticality (edge of bifurcation) |
+| R ≈ 1 | Full synchronization |
+
+#### Susceptibility χ
+
+**Susceptibility** measures fluctuations in the order parameter:
+
+$$\chi = N \cdot \text{Var}(R)$$
+
+This quantity **peaks at the critical coupling strength** $K_c$, making it useful for detecting phase transitions.
+
+#### Criticality Indicator
+
+The criticality indicator shows the operating regime:
+- **Blue zone**: Chaotic/desynchronized regime (low K)
+- **Orange zone**: Critical regime (K ≈ Kc)
+- **Green zone**: Synchronized regime (high K)
+
+The marker position corresponds to the current R value.
+
+#### Time Series Plots
+
+- **R(t)**: Rolling history of order parameter (300 samples)
+- **χ(t)**: Rolling history of susceptibility (300 samples)
+
+#### Phase Diagram Builder (K-Scan)
+
+The **K-scan** feature automatically sweeps coupling strength to build a phase diagram:
+
+1. Press **K** or click "Scan K" button
+2. System automatically varies K from 0.1 to 2.5
+3. At each K value, measures mean R and variance
+4. Plots R vs K curve with error bars
+5. Estimates $K_c$ from susceptibility peak
+
+**Controls:**
+- **📈 Scan K**: Start K-scan (takes ~30 seconds)
+- **🎯 Go to Kc**: Set coupling to estimated critical value
+- **💾 Export**: Download statistics as CSV
+
+#### Lyapunov Exponent (λ)
+
+The **Lyapunov exponent** measures the rate of separation of infinitesimally close trajectories, indicating system stability:
+
+$$\lambda = \lim_{t \to \infty} \frac{1}{t} \ln \frac{|\delta \theta(t)|}{|\delta \theta(0)|}$$
+
+| λ Value | Interpretation | RC Suitability |
+|---------|----------------|----------------|
+| λ > 0 | Chaotic (exponential divergence) | Poor - unreliable |
+| λ ≈ 0 | Critical (edge of chaos) | **Optimal** |
+| λ < 0 | Stable (exponential convergence) | Poor - no memory |
+
+**Implementation:**
+
+Our implementation uses the **tangent-space linearization method** for accurate Lyapunov calculation:
+
+1. **Jacobian construction**: For each oscillator pair, compute:
+   $$J_{ij} = \frac{K}{N} \cos(\theta_j - \theta_i)$$
+
+2. **Perturbation evolution**: A small perturbation $\delta\theta$ evolves as:
+   $$\delta\theta(t + \Delta t) = \delta\theta(t) + \Delta t \cdot J \cdot \delta\theta(t)$$
+
+3. **Renormalization**: Every $T$ steps (configurable interval):
+   - Measure perturbation magnitude: $d = ||\delta\theta||$
+   - Accumulate: $\sum \leftarrow \sum + \ln(d / d_0)$
+   - Renormalize: $\delta\theta \leftarrow d_0 \cdot \delta\theta / d$
+
+4. **Final estimate**: $\lambda = \sum / (n \cdot T \cdot \Delta t)$
+
+**Why tangent-space?**
+
+The naive approach of running two parallel trajectories with slightly different initial conditions fails because:
+- Both trajectories synchronize to the same attractor
+- Perturbations don't grow along unstable manifolds
+
+The tangent-space method correctly tracks how perturbations would grow infinitesimally, giving accurate chaotic/stable classification.
+
+#### Statistics Toggle
+
+Statistics computation can be disabled for improved performance:
+
+- **Checkbox**: Toggle in Statistics section header
+- **Keyboard**: No dedicated shortcut (use checkbox)
+- **Effect**: When disabled, skips all statistics calculations (R, χ, Lyapunov, K-scan)
+- **Visual**: Statistics panel dims when disabled
+
+**When to disable:**
+- Maximum performance required
+- Very large grids (512×512+)
+- Long-running unattended simulations
+
+#### Keyboard Shortcuts for Statistics
+
+| Key | Action |
+|-----|--------|
+| **K** | Start K-scan |
+| **Shift+K** | Jump to estimated Kc |
+
+### Smoothing Modes
+
+The simulation supports multiple interpolation/smoothing modes for the phase field visualization:
+
+| Mode | Name | Description |
+|------|------|-------------|
+| **0** | Nearest | No interpolation, shows raw grid cells |
+| **1** | Bilinear | Linear interpolation between 4 neighbors |
+| **2** | Bicubic (Catmull-Rom) | Smooth cubic spline through 16 neighbors |
+| **3** | Gaussian 3×3 | Gaussian blur kernel for soft appearance |
+
+**Controls:**
+- **Dropdown**: Select mode from "Smoothing Mode" dropdown
+- **Keyboard**: **S** cycles through all modes (none → bilinear → bicubic → gaussian → none)
+
+**Mathematical Details:**
+
+**Bilinear** (mode 1):
+$$f(x, y) = f_{00}(1-u)(1-v) + f_{10}u(1-v) + f_{01}(1-u)v + f_{11}uv$$
+
+Where $u, v$ are fractional coordinates within the cell.
+
+**Bicubic Catmull-Rom** (mode 2):
+Uses a 4×4 neighborhood with Catmull-Rom basis functions:
+$$CR(t) = 0.5 \cdot \begin{bmatrix}t^3 & t^2 & t & 1\end{bmatrix} \cdot \begin{bmatrix}-1 & 3 & -3 & 1 \\ 2 & -5 & 4 & -1 \\ -1 & 0 & 1 & 0 \\ 0 & 2 & 0 & 0\end{bmatrix} \cdot \begin{bmatrix}p_0 \\ p_1 \\ p_2 \\ p_3\end{bmatrix}$$
+
+**Gaussian 3×3** (mode 3):
+Convolution with normalized Gaussian kernel:
+$$G = \frac{1}{16}\begin{bmatrix}1 & 2 & 1 \\ 2 & 4 & 2 \\ 1 & 2 & 1\end{bmatrix}$$
+
 ### Keyboard Shortcuts for Visualization
 
 | Key | Action |
 |-----|--------|
-| **C** | Cycle colormap (0 → 1 → 2 → 3 → 0) |
+| **C** | Cycle colormap (11 modes) |
 | **O** | Toggle order parameter overlay |
+| **S** | Cycle smoothing modes (none → bilinear → bicubic → gaussian → none) |
 | **M** | (if implemented) Toggle 3D height visualization |
 
 ---
@@ -2301,8 +2444,177 @@ $$w(r) = \frac{1}{(r + r_0)^\alpha}$$
 
 ---
 
-**Document Version:** 2.1  
-**Last Updated:** November 2025  
-**Phase Status:** Phase 2 Complete (Multi-ring + Composition)  
-**Next Milestone:** Phase 3A (Adaptive Sigma + Frequency Selection)
+## Reservoir Computing
+
+### Overview
+
+**Reservoir Computing (RC)** is a machine learning paradigm that uses a dynamical system as a computational substrate. Instead of training all weights in a neural network, RC:
+1. Uses a fixed, complex dynamical system (the "reservoir") to transform inputs
+2. Only trains a simple linear readout layer
+
+The Kuramoto oscillator network is an excellent reservoir because it provides:
+- **Nonlinear transformation**: The sine coupling creates rich nonlinear mixing
+- **Fading memory**: Past inputs gradually decay, providing temporal context
+- **High dimensionality**: Each oscillator contributes state information
+- **Edge of chaos dynamics**: Near criticality, the system balances stability with computational richness
+
+### Mathematical Framework
+
+#### Input Injection
+
+The input signal $u(t)$ modulates the natural frequencies of input oscillators:
+
+$$\frac{d\theta_i}{dt} = \omega_i + w_i^{in} \cdot u(t) + \text{coupling terms}$$
+
+Where:
+- $w_i^{in}$ = input weight for oscillator $i$ (non-zero only in input region)
+- $u(t)$ = input signal (e.g., sine wave)
+
+#### Feature Extraction
+
+The reservoir state is sampled from readout oscillators:
+
+$$\mathbf{x}(t) = [\sin(\theta_{r_1}), \cos(\theta_{r_1}), \sin(\theta_{r_2}), \cos(\theta_{r_2}), ...]$$
+
+Using both sin and cos captures the full phase information (avoiding the wrap-around discontinuity).
+
+#### Temporal Features
+
+To capture temporal dynamics, we concatenate features across multiple timesteps:
+
+$$\mathbf{X}(t) = [\mathbf{x}(t), \mathbf{x}(t-1), ..., \mathbf{x}(t-H+1)]$$
+
+Where $H$ is the history length (default: 10 timesteps).
+
+#### Linear Readout
+
+The output is a linear combination of features:
+
+$$\hat{y}(t) = \mathbf{w}^{out} \cdot \mathbf{X}(t)$$
+
+### Online Learning with Recursive Least Squares (RLS)
+
+Instead of batch training, we use **online learning** for instant weight updates:
+
+#### RLS Algorithm
+
+Given a new sample $(\mathbf{X}_t, y_t)$:
+
+1. **Predict**: $\hat{y}_t = \mathbf{w}^T \mathbf{X}_t$
+2. **Compute gain**: $\mathbf{k}_t = \frac{\mathbf{P}_{t-1} \mathbf{X}_t}{\lambda + \mathbf{X}_t^T \mathbf{P}_{t-1} \mathbf{X}_t}$
+3. **Update weights**: $\mathbf{w}_t = \mathbf{w}_{t-1} + \mathbf{k}_t (y_t - \hat{y}_t)$
+4. **Update covariance**: $\mathbf{P}_t = \frac{1}{\lambda}(\mathbf{P}_{t-1} - \mathbf{k}_t \mathbf{X}_t^T \mathbf{P}_{t-1})$
+
+Where:
+- $\lambda$ = forgetting factor (0.995) — allows adaptation to non-stationary signals
+- $\mathbf{P}$ = inverse covariance matrix
+- $\mathbf{k}$ = Kalman gain
+
+**Complexity**: O(n²) per update vs O(n³) for batch ridge regression.
+
+### Input/Output Topology
+
+#### Periodic Boundary Consideration
+
+The simulation uses **periodic (toroidal) boundary conditions** — the left edge wraps around to the right edge. This means "left input, right readout" actually places them adjacent!
+
+**Recommended configurations:**
+- **Center input + Random readout**: Maximum average separation
+- **Random sparse input + Random readout**: Statistically separated
+
+#### Input Regions
+
+| Region | Description | Best For |
+|--------|-------------|----------|
+| **Center** | Circular region in grid center | Default, works well with periodic boundaries |
+| **Left/Top Edge** | Strip along edge | Simple, but wraps around! |
+| **Random Sparse** | Scattered points | Good for distributed input |
+
+#### Readout Regions
+
+| Region | Description | Best For |
+|--------|-------------|----------|
+| **Random** | Samples from non-input oscillators | Default, avoids input leakage |
+| **Right/Bottom Edge** | Strip along edge | Deterministic, but adjacent to left/top! |
+
+### Implementation Details
+
+#### Sparse Sampling
+
+To keep computation fast, we sample only a subset of oscillators:
+- **Max readout oscillators**: 100 (configurable)
+- **Feature dimension**: 100 × 2 (sin/cos) × 10 (history) = 2,000 features
+
+#### Warmup Period
+
+The first ~100 timesteps are discarded to let the reservoir "fill" with the input signal history.
+
+#### Performance Metric: NRMSE
+
+Normalized Root Mean Square Error:
+
+$$\text{NRMSE} = \frac{\sqrt{\frac{1}{N}\sum_i(y_i - \hat{y}_i)^2}}{\sigma_y}$$
+
+Where $\sigma_y$ is the standard deviation of targets. NRMSE < 1 means the model beats naive prediction.
+
+### Tasks
+
+#### Sine Prediction
+
+Predict $\sin(\omega(t + \tau))$ from $\sin(\omega t)$:
+- Input: $u(t) = \sin(0.05 \cdot t)$
+- Target: $y(t) = \sin(0.05 \cdot (t + 10))$
+- Tests: Basic temporal processing
+
+#### NARMA-10 (Nonlinear AutoRegressive Moving Average)
+
+A standard nonlinear benchmark:
+$$y(t+1) = 0.3 y(t) + 0.05 y(t) \sum_{i=0}^{9} y(t-i) + 1.5 u(t-9) u(t) + 0.1$$
+
+Tests: Long-term memory + nonlinearity
+
+#### Memory Capacity
+
+Recall input from $\tau$ timesteps ago:
+- Input: Random signal $u(t)$
+- Target: $y(t) = u(t - \tau)$
+- Tests: Information retention
+
+### Usage Guide
+
+1. **Set up dynamics**: Choose a pattern preset (spirals, Mexican hat work well)
+2. **Enable RC**: Check the "Reservoir Computing" checkbox
+3. **Configure regions**: Center input + Random readout recommended
+4. **Start training**: Click "Train" — watch NRMSE decrease
+5. **Test**: Click "Stop & Test" — model predicts without learning
+6. **Evaluate**: Blue line (prediction) should track orange line (target)
+
+**Optimal conditions:**
+- Coupling K near criticality (use K-scan to find)
+- Lyapunov exponent λ ≈ 0 (edge of chaos)
+- Diverse, non-trivial dynamics (not fully synchronized or chaotic)
+
+### Code Architecture
+
+```
+src/reservoir.js
+├── ReservoirIO          # Input/output region management, feature extraction
+├── OnlineLearner        # RLS implementation for O(n²) updates
+├── RidgeRegression      # Fallback batch training (not typically used)
+├── RCTasks              # Task definitions (sine, NARMA, memory)
+└── ReservoirComputer    # Main orchestrator class
+```
+
+**Key methods:**
+- `configure(inputRegion, outputRegion, strength)` — Set up topology
+- `step(theta)` — Process one timestep, returns {input, prediction, target}
+- `startTraining()` / `stopTraining()` — Control training mode
+- `getInputWeights()` — Returns Float32Array for GPU injection
+
+---
+
+**Document Version:** 2.2  
+**Last Updated:** December 2025  
+**Phase Status:** Phase 2 Complete + Reservoir Computing Phase 1  
+**Next Milestone:** RC Phase 2 (Multiple inputs, closed-loop control)
 ```

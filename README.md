@@ -102,6 +102,76 @@ Drive oscillator dynamics with images or live webcam:
 - Video art (morphing liquid effects)
 - Pattern recognition
 
+### Statistics & Criticality Detection
+
+Real-time analysis panel for studying system dynamics:
+
+- **Order Parameter (R)**: Measures global synchronization (0 = chaos, 1 = sync)
+- **Susceptibility (χ)**: Fluctuations in R, peaks at critical coupling
+- **Lyapunov Exponent (λ)**: Stability measure using tangent-space method
+  - λ > 0: Chaotic
+  - λ ≈ 0: Critical (edge of chaos) — optimal for reservoir computing
+  - λ < 0: Stable
+- **K-Scan**: Automatic parameter sweep to find critical coupling Kc
+- **Toggle**: Statistics can be disabled for maximum performance
+
+**Controls:**
+- **K**: Start K-scan
+- **Shift+K**: Jump to estimated Kc
+- **Checkbox**: Enable/disable statistics computation
+
+### 🧠 Reservoir Computing
+
+Use the oscillator network as a computational substrate! The Reservoir Computing (RC) panel allows you to train the network to perform temporal prediction tasks.
+
+**How It Works:**
+1. **Input**: A signal (e.g., sine wave) is injected into a subset of oscillators by modulating their natural frequencies
+2. **Reservoir**: The coupled oscillator network transforms the input through its complex nonlinear dynamics
+3. **Readout**: A linear model is trained on the oscillator states to predict target values (e.g., future sine values)
+
+**Key Features:**
+- **Online Learning**: Uses Recursive Least Squares (RLS) for instant weight updates — no batch training needed
+- **Sparse Sampling**: Reads out from only ~100 oscillators to keep computation fast
+- **Multiple Tasks**: Sine prediction, NARMA-10 (nonlinear benchmark), memory capacity
+- **Real-time Visualization**: Live plots of prediction vs target during training
+
+**Configuration:**
+- **Input Region**: Where to inject the signal
+  - **Center** (default): Best with periodic boundaries — maximum average distance from all points
+  - **Left/Top Edge**: Simple edge injection (note: wraps around due to periodic boundaries!)
+  - **Random Sparse**: Distributed input points
+- **Output Region**: Where to read oscillator states
+  - **Random** (default): Samples from non-input oscillators
+  - **Right/Bottom Edge**: Edge readout (adjacent to input with periodic boundaries)
+- **Input Strength**: How strongly the signal affects oscillators (0.5-5.0)
+
+**Usage:**
+1. Set up an interesting pattern (e.g., "Spiral Pair" preset with Mexican Hat kernel)
+2. Enable the **Reservoir Computing** checkbox
+3. Choose input/output regions (Center + Random recommended)
+4. Click **Train** — watch NRMSE decrease as the model learns
+5. Click **Stop & Test** — model now predicts without learning
+6. The plot shows prediction (blue) vs target (orange)
+
+**Tips:**
+- Lower NRMSE = better prediction (< 0.3 is good for sine)
+- The reservoir preset (🧠) is optimized for RC
+- Coupling near criticality (edge of chaos) gives best RC performance
+- Train for 500+ samples for stable weights
+
+### Smoothing Modes
+
+Four interpolation modes for visualization quality:
+
+| Mode | Shortcut | Description |
+|------|----------|-------------|
+| **Nearest** | - | Raw grid cells, pixelated |
+| **Bilinear** | - | Linear blend of 4 neighbors |
+| **Bicubic** | - | Smooth Catmull-Rom spline (16 neighbors) |
+| **Gaussian** | - | Soft blur with 3×3 Gaussian kernel |
+
+Press **S** to cycle through all modes.
+
 ### Dynamic Grid Resizing
 
 Change simulation resolution on-the-fly:
@@ -113,6 +183,10 @@ Change simulation resolution on-the-fly:
 - **1024×1024**: Maximum detail (research-grade)
 
 **Keyboard shortcuts:** Shift + ↑/↓
+
+Grid resizing uses intelligent interpolation:
+- **Phases (θ)**: Phase-aware interpolation with wrap-around handling
+- **Frequencies (ω)**: Standard scalar interpolation
 
 ### View Modes
 
@@ -249,6 +323,7 @@ Spatial coupling kernel with multiple shape options:
 - **C**: Cycle colormaps (11 modes)
 - **O**: Toggle order overlay
 - **G**: Toggle global coupling
+- **S**: Cycle smoothing modes (none/bilinear/bicubic/gaussian)
 
 ### Simulation Control
 - **Space**: Pause/Resume

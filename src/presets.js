@@ -456,4 +456,35 @@ export const Presets = {
         sim.writeTheta(theta);
         sim.writeOmega(omega);
     },
+    
+    // Reservoir Computing optimized preset
+    // Creates traveling waves that carry information from left to right
+    reservoir: (state, sim) => {
+        state.ruleMode = 0; // Classic Kuramoto
+        state.K0 = 0.8;     // Below full sync - sensitive to perturbations
+        state.range = 4;     // Local coupling for wave propagation
+        state.globalCoupling = false;
+        state.noiseStrength = 0.02; // Small noise prevents locking
+        state.dt = 0.1;
+        
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        const GRID = sim.gridSize;
+        
+        // Initialize with a gradient from left to right
+        // This creates natural wave propagation direction
+        for (let r = 0; r < GRID; r++) {
+            for (let c = 0; c < GRID; c++) {
+                const i = r * GRID + c;
+                // Phase gradient: waves travel left to right
+                theta[i] = (c / GRID) * Math.PI * 2;
+                // Slight frequency variation for richer dynamics
+                omega[i] = 0.1 + (Math.random() - 0.5) * 0.05;
+            }
+        }
+        
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+        sim.storeOmega(omega);
+    },
 };

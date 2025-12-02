@@ -378,8 +378,30 @@ export class UIManager {
         }
         
         bind('colormap-select', 'colormap', 'int', 'change');
-        bind('bilinear-interp', 'bilinearInterpolation', 'bool', 'change');
         bind('omega-amplitude-slider', 'omegaAmplitude');
+        
+        // Statistics enable/disable
+        const statsEnabledCheck = document.getElementById('stats-enabled');
+        if (statsEnabledCheck) {
+            statsEnabledCheck.addEventListener('change', () => {
+                this.state.showStatistics = statsEnabledCheck.checked;
+                // Show/hide stats content
+                const statsContent = document.getElementById('stats-content');
+                if (statsContent) {
+                    statsContent.style.opacity = this.state.showStatistics ? '1' : '0.3';
+                }
+            });
+        }
+        
+        // Smoothing mode select
+        const smoothingSelect = document.getElementById('smoothing-mode-select');
+        if (smoothingSelect) {
+            smoothingSelect.addEventListener('change', () => {
+                this.state.smoothingMode = parseInt(smoothingSelect.value);
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
         
         // Selects for patterns
         const bindSelect = (id, key) => {
@@ -521,6 +543,43 @@ export class UIManager {
                 }
             };
         }
+        
+        // Statistics panel controls
+        const kscanBtn = document.getElementById('kscan-btn');
+        if (kscanBtn) {
+            kscanBtn.onclick = () => {
+                if (this.cb.onStartKScan) {
+                    this.cb.onStartKScan();
+                }
+            };
+        }
+        
+        const findKcBtn = document.getElementById('findkc-btn');
+        if (findKcBtn) {
+            findKcBtn.onclick = () => {
+                if (this.cb.onFindKc) {
+                    this.cb.onFindKc();
+                }
+            };
+        }
+        
+        const exportStatsBtn = document.getElementById('export-stats-btn');
+        if (exportStatsBtn) {
+            exportStatsBtn.onclick = () => {
+                if (this.cb.onExportStats) {
+                    this.cb.onExportStats();
+                }
+            };
+        }
+        
+        const exportPDBtn = document.getElementById('export-pd-btn');
+        if (exportPDBtn) {
+            exportPDBtn.onclick = () => {
+                if (this.cb.onExportPhaseDiagram) {
+                    this.cb.onExportPhaseDiagram();
+                }
+            };
+        }
     }
 
     bindKeyboard() {
@@ -643,6 +702,34 @@ export class UIManager {
                 if (this.state.viewMode === 1) {
                     this.state.zoom = Math.max(0.5, this.state.zoom / 1.2);
                     this.cb.onParamChange();
+                }
+            }
+            // K-scan shortcut (K key)
+            else if (e.key === 'k' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                if (this.cb.onStartKScan) {
+                    this.cb.onStartKScan();
+                }
+            }
+            // Go to Kc shortcut (Shift+K)
+            else if (e.key === 'K' && e.shiftKey) {
+                if (this.cb.onFindKc) {
+                    this.cb.onFindKc();
+                }
+            }
+            // Smoothing mode cycle (S key) - cycle through all modes
+            else if (e.key === 's' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                // Cycle through all smoothing modes: 0=none, 1=bilinear, 2=bicubic, 3=gaussian
+                const currentMode = this.state.smoothingMode ?? 1;
+                this.state.smoothingMode = (currentMode + 1) % 4;  // Cycle 0->1->2->3->0
+                const modes = ['None (Nearest)', 'Bilinear', 'Bicubic', 'Gaussian'];
+                console.log(`Smoothing mode: ${modes[this.state.smoothingMode]}`);
+                this.cb.onParamChange();
+                this.updateDisplay();
+            }
+            // Toggle log scale for susceptibility plot (L key)
+            else if (e.key === 'l' && !e.shiftKey && !e.ctrlKey) {
+                if (this.cb.onToggleLogScale) {
+                    this.cb.onToggleLogScale();
                 }
             }
         });
@@ -913,6 +1000,16 @@ export class UIManager {
         const pauseBtn = document.getElementById('pause-btn');
         if (pauseBtn) pauseBtn.textContent = this.state.paused ? 'Resume' : 'Pause';
         
+        // Update statistics enabled checkbox
+        const statsEnabledCheck = document.getElementById('stats-enabled');
+        if (statsEnabledCheck) statsEnabledCheck.checked = this.state.showStatistics;
+        const statsContent = document.getElementById('stats-content');
+        if (statsContent) statsContent.style.opacity = this.state.showStatistics ? '1' : '0.3';
+        
+        // Update smoothing mode select
+        const smoothingSelect = document.getElementById('smoothing-mode-select');
+        if (smoothingSelect) smoothingSelect.value = this.state.smoothingMode ?? 0;
+        
         // Update view mode buttons
         const view3dBtn = document.getElementById('view-3d-btn');
         const view2dBtn = document.getElementById('view-2d-btn');
@@ -933,15 +1030,10 @@ export class UIManager {
         if (gridSizeValue) gridSizeValue.textContent = this.state.gridSize;
         
         // Show/hide visualizer panel based on whether kernel is being used
+        // Always show visualizer panel since it contains statistics
         const visualizerPanel = document.getElementById('visualizer-panel');
         if (visualizerPanel) {
-            if (this.state.ruleMode === 4) {
-                // Mexican-hat rule uses kernel - show visualizer
-                visualizerPanel.style.display = 'flex';
-            } else {
-                // Other rules don't use kernel - hide visualizer
-                visualizerPanel.style.display = 'none';
-            }
+            visualizerPanel.style.display = 'flex';
         }
         
         // Update kernel visualization if Mexican-hat rule is active

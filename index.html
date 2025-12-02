@@ -95,6 +95,232 @@
             margin-bottom: 12px;
         }
         
+        /* Statistics Panel Styles */
+        .stats-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        .stat-label {
+            color: #888;
+        }
+        
+        .stat-value {
+            color: #4a9eff;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-weight: 600;
+        }
+        
+        .stat-bar-container {
+            width: 100%;
+            height: 6px;
+            background: #222;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .stat-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            border-radius: 3px;
+            transition: width 0.1s ease;
+        }
+        
+        /* Criticality Indicator */
+        .criticality-section {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #333;
+        }
+        
+        .crit-label {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 6px;
+        }
+        
+        .crit-track {
+            position: relative;
+            height: 20px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+        }
+        
+        .crit-zone {
+            flex: 1;
+            height: 100%;
+        }
+        
+        .crit-zone-chaos {
+            background: linear-gradient(90deg, #1a237e, #283593);
+        }
+        
+        .crit-zone-critical {
+            background: linear-gradient(90deg, #283593, #FF5722, #BF360C);
+        }
+        
+        .crit-zone-sync {
+            background: linear-gradient(90deg, #BF360C, #4CAF50);
+        }
+        
+        .crit-marker {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #4a9eff;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            left: 0%;
+            transition: left 0.1s ease, background 0.3s ease;
+            z-index: 10;
+            box-shadow: 0 0 8px rgba(74, 158, 255, 0.5);
+        }
+        
+        .crit-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+            font-size: 9px;
+            color: #666;
+        }
+        
+        /* Phase Diagram Controls */
+        .phase-diagram-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            align-items: center;
+        }
+        
+        .phase-diagram-export {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        
+        .small-btn {
+            padding: 4px 10px;
+            font-size: 11px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #eee;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .small-btn:hover {
+            background: #3a3a3a;
+            border-color: #555;
+        }
+        
+        .small-btn.active {
+            background: #FF5722;
+            border-color: #FF5722;
+            color: #fff;
+        }
+        
+        .tiny-btn {
+            padding: 3px 8px;
+            font-size: 10px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            color: #888;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .tiny-btn:hover {
+            background: #2a2a2a;
+            color: #ccc;
+        }
+        
+        .kscan-progress {
+            font-size: 10px;
+            color: #FF9800;
+            font-weight: 600;
+        }
+        
+        /* LLE (Lyapunov) Visualization */
+        .lle-bar-container {
+            margin-top: 10px;
+        }
+        
+        .lle-bar-track {
+            height: 16px;
+            background: linear-gradient(90deg, #1565C0, #1976D2 35%, #4CAF50 50%, #FF9800 65%, #F44336);
+            border-radius: 8px;
+            position: relative;
+        }
+        
+        .lle-bar-zero {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #fff;
+            transform: translateX(-50%);
+            opacity: 0.7;
+        }
+        
+        .lle-bar-marker {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            left: 50%;
+            transition: left 0.2s ease;
+            z-index: 10;
+            box-shadow: 0 0 6px rgba(0,0,0,0.5);
+        }
+        
+        .lle-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+            font-size: 9px;
+            color: #666;
+        }
+        
+        .lle-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            align-items: center;
+        }
+        
+        /* FSS (Finite-Size Scaling) */
+        .fss-info {
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .fss-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            align-items: center;
+        }
+
         h1 {
             font-size: 18px;
             font-weight: 600;
@@ -419,6 +645,11 @@
                     <button class="preset-btn" data-preset="spiral_pair">🌀🌀 Spiral Pair</button>
                     <button class="preset-btn" data-preset="spiral_pair_interference">🌊🌀 Interference</button>
                     <button class="preset-btn" data-preset="delay_spirals">⏱️ Delay Spirals</button>
+                </div>
+                
+                <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Special</div>
+                <div class="button-group">
+                    <button class="preset-btn" data-preset="reservoir" style="background: linear-gradient(135deg, #1a5a2c, #2d1a5a);">🧠 Reservoir</button>
                 </div>
                 
                 <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Complex Patterns</div>
@@ -1094,10 +1325,13 @@
                 </div>
                 
                 <div class="control-group">
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="checkbox" id="bilinear-interp" style="width: 16px; height: 16px; cursor: pointer;">
-                        <span>Smooth Interpolation (2D)</span>
-                    </label>
+                    <label>Smoothing Mode (2D)</label>
+                    <select id="smoothing-mode-select" style="width: 100%;">
+                        <option value="0" selected>None (Nearest)</option>
+                        <option value="1">Bilinear</option>
+                        <option value="2">Bicubic</option>
+                        <option value="3">Gaussian</option>
+                    </select>
                 </div>
             </div>
             
@@ -1116,6 +1350,10 @@
                 <kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> Adjust grid size<br>
                 <kbd>+</kbd><kbd>-</kbd> Zoom in/out (2D)<br>
                 <kbd>Z</kbd> Reset zoom (2D)<br>
+                <kbd>S</kbd> Cycle smoothing modes<br>
+                <kbd>L</kbd> Toggle log scale (χ plot)<br>
+                <kbd>K</kbd> Start K-scan<br>
+                <kbd>Shift</kbd>+<kbd>K</kbd> Go to Kc<br>
                 <br>
                 <strong>Mouse (2D Mode)</strong><br>
                 Drag to pan<br>
@@ -1126,6 +1364,214 @@
         
         <!-- VISUALIZER PANEL (Third Column) -->
         <div id="visualizer-panel">
+            <!-- STATISTICS SECTION -->
+            <div class="viz-section">
+                <div class="viz-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>📊 Statistics</span>
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="stats-enabled" checked style="width: 14px; height: 14px; cursor: pointer;">
+                        <span>Enabled</span>
+                    </label>
+                </div>
+                
+                <!-- Real-time metrics -->
+                <div class="stats-grid" id="stats-content">
+                    <div class="stat-row">
+                        <span class="stat-label">Local R̄:</span>
+                        <span class="stat-value" id="stat-R">0.000</span>
+                    </div>
+                    <div class="stat-row">
+                        <div class="stat-bar-container">
+                            <div class="stat-bar" id="stat-R-bar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Global R:</span>
+                        <span class="stat-value" id="stat-globalR">0.000</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Susceptibility χ:</span>
+                        <span class="stat-value" id="stat-chi">0.0000</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Est. Kc:</span>
+                        <span class="stat-value" id="stat-Kc">—</span>
+                    </div>
+                </div>
+                
+                <!-- Criticality indicator -->
+                <div class="criticality-section">
+                    <div class="crit-label">Local Order:</div>
+                    <div class="crit-track">
+                        <div class="crit-marker" id="crit-marker"></div>
+                        <div class="crit-zone crit-zone-chaos"></div>
+                        <div class="crit-zone crit-zone-critical"></div>
+                        <div class="crit-zone crit-zone-sync"></div>
+                    </div>
+                    <div class="crit-labels">
+                        <span>0</span>
+                        <span>0.5</span>
+                        <span>1</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- TIME SERIES PLOTS -->
+            <div class="viz-section">
+                <div class="viz-title">R̄(t) Local Order</div>
+                <canvas id="R-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px;"></canvas>
+            </div>
+            
+            <div class="viz-section">
+                <div class="viz-title">χ(t) Susceptibility</div>
+                <canvas id="chi-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px;"></canvas>
+            </div>
+            
+            <!-- PHASE DIAGRAM -->
+            <div class="viz-section">
+                <div class="viz-title">Phase Diagram (R vs K)</div>
+                <canvas id="phase-diagram" width="280" height="140" style="width: 100%; height: 140px; border-radius: 4px; background: #1a1a2e;"></canvas>
+                <div class="phase-diagram-controls">
+                    <button id="kscan-btn" class="small-btn">📈 Scan K</button>
+                    <button id="findkc-btn" class="small-btn">🎯 Go to Kc</button>
+                    <span id="kscan-progress" class="kscan-progress"></span>
+                </div>
+                <div class="phase-diagram-export">
+                    <button id="export-stats-btn" class="tiny-btn">💾 Export Stats</button>
+                    <button id="export-pd-btn" class="tiny-btn">💾 Export Diagram</button>
+                </div>
+            </div>
+            
+            <!-- LYAPUNOV EXPONENT -->
+            <div class="viz-section">
+                <div class="viz-title">λ Lyapunov Exponent</div>
+                <div class="stats-grid">
+                    <div class="stat-row">
+                        <span class="stat-label">LLE (λ):</span>
+                        <span class="stat-value" id="stat-lle">—</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Status:</span>
+                        <span class="stat-value" id="stat-lle-status">idle</span>
+                    </div>
+                </div>
+                <div class="lle-bar-container">
+                    <div class="lle-bar-track">
+                        <div class="lle-bar-zero"></div>
+                        <div class="lle-bar-marker" id="lle-marker"></div>
+                    </div>
+                    <div class="lle-labels">
+                        <span>stable</span>
+                        <span>critical</span>
+                        <span>chaotic</span>
+                    </div>
+                </div>
+                <div class="lle-controls">
+                    <button id="lle-start-btn" class="small-btn">▶ Start LLE</button>
+                    <button id="lle-stop-btn" class="small-btn" disabled>⏹ Stop</button>
+                    <span id="lle-iterations" class="kscan-progress"></span>
+                </div>
+            </div>
+            
+            <!-- FINITE-SIZE SCALING -->
+            <div class="viz-section">
+                <div class="viz-title">📐 Finite-Size Scaling</div>
+                <div class="fss-info">
+                    <small>Run K-scan at multiple grid sizes to extrapolate true Kc</small>
+                </div>
+                <canvas id="fss-plot" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px; background: #1a1a2e;"></canvas>
+                <div class="fss-controls">
+                    <button id="fss-start-btn" class="small-btn">📊 Run FSS</button>
+                    <span id="fss-progress" class="kscan-progress"></span>
+                </div>
+                <div class="stats-grid" style="margin-top: 8px;">
+                    <div class="stat-row">
+                        <span class="stat-label">Kc (N→∞):</span>
+                        <span class="stat-value" id="stat-kc-extrapolated">—</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- RESERVOIR COMPUTING -->
+            <div class="viz-section" id="rc-panel">
+                <div class="viz-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>🧠 Reservoir Computing</span>
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="rc-enabled" style="width: 14px; height: 14px; cursor: pointer;">
+                        <span>Enabled</span>
+                    </label>
+                </div>
+                
+                <div id="rc-content">
+                    <!-- Task Selection -->
+                    <div class="control-group" style="margin-bottom: 8px;">
+                        <label style="font-size: 11px; color: #aaa;">Task</label>
+                        <select id="rc-task-select" style="width: 100%; padding: 4px; font-size: 11px;">
+                            <option value="sine">Sine Wave Prediction</option>
+                            <option value="narma10">NARMA-10</option>
+                            <option value="memory">Memory Capacity</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Input/Output Regions -->
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 10px; color: #888;">Input Region</label>
+                            <select id="rc-input-region" style="width: 100%; padding: 3px; font-size: 10px;">
+                                <option value="center" selected>Center</option>
+                                <option value="left">Left Edge</option>
+                                <option value="top">Top Edge</option>
+                                <option value="random">Random Sparse</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 10px; color: #888;">Output Region</label>
+                            <select id="rc-output-region" style="width: 100%; padding: 3px; font-size: 10px;">
+                                <option value="random" selected>Random (non-input)</option>
+                                <option value="right">Right Edge</option>
+                                <option value="bottom">Bottom Edge</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Input Strength -->
+                    <div class="control-group" style="margin-bottom: 8px;">
+                        <label style="font-size: 10px; color: #888;">Input Strength: <span id="rc-input-strength-val">2.0</span></label>
+                        <input type="range" id="rc-input-strength" min="0.5" max="5.0" step="0.1" value="2.0" style="width: 100%;">
+                    </div>
+                    
+                    <!-- Training Controls -->
+                    <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+                        <button id="rc-train-btn" class="small-btn" style="flex: 1;">▶ Train</button>
+                        <button id="rc-stop-btn" class="small-btn" style="flex: 1;" disabled>⏹ Stop</button>
+                        <button id="rc-test-btn" class="small-btn" style="flex: 1;" disabled>🧪 Test</button>
+                    </div>
+                    
+                    <!-- Status -->
+                    <div class="stats-grid">
+                        <div class="stat-row">
+                            <span class="stat-label">Status:</span>
+                            <span class="stat-value" id="rc-status">idle</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Samples:</span>
+                            <span class="stat-value" id="rc-samples">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">NRMSE:</span>
+                            <span class="stat-value" id="rc-nrmse">—</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Prediction Plot -->
+                    <div style="margin-top: 8px;">
+                        <label style="font-size: 10px; color: #888;">Prediction vs Target</label>
+                        <canvas id="rc-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px; background: #1a1a2e;"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- KERNEL VISUALIZATION -->
             <div class="viz-section">
                 <div class="viz-title">1D Kernel Profile</div>
                 <canvas id="kernel-canvas-1d" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px;"></canvas>
