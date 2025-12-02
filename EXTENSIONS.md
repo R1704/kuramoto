@@ -1390,3 +1390,49 @@ Extension	Description	Effort
 🔀 Multi-population	Different oscillator types with cross-coupling	High
 🌡️ Temperature/noise control	Thermal fluctuations with phase transitions	Medium
 🎭 Frustrated coupling	XY model with frustration (spin glass behavior)	Medium
+
+
+
+
+read the extensions.md and fix the broken table. 
+include 
+Draw
+
+You can interact with the simulation by drawing on the canvas. Press the Clear button to clear the entire canvas and then draw to seed a new pattern. Hold down the ctrl key to erase instead of draw.
+
+
+Scale
+
+The Scale sliders adjusts the relative size of the pattern. The scales can vary across the simulation grid using the Scale Radial, Scale Random, or Scale Ring sliders, and these effects can be combined. Larger scales usually require less computation, so that can help the simulation run faster if your hardware is limited.
+
+
+Speed
+
+This slider allows speeding up or slowing down the simulation. However, you might not see any effect when increasing the speed if the fps shown in the application is already below your screen's refresh rate. A typical refresh rate is 60 frames per second (fps). To stop the simulation altogether press the Pause button.
+
+Flow
+
+These sliders add a velocity field to the the simulation, with options to flow in various ways across the grid. The different types of flow can be combined, and each can be in a positive or negative direction. The center positions of the sliders represent zero, and they should snap there slightly when you slide past that position. To avoid the snap at zero, hold down the ctrl key while sliding.
+we have radial, rotate, swirl, bubble, ring, vortex, vertical 
+
+
+Orientation
+
+These sliders give an orientation map to the results by causing the diffusion to occur faster in one direction than another. The positive and negative directions will usually appear the same, but can make a difference if you combine multiple orientation types. The Orientation Linear slider gives vertical orientation when positive, or horizontal when negative.
+we have radial, circles, swirl, bubble, linear
+
+Adjust colors
+
+Experiment with different color map and color settings. Hopefully these are self explanatory. there are sliders for hue, saturation, brightness, contrast, frequency, phase
+
+
+Aspect ratio
+
+The aspect ratio of the simulation canvas should default to the aspect ratio of your monitor, so it will fit your screen when in fullscreen mode. You can adjust the aspect ratio manually by dragging the lower left corner of the canvas up or down. If the canvas reaches the bottom of the browser window, try making your whole window narrower first.
+
+
+Saving settings
+
+As you adjust the sliders and options, the URL in your browser is automatically updated with a random looking string of characters that encodes all the current parameter values. You can save, forward, or bookmark that URL to preserve specific combinations of settings.
+
+for next extensions and fit them in the tiers and reprioritize everything. it should be one extensive beautifully formated document
