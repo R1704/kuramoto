@@ -75,11 +75,105 @@ const STATE = {
 // Store the last external input canvas for pattern initialization
 let lastExternalCanvas = null;
 
+// Show error message in the canvas area
+function showError(message) {
+    const container = document.getElementById('canvas-container');
+    if (container) {
+        // Detect Safari
+        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const safariNote = isSafari ? `
+            <p style="margin-top: 15px; color: #ffaa00; font-size: 13px;">
+                <strong>Safari Users:</strong><br>
+                1. Open Safari → Settings → Advanced<br>
+                2. Check "Show features for web developers"<br>
+                3. Then: Develop → Feature Flags → Enable "WebGPU"<br>
+                4. Restart Safari
+            </p>
+        ` : '';
+        
+        container.innerHTML = `
+            <div style="
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+                color: #ff6b6b;
+                background: #1a1a2e;
+                padding: 40px;
+                text-align: center;
+                font-family: system-ui, sans-serif;
+            ">
+                <h2 style="margin-bottom: 20px;">⚠️ WebGPU Error</h2>
+                <p style="max-width: 500px; line-height: 1.6;">${message}</p>
+                ${safariNote}
+                <p style="margin-top: 20px; color: #888; font-size: 14px;">
+                    WebGPU requires:<br>
+                    • Chrome 113+ / Edge 113+ (Windows, macOS, ChromeOS)<br>
+                    • Safari 17+ (macOS Sonoma / iOS 17) with WebGPU enabled<br>
+                    • Firefox Nightly with dom.webgpu.enabled
+                </p>
+            </div>
+        `;
+    }
+    console.error('WebGPU Error:', message);
+}
+
 async function init() {
+    // Check WebGPU support
+    if (!navigator.gpu) {
+        showError('WebGPU is not supported in your browser. Please use Chrome 113+, Edge 113+, or Safari 17+ with WebGPU enabled.');
+        return;
+    }
+    
     const adapter = await navigator.gpu.requestAdapter();
-    const device = await adapter.requestDevice();
+    if (!adapter) {
+        showError('Failed to get WebGPU adapter. Your GPU may not be supported, or WebGPU may be disabled.');
+        return;
+    }
+    
+    // Log adapter info for debugging (if available)
+    if (adapter.requestAdapterInfo) {
+        try {
+            const adapterInfo = await adapter.requestAdapterInfo();
+            console.log('WebGPU Adapter:', adapterInfo.vendor, adapterInfo.architecture, adapterInfo.device);
+        } catch (e) {
+            console.log('Could not get adapter info:', e.message);
+        }
+    }
+    console.log('Adapter features:', [...adapter.features]);
+    
+    let device;
+    try {
+        // Request features if available
+        const requiredFeatures = [];
+        if (adapter.features.has('float32-filterable')) {
+            requiredFeatures.push('float32-filterable');
+        }
+        
+        device = await adapter.requestDevice({
+            requiredFeatures,
+        });
+    } catch (e) {
+        showError('Failed to get WebGPU device: ' + e.message);
+        return;
+    }
+    
+    // Handle device loss
+    device.lost.then((info) => {
+        console.error('WebGPU device lost:', info.message);
+        if (info.reason !== 'destroyed') {
+            showError('WebGPU device was lost: ' + info.message + '. Please refresh the page.');
+        }
+    });
+    
     const canvas = document.getElementById('canvas');
     const context = canvas.getContext('webgpu');
+    if (!context) {
+        showError('Failed to get WebGPU context from canvas.');
+        return;
+    }
+    
     const format = navigator.gpu.getPreferredCanvasFormat();
     context.configure({ device, format, alphaMode: 'opaque' });
 
@@ -1225,4 +1319,8 @@ function rgbToHue(r, g, b) {
     return hue * 60;
 }
 
-init();
+// Wrap init in error handler
+init().catch(e => {
+    console.error('Fatal error during initialization:', e);
+    showError('Failed to initialize: ' + e.message);
+});

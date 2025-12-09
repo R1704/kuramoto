@@ -55,14 +55,19 @@ export class Renderer {
     }
     
     init2DPipeline() {
-        const module = this.device.createShaderModule({ code: RENDER_2D_SHADER });
-        this.pipeline2D = this.device.createRenderPipeline({
-            layout: 'auto',
-            vertex: { module, entryPoint: 'vs_main' },
-            fragment: { module, entryPoint: 'fs_main', targets: [{ format: this.format }] },
-            primitive: { topology: 'triangle-list', cullMode: 'none' },
-            // No depth buffer needed for 2D
-        });
+        try {
+            const module = this.device.createShaderModule({ code: RENDER_2D_SHADER });
+            this.pipeline2D = this.device.createRenderPipeline({
+                layout: 'auto',
+                vertex: { module, entryPoint: 'vs_main' },
+                fragment: { module, entryPoint: 'fs_main', targets: [{ format: this.format }] },
+                primitive: { topology: 'triangle-list', cullMode: 'none' },
+                // No depth buffer needed for 2D
+            });
+        } catch (e) {
+            console.error('Failed to create 2D pipeline:', e);
+            this.pipeline2D = null;
+        }
     }
 
     resize(width, height) {
@@ -78,13 +83,14 @@ export class Renderer {
     invalidateBindGroup() {
         this.bindGroup = null;
         this.bindGroup2D = null;
+        this.bindGroups2D = null; // Clear 2D bind group cache
         this.lastSim = null;
         this.lastThetaTexture = null;
     }
 
     draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d') {
-        // Use fast 2D renderer when in 2D mode
-        if (viewMode === '2d') {
+        // Use fast 2D renderer when in 2D mode (if available)
+        if (viewMode === '2d' && this.pipeline2D) {
             this.draw2D(commandEncoder, sim);
             return;
         }
@@ -131,9 +137,21 @@ export class Renderer {
     
     draw2D(commandEncoder, sim) {
         // Fast 2D rendering with full-screen quad
-        // Create bind group for 2D pipeline
-        if (!this.bindGroup2D || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
-            this.bindGroup2D = this.device.createBindGroup({
+        if (!this.pipeline2D) {
+            // Fallback: pipeline creation failed, skip 2D rendering
+            console.warn('2D pipeline not available, skipping 2D render');
+            return;
+        }
+        
+        // Cache bind groups per theta texture (we have 2 textures for double buffering)
+        if (!this.bindGroups2D) {
+            this.bindGroups2D = new Map();
+        }
+        
+        // Get or create bind group for current theta texture
+        let bindGroup = this.bindGroups2D.get(sim.thetaTexture);
+        if (!bindGroup) {
+            bindGroup = this.device.createBindGroup({
                 layout: this.pipeline2D.getBindGroupLayout(0),
                 entries: [
                     { binding: 0, resource: sim.thetaTexture.createView() },
@@ -143,8 +161,7 @@ export class Renderer {
                     { binding: 4, resource: this.externalTexture.createView() },
                 ],
             });
-            this.lastSim = sim;
-            this.lastThetaTexture = sim.thetaTexture;
+            this.bindGroups2D.set(sim.thetaTexture, bindGroup);
         }
 
         const pass = commandEncoder.beginRenderPass({
@@ -156,7 +173,7 @@ export class Renderer {
             }],
         });
         pass.setPipeline(this.pipeline2D);
-        pass.setBindGroup(0, this.bindGroup2D);
+        pass.setBindGroup(0, bindGroup);
         pass.draw(3); // Single triangle covering the screen
         pass.end();
     }

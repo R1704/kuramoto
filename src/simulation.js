@@ -64,6 +64,7 @@ export class Simulation {
         
         // Track if readback is pending
         this.readbackPending = false;
+        this.mappingInProgress = false;  // Guard against concurrent mapAsync calls
         this.thetaReadPending = false; // Guard for RC theta reads
         this.lastGlobalOrder = { cos: 0, sin: 0, R: 0, Psi: 0 };
         this.lastLocalStats = { meanR: 0, syncFraction: 0, gradient: 0, variance: 0 };
@@ -433,6 +434,9 @@ export class Simulation {
      */
     async processReadback() {
         if (!this.readbackPending) return null;
+        if (this.mappingInProgress) return null;  // Don't start new mapping while one is in progress
+        
+        this.mappingInProgress = true;
         
         try {
             // Read global order
@@ -460,11 +464,13 @@ export class Simulation {
             };
             
             this.readbackPending = false;
+            this.mappingInProgress = false;
             
             return { ...this.lastGlobalOrder, localStats: this.lastLocalStats };
         } catch (e) {
             console.warn('Readback failed:', e);
             this.readbackPending = false;
+            this.mappingInProgress = false;
             return null;
         }
     }

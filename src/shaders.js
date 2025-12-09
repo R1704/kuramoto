@@ -1382,6 +1382,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var uv = input.uv;
     uv = (uv - 0.5) / zoom + vec2<f32>(params.panX, params.panY) + 0.5;
     
+    // Sample external texture BEFORE any early returns to satisfy WGSL uniform control flow
+    // requirement for textureSample. We clamp UVs and sample unconditionally.
+    let tex_uv_clamped = clamp(vec2<f32>(uv.x, 1.0 - uv.y), vec2<f32>(0.0), vec2<f32>(1.0));
+    let presampled_tex_color = textureSample(externalTexture, textureSampler, tex_uv_clamped).rgb;
+    
     // Check bounds (for when zoomed/panned outside grid)
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return vec4<f32>(0.08, 0.08, 0.1, 1.0);
@@ -1462,9 +1467,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         col3 = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), order_val);
     } else if (mode == 4) {
         // Image texture modulated by phase (matches 3D)
-        // Flip Y to match 3D texcoord orientation, flip X for webcam mirror
-        let tex_uv = vec2<f32>(uv.x, 1.0 - uv.y);
-        let texColor = textureSample(externalTexture, textureSampler, tex_uv).rgb;
+        // Use the pre-sampled texture color (sampled before early return for uniform control flow)
+        let texColor = presampled_tex_color;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         col3 = texColor * (0.7 + 0.3 * phaseMod);
     } else if (mode == 5) {
