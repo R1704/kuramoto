@@ -1,10 +1,12 @@
 import { RENDER_SHADER, RENDER_2D_SHADER } from './shaders.js';
 
 export class Renderer {
-    constructor(device, format, canvas) {
+    constructor(device, format, canvas, gridSize = 256) {
         this.device = device;
         this.format = format;
         this.canvas = canvas;
+        this.gridSize = gridSize;
+        this.meshMode = 'mesh'; // 'mesh' or 'instanced'
         
         this.cameraBuf = device.createBuffer({
             size: 64,
@@ -41,15 +43,32 @@ export class Renderer {
         this.bindGroup = null; // Cache bind group
         this.bindGroup2D = null; // Cache 2D bind group
         this.lastThetaTexture = null;
+        this.drawOverlayTex = null;
+
+        // Mesh buffers for continuous grid rendering in 3D
+        this.vertexBuffer = null;
+        this.indexBuffer = null;
+        this.indexCount = 0;
+        this.rebuildMesh(this.gridSize);
+        // Quad buffer for instanced mode
+        this.quadVertexBuffer = null;
+        this.initQuadBuffer();
     }
 
     initPipeline() {
         const module = this.device.createShaderModule({ code: RENDER_SHADER });
         this.pipeline = this.device.createRenderPipeline({
             layout: 'auto',
-            vertex: { module, entryPoint: 'vs_main' },
+            vertex: {
+                module,
+                entryPoint: 'vs_main',
+                buffers: [{
+                    arrayStride: 8, // vec2<f32> for mesh mode; ignored for instanced mode
+                    attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+                }],
+            },
             fragment: { module, entryPoint: 'fs_main', targets: [{ format: this.format }] },
-            primitive: { topology: 'triangle-strip', cullMode: 'none' },
+            primitive: { topology: 'triangle-list', cullMode: 'none' },
             depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' },
         });
     }
@@ -97,6 +116,9 @@ export class Renderer {
         
         // Update camera uniform
         this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
+        // Ensure mesh flag in params matches current draw mode (mesh_mode is float index 68)
+        const meshFlag = this.meshMode === 'mesh' ? 1.0 : 0.0;
+        this.device.queue.writeBuffer(sim.paramsBuf, 68 * 4, new Float32Array([meshFlag]));
 
         // Create bind group only if it doesn't exist or textures changed
         if (!this.bindGroup || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
@@ -131,7 +153,18 @@ export class Renderer {
         });
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.bindGroup);
-        pass.draw(4, N);
+        if (this.meshMode === 'mesh' && this.vertexBuffer && this.indexBuffer) {
+            pass.setVertexBuffer(0, this.vertexBuffer);
+            pass.setIndexBuffer(this.indexBuffer, 'uint32');
+            pass.drawIndexed(this.indexCount, 1, 0, 0, 0);
+        } else {
+            // Instanced quad path - ensure quad buffer exists
+            if (!this.quadVertexBuffer) {
+                this.initQuadBuffer();
+            }
+            pass.setVertexBuffer(0, this.quadVertexBuffer);
+            pass.draw(6, N); // 6 verts per quad, N instances
+        }
         pass.end();
     }
     
@@ -181,6 +214,10 @@ export class Renderer {
     setContext(ctx) {
         this.context = ctx;
     }
+
+    clearDrawOverlay() {
+        // no-op placeholder; draw/erase currently writes directly to theta
+    }
     
     loadTextureFromCanvas(canvas) {
         // Destroy old texture if it's not the default 1x1
@@ -203,5 +240,69 @@ export class Renderer {
         
         // Invalidate bind group to recreate with new texture
         this.invalidateBindGroup();
+    }
+
+    rebuildMesh(gridSize) {
+        this.gridSize = gridSize;
+        const vertsPerSide = gridSize + 1;
+        const vertexCount = vertsPerSide * vertsPerSide;
+        const positions = new Float32Array(vertexCount * 2);
+        let idx = 0;
+        for (let z = 0; z < vertsPerSide; z++) {
+            for (let x = 0; x < vertsPerSide; x++) {
+                positions[idx++] = x;
+                positions[idx++] = z;
+            }
+        }
+        if (this.vertexBuffer) this.vertexBuffer.destroy();
+        this.vertexBuffer = this.device.createBuffer({
+            size: positions.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.vertexBuffer, 0, positions);
+
+        const quads = gridSize * gridSize;
+        const indices = new Uint32Array(quads * 6);
+        let ii = 0;
+        for (let z = 0; z < gridSize; z++) {
+            for (let x = 0; x < gridSize; x++) {
+                const v0 = z * vertsPerSide + x;
+                const v1 = v0 + 1;
+                const v2 = v0 + vertsPerSide;
+                const v3 = v2 + 1;
+                indices[ii++] = v0; indices[ii++] = v2; indices[ii++] = v1;
+                indices[ii++] = v1; indices[ii++] = v2; indices[ii++] = v3;
+            }
+        }
+        this.indexCount = indices.length;
+        if (this.indexBuffer) this.indexBuffer.destroy();
+        this.indexBuffer = this.device.createBuffer({
+            size: indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.indexBuffer, 0, indices);
+
+        this.invalidateBindGroup();
+    }
+
+    setMeshMode(mode) {
+        this.meshMode = mode;
+    }
+
+    initQuadBuffer() {
+        const verts = new Float32Array([
+            0, 0,
+            1, 0,
+            0, 1,
+            1, 0,
+            1, 1,
+            0, 1,
+        ]);
+        if (this.quadVertexBuffer) this.quadVertexBuffer.destroy?.();
+        this.quadVertexBuffer = this.device.createBuffer({
+            size: verts.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.quadVertexBuffer, 0, verts);
     }
 }

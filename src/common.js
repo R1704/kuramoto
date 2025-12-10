@@ -35,9 +35,10 @@ export const Vec3 = {
 
 export class Camera {
     constructor(canvas) {
-        this.dist = 24;
-        this.theta = 0.5;
-        this.phi = 1.2;
+        this.dist = 28;
+        // Rotate default 180° so drawing aligns without manual spin
+        this.theta = 3.14159265359/2;
+        this.phi = 1.0;
         this.tgt = [0, 0, 0];
         this.drag = false;
         this.pan = false;
@@ -50,6 +51,10 @@ export class Camera {
 
     setupEvents(canvas) {
         canvas.onmousedown = e => {
+            if (e.metaKey) {
+                // Allow draw/erase without moving camera
+                return;
+            }
             // In 2D mode, left-click pans; in 3D mode, left-click rotates
             if (e.button === 0) {
                 if (this.viewMode === 1) {
@@ -64,6 +69,8 @@ export class Camera {
             this.mx = e.clientX; this.my = e.clientY;
         };
         canvas.onmousemove = e => {
+            // If user is holding Cmd for drawing/erasing, never move camera
+            if (e.metaKey) { this.drag = false; this.pan = false; return; }
             if (this.drag) {
                 this.theta -= (e.clientX - this.mx) * 0.01;
                 this.phi = Math.max(0.1, Math.min(3.04, this.phi + (e.clientY - this.my) * 0.01));
@@ -85,7 +92,8 @@ export class Camera {
         canvas.onmouseup = () => { this.drag = false; this.pan = false; };
         canvas.onwheel = e => {
             e.preventDefault();
-            this.dist = Math.max(2, Math.min(300, this.dist * (1 + e.deltaY * 0.001)));
+            const maxDist = this.viewMode === 1 ? 300 : 1200;
+            this.dist = Math.max(2, Math.min(maxDist, this.dist * (1 + e.deltaY * 0.001)));
         };
         canvas.oncontextmenu = e => e.preventDefault();
     }
@@ -120,7 +128,7 @@ export class Camera {
                 this.tgt[1] + this.dist * Math.cos(this.phi),
                 this.tgt[2] + this.dist * Math.sin(this.phi) * Math.sin(this.theta)
             ];
-            const proj = Mat4.perspective(0.785, aspect, 0.1, 500);
+            const proj = Mat4.perspective(0.785, aspect, 0.1, 4000);
             const view = Mat4.lookAt(eye, this.tgt);
             return Mat4.mul(proj, view);
         }

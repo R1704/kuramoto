@@ -4,7 +4,7 @@ import { Camera } from './common.js';
 import { UIManager } from './ui.js';
 import { Presets } from './presets.js';
 import { drawKernel } from './kernel.js';
-import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, LyapunovCalculator } from './statistics.js';
+import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, LyapunovCalculator } from './statistics.js';
 import { ReservoirComputer } from './reservoir.js';
 
 const STATE = {
@@ -22,16 +22,37 @@ const STATE = {
     sigma2: 1.2,
     beta: 0.6,
     showOrder: false,
-    colormap: 0,
+    colormap: 0, // analytic layer
+    colormapPalette: 0, // visual palette
     noiseStrength: 0.0,
     frameTime: 0,
     thetaPattern: 'random',
     omegaPattern: 'random',
     omegaAmplitude: 0.4,
     viewMode: 0, // 0 = 3D, 1 = 2D
+    surfaceMode: 'mesh', // 'mesh' or 'instanced'
     gridSize: 256, // Adjustable grid size
     smoothingMode: 0, // 0=nearest (none), 1=bilinear, 2=bicubic, 3=gaussian
     showStatistics: true, // Enable/disable statistics computation and display
+    leak: 0.0, // simple leak/damping on dynamics (0 = none)
+    // Interaction primer controls
+    drawMode: 'draw', // 'draw' or 'erase'
+    scaleBase: 1.0,
+    scaleRadial: 0.0,
+    scaleRandom: 0.0,
+    scaleRing: 0.0,
+    flowRadial: 0.0,
+    flowRotate: 0.0,
+    flowSwirl: 0.0,
+    flowBubble: 0.0,
+    flowRing: 0.0,
+    flowVortex: 0.0,
+    flowVertical: 0.0,
+    orientRadial: 0.0,
+    orientCircles: 0.0,
+    orientSwirl: 0.0,
+    orientBubble: 0.0,
+    orientLinear: 0.0,
     // Zoom/pan for 2D mode
     zoom: 1.0,
     panX: 0.0,
@@ -64,16 +85,22 @@ const STATE = {
     rcInputWidth: 0.1, // Fraction of grid for input region (0-0.5)
     rcOutputWidth: 0.1, // Fraction of grid for output region (0-0.5)
     rcInputStrength: 2.0, // Scaling factor for input signal (higher = more visible effect)
+    rcInjectionMode: 'freq_mod', // 'freq_mod', 'phase_drive', 'coupling_mod'
     rcHistoryLength: 20, // Number of timesteps to store for temporal features
+    rcMaxFeatures: 512, // Feature budget after history stacking (stride downsample)
     rcTask: 'sine', // 'sine', 'narma10', 'memory'
     rcTraining: false, // Currently collecting training data
     rcInference: false, // Running trained model
     rcTrainingSamples: 0, // Number of samples collected
-    rcNRMSE: null // Performance metric after training
+    rcNRMSE: null, // Performance metric after training
+
+    // Visualization toggles
+    phaseSpaceEnabled: true
 };
 
 // Store the last external input canvas for pattern initialization
 let lastExternalCanvas = null;
+let drawPending = false;
 
 // Show error message in the canvas area
 function showError(message) {
@@ -178,7 +205,8 @@ async function init() {
     context.configure({ device, format, alphaMode: 'opaque' });
 
     const sim = new Simulation(device, STATE.gridSize);
-    const renderer = new Renderer(device, format, canvas);
+    const renderer = new Renderer(device, format, canvas, STATE.gridSize);
+    renderer.setMeshMode(STATE.surfaceMode);
     renderer.setContext(context);
     const camera = new Camera(canvas);
     
@@ -192,22 +220,43 @@ async function init() {
     // Initialize Reservoir Computer
     let reservoir = new ReservoirComputer(STATE.gridSize);
     let rcPlot = null;
+    let rcKsweepPlot = null;
     
     // Initialize plots (will be created when DOM is ready)
     let R_plot = null;
     let chi_plot = null;
     let phaseDiagramPlot = null;
+    let phaseSpacePlot = null;
+
+    // RC K sweep state
+    let rcSweep = {
+        active: false,
+        Ks: [],
+        idx: 0,
+        steps: 0,
+        stepsPerK: 300,
+        results: []
+    };
     
     // K-scan state
     let kScanner = null;
 
     // Initial State
     resetSimulation(sim);
+    initDrawing(canvas, sim);
 
     const ui = new UIManager(STATE, {
         onParamChange: () => { 
             sim.updateFullParams(STATE);
             drawKernel(STATE); 
+        },
+        onSurfaceModeChange: (mode) => {
+            STATE.surfaceMode = mode;
+            renderer.setMeshMode(mode);
+            sim.updateFullParams(STATE);
+        },
+        onPhaseSpaceToggle: (enabled) => {
+            STATE.phaseSpaceEnabled = enabled;
         },
         onDrawKernel: () => { drawKernel(STATE); },
         onPause: () => { 
@@ -256,6 +305,9 @@ async function init() {
                 sim.resize(newSize);
                 resetSimulation(sim);
             }
+            
+            // Rebuild rendering buffers to match new grid
+            renderer.rebuildMesh(newSize);
             
             stats.resize(newSize * newSize);
             lyapunovCalc.resize(newSize * newSize);
@@ -319,6 +371,8 @@ async function init() {
             }
         },
         onRCConfigure: () => {
+            reservoir.setFeatureBudget(STATE.rcMaxFeatures);
+            reservoir.setHistoryLength(STATE.rcHistoryLength);
             reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
             reservoir.setTask(STATE.rcTask);
             // Write input weights to GPU
@@ -329,6 +383,8 @@ async function init() {
                 alert('Enable Reservoir Computing first');
                 return;
             }
+            reservoir.setFeatureBudget(STATE.rcMaxFeatures);
+            reservoir.setHistoryLength(STATE.rcHistoryLength);
             reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
             reservoir.setTask(STATE.rcTask);
             // Write input weights to GPU
@@ -355,6 +411,12 @@ async function init() {
             reservoir.stopInference();
             STATE.rcInference = false;
             updateRCDisplay();
+        },
+        onDrawMode: (mode) => {
+            STATE.drawMode = mode;
+        },
+        onClearCanvas: () => {
+            if (renderer.clearDrawOverlay) renderer.clearDrawOverlay();
         }
     });
     
@@ -384,6 +446,25 @@ async function init() {
             color: '#2196F3',
             fillColor: 'rgba(33, 150, 243, 0.2)',
             label: 'Prediction'
+        });
+
+        phaseSpacePlot = new PhaseSpacePlot('phase-space-canvas', {
+            maxPoints: 2000,
+            pointSize: 1.6,
+            ringColor: '#2c2c3d',
+            axisColor: '#1e1e2e',
+            pointColor: 'rgba(74, 158, 255, 0.9)',
+            bg: '#0f0f1a'
+        });
+
+        rcKsweepPlot = new TimeSeriesPlot('rc-ksweep-plot', {
+            yMin: 0, yMax: 2,
+            autoScale: true,
+            color: '#FF9800',
+            fillColor: 'rgba(255,152,0,0.2)',
+            showGrid: true,
+            showYAxis: true,
+            label: 'NRMSE'
         });
         
         // Initialize LLE controls
@@ -704,6 +785,9 @@ async function init() {
     function initRCControls() {
         const enabledCheck = document.getElementById('rc-enabled');
         const taskSelect = document.getElementById('rc-task-select');
+        const injectionMode = document.getElementById('rc-injection-mode');
+        const featureBudget = document.getElementById('rc-feature-budget');
+        const featureBudgetVal = document.getElementById('rc-feature-budget-val');
         const inputRegion = document.getElementById('rc-input-region');
         const outputRegion = document.getElementById('rc-output-region');
         const inputStrength = document.getElementById('rc-input-strength');
@@ -711,6 +795,8 @@ async function init() {
         const trainBtn = document.getElementById('rc-train-btn');
         const stopBtn = document.getElementById('rc-stop-btn');
         const testBtn = document.getElementById('rc-test-btn');
+        const kSweepBtn = document.getElementById('rc-ksweep-btn');
+        const kSweepStatus = document.getElementById('rc-ksweep-status');
         
         if (enabledCheck) {
             enabledCheck.addEventListener('change', () => {
@@ -718,6 +804,8 @@ async function init() {
                 const content = document.getElementById('rc-content');
                 if (content) content.style.opacity = STATE.rcEnabled ? '1' : '0.5';
                 if (STATE.rcEnabled) {
+                    reservoir.setFeatureBudget(STATE.rcMaxFeatures);
+                    reservoir.setHistoryLength(STATE.rcHistoryLength);
                     reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
                     sim.writeInputWeights(reservoir.getInputWeights());
                 } else {
@@ -730,6 +818,21 @@ async function init() {
             taskSelect.addEventListener('change', () => {
                 STATE.rcTask = taskSelect.value;
                 reservoir.setTask(STATE.rcTask);
+            });
+        }
+        
+        if (injectionMode) {
+            injectionMode.addEventListener('change', () => {
+                STATE.rcInjectionMode = injectionMode.value;
+                sim.updateFullParams(STATE);
+            });
+        }
+        
+        if (featureBudget) {
+            featureBudget.addEventListener('input', () => {
+                STATE.rcMaxFeatures = parseInt(featureBudget.value);
+                if (featureBudgetVal) featureBudgetVal.textContent = STATE.rcMaxFeatures;
+                reservoir.setFeatureBudget(STATE.rcMaxFeatures);
             });
         }
         
@@ -816,12 +919,25 @@ async function init() {
                 }
             });
         }
+
+        if (kSweepBtn) {
+            kSweepBtn.addEventListener('click', () => {
+                if (!STATE.rcEnabled) {
+                    alert('Enable Reservoir Computing first');
+                    return;
+                }
+                startRCKSweep();
+                if (kSweepStatus) kSweepStatus.textContent = 'running...';
+            });
+        }
     }
     
     function updateRCDisplay() {
         const statusEl = document.getElementById('rc-status');
         const samplesEl = document.getElementById('rc-samples');
         const nrmseEl = document.getElementById('rc-nrmse');
+        const ksweepStatus = document.getElementById('rc-ksweep-status');
+        const ksweepResults = document.getElementById('rc-ksweep-results');
         
         if (statusEl) {
             if (STATE.rcTraining) statusEl.textContent = 'training...';
@@ -847,6 +963,33 @@ async function init() {
                 nrmseEl.style.color = '#888';
             }
         }
+
+        const condEl = document.getElementById('rc-cond');
+        if (condEl) {
+            const cond = reservoir.onlineLearner.getConditionEstimate ? reservoir.onlineLearner.getConditionEstimate() : null;
+            if (cond && isFinite(cond)) {
+                condEl.textContent = cond.toExponential(2);
+                if (cond > 1e8) condEl.style.color = '#f44336';
+                else if (cond > 1e6) condEl.style.color = '#FF9800';
+                else condEl.style.color = '#4CAF50';
+            } else {
+                condEl.textContent = '—';
+                condEl.style.color = '#888';
+            }
+        }
+
+        if (ksweepStatus) {
+            ksweepStatus.textContent = rcSweep.active ? `K ${rcSweep.idx + 1}/${rcSweep.Ks.length}` : 'idle';
+        }
+        if (ksweepResults) {
+            if (rcSweep.results.length === 0) {
+                ksweepResults.textContent = '—';
+            } else {
+                ksweepResults.textContent = rcSweep.results.map(r => `K=${r.K.toFixed(2)} NRMSE=${r.nrmse.toFixed(3)}`).join('\n');
+            }
+        }
+
+        renderRCKSweepPlot();
     }
     
     function drawRCPlot() {
@@ -923,6 +1066,109 @@ async function init() {
         ctx.fillStyle = '#888';
         ctx.fillText('pred', w - 65, 20);
     }
+
+    function renderRCKSweepPlot() {
+        if (!rcKsweepPlot) return;
+        if (!rcSweep.results || rcSweep.results.length === 0) {
+            rcKsweepPlot.render(new Float32Array(0));
+            return;
+        }
+        // Sort results by K
+        const sorted = [...rcSweep.results].sort((a, b) => a.K - b.K);
+        const data = new Float32Array(sorted.length);
+        for (let i = 0; i < sorted.length; i++) {
+            data[i] = sorted[i].nrmse;
+        }
+        // Temporarily set x-axis scaling by reusing TimeSeriesPlot (uniform spacing)
+        rcKsweepPlot.render(data);
+
+        // Draw simple x-axis labels for K
+        const canvas = rcKsweepPlot.canvas;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        const W = rect.width;
+        const H = rect.height;
+        const left = rcKsweepPlot.leftMargin || 0;
+        const plotWidth = W - left;
+        const yAxis = H - 4;
+
+        ctx.save();
+        ctx.translate(0, 0);
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(left, yAxis);
+        ctx.lineTo(W, yAxis);
+        ctx.stroke();
+
+        ctx.fillStyle = '#777';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+
+        const ticks = [sorted[0].K, sorted[Math.floor(sorted.length / 2)].K, sorted[sorted.length - 1].K];
+        ticks.forEach((k, idx) => {
+            const t = idx / (ticks.length - 1 || 1);
+            const x = left + t * plotWidth;
+            ctx.beginPath();
+            ctx.moveTo(x, yAxis);
+            ctx.lineTo(x, yAxis + 4);
+            ctx.stroke();
+            ctx.fillText(k.toFixed(2), x, yAxis + 6);
+        });
+        ctx.restore();
+    }
+
+    function startRCKSweep() {
+        const Ks = [];
+        const startK = 0.2;
+        const endK = 2.4;
+        const step = 0.2;
+        for (let k = startK; k <= endK + 1e-6; k += step) {
+            Ks.push(parseFloat(k.toFixed(2)));
+        }
+        rcSweep = {
+            active: true,
+            Ks,
+            idx: 0,
+            steps: 0,
+            stepsPerK: 300,
+            results: []
+        };
+        beginSweepK();
+        updateRCDisplay();
+    }
+
+    function beginSweepK() {
+        if (!rcSweep.active) return;
+        if (rcSweep.idx >= rcSweep.Ks.length) {
+            rcSweep.active = false;
+            STATE.rcTraining = false;
+            STATE.rcInference = false;
+            updateRCDisplay();
+            return;
+        }
+        const K = rcSweep.Ks[rcSweep.idx];
+        STATE.K0 = K;
+        ui.updateDisplay();
+        sim.updateFullParams(STATE);
+        resetSimulation(sim);
+        reservoir.setFeatureBudget(STATE.rcMaxFeatures);
+        reservoir.setHistoryLength(STATE.rcHistoryLength);
+        reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+        sim.writeInputWeights(reservoir.getInputWeights());
+        reservoir.startTraining();
+        STATE.rcTraining = true;
+        STATE.rcInference = false;
+        rcSweep.steps = 0;
+        updateRCDisplay();
+    }
+
+    function renderPhaseSpace(theta) {
+        if (!phaseSpacePlot || !STATE.phaseSpaceEnabled || !theta) return;
+        phaseSpacePlot.render(theta);
+    }
     
     // Initialize display
     ui.updateDisplay();
@@ -938,6 +1184,10 @@ async function init() {
         if (STATE.gridSize >= 128) return 6;   // Every 6 frames
         return 8;  // Every 8 frames for small grids
     };
+    // Phase-space sampling throttling
+    let phaseSpaceCounter = 0;
+    const PHASE_SAMPLE_INTERVAL = 10;
+    let phaseSpacePending = false;
 
     function frame() {
         try {
@@ -977,10 +1227,16 @@ async function init() {
                         if (theta) {
                             try {
                                 reservoir.step(theta);
+                                // For moving dot, update dynamic input weights on GPU
+                                if (reservoir.tasks && reservoir.tasks.taskType === 'moving_dot') {
+                                    sim.writeInputWeights(reservoir.getInputWeights());
+                                }
                                 // Write the new input signal to GPU for next simulation step
                                 sim.setInputSignal(reservoir.getInputSignal());
                                 updateRCDisplay();
                                 drawRCPlot();
+                                // Reuse theta sample for phase space plot
+                                renderPhaseSpace(theta);
                             } catch (e) {
                                 console.error('RC step error:', e);
                             }
@@ -995,6 +1251,17 @@ async function init() {
                     sim.setInputSignal(demoSignal);
                 }
             }
+
+        // RC K sweep bookkeeping
+        if (rcSweep.active && STATE.rcTraining && !STATE.paused) {
+            rcSweep.steps++;
+            if (rcSweep.steps >= rcSweep.stepsPerK) {
+                const nrmse = reservoir.getNRMSE();
+                rcSweep.results.push({ K: STATE.K0, nrmse: isFinite(nrmse) ? nrmse : Infinity });
+                rcSweep.idx++;
+                beginSweepK();
+            }
+        }
         
         // Process readback and update statistics (async) - only if statistics enabled
         if (STATE.showStatistics) {
@@ -1033,6 +1300,22 @@ async function init() {
             });
             
             updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
+        }
+
+        // Phase space sampling (throttled when RC is idle)
+        if (phaseSpacePlot && STATE.phaseSpaceEnabled && !(STATE.rcTraining || STATE.rcInference)) {
+            phaseSpaceCounter++;
+            const interval = STATE.gridSize >= 512 ? PHASE_SAMPLE_INTERVAL * 2 : PHASE_SAMPLE_INTERVAL;
+            if (phaseSpaceCounter >= interval && !phaseSpacePending) {
+                phaseSpaceCounter = 0;
+                phaseSpacePending = true;
+                sim.readTheta().then(theta => {
+                    phaseSpacePending = false;
+                    renderPhaseSpace(theta);
+                }).catch(() => {
+                    phaseSpacePending = false;
+                });
+            }
         }
         } catch (e) {
             console.error('Frame error:', e);
@@ -1252,6 +1535,12 @@ function updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot) {
         if (chi_plot && chi_plot.canvas) {
             chi_plot.render(stats.getRecentChi(300));
         }
+
+        // Update local R histogram
+        const histCanvas = document.getElementById('local-hist');
+        if (histCanvas && stats.localHist) {
+            renderLocalHistogram(histCanvas, stats.localHist);
+        }
         
         // Update phase diagram
         if (phaseDiagramPlot && phaseDiagramPlot.canvas && stats.phaseDiagramData.length > 0) {
@@ -1259,6 +1548,82 @@ function updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot) {
             phaseDiagramPlot.render(stats.phaseDiagramData, stats.estimatedKc);
         }
     }
+}
+
+function renderLocalHistogram(canvas, bins) {
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width;
+    const H = rect.height;
+    const maxVal = Math.max(...bins, 1e-6);
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillRect(0, 0, W, H);
+    const barW = W / bins.length;
+    for (let i = 0; i < bins.length; i++) {
+        const h = (bins[i] / maxVal) * (H - 6);
+        ctx.fillStyle = '#4caf50';
+        ctx.fillRect(i * barW + 1, H - h - 2, barW - 2, h);
+    }
+    ctx.strokeStyle = '#333';
+    ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+    ctx.fillStyle = '#777';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('0', 8, H - 2);
+    ctx.fillText('1', W - 8, H - 2);
+}
+
+// ================= DRAW / ERASE OVERLAY =================
+    function initDrawing(canvas, sim) {
+        if (!canvas) return;
+        let isDrawing = false;
+        const radius = 3;
+        let currentMode = 'draw';
+
+        const applyStroke = (evt, mode) => {
+            if (!evt.metaKey) { isDrawing = false; return; } // require Cmd (or meta) to avoid conflicts
+            if (drawPending) return;
+            drawPending = true;
+        const rect = canvas.getBoundingClientRect();
+        const nx = (evt.clientX - rect.left) / rect.width;
+        const ny = (evt.clientY - rect.top) / rect.height;
+        // consistent orientation: map canvas directly to grid
+        const gx = Math.floor(nx * STATE.gridSize);
+        const gy = Math.floor(ny * STATE.gridSize);
+
+        sim.readTheta().then(theta => {
+            if (!theta) { drawPending = false; return; }
+            const TWO_PI = 6.28318530718;
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    const x = (gx + dx + STATE.gridSize) % STATE.gridSize;
+                    const y = (gy + dy + STATE.gridSize) % STATE.gridSize;
+                    const idx = y * STATE.gridSize + x;
+                    if (mode === 'erase') {
+                        theta[idx] = 0;
+                    } else {
+                        theta[idx] = Math.random() * TWO_PI;
+                    }
+                }
+            }
+            sim.writeTheta(theta);
+        }).finally(() => { drawPending = false; });
+    };
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (!e.metaKey) return; // require cmd
+        currentMode = e.shiftKey ? 'erase' : 'draw';
+        STATE.drawMode = currentMode;
+        isDrawing = true;
+        applyStroke(e, currentMode);
+    });
+    window.addEventListener('mousemove', (e) => {
+        if (!isDrawing) return;
+        applyStroke(e, currentMode);
+    });
+    window.addEventListener('mouseup', () => { isDrawing = false; });
 }
 
 function applyExternalInput(device, sim, canvas, amplitude) {

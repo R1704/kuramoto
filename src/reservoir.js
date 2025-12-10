@@ -27,6 +27,7 @@ export class ReservoirIO {
         this.historyLength = 10;
         this.featureHistory = [];
         this.historyIndex = 0;
+        this.maxFeatures = 512;
         
         // Number of readout oscillators
         this.numReadouts = 0;
@@ -228,7 +229,18 @@ export class ReservoirIO {
             fullFeatures.set(this.featureHistory[idx], t * featureSize);
         }
         
-        return fullFeatures;
+        // Downsample features if exceeding budget (stride-based)
+        if (fullFeatures.length <= this.maxFeatures || this.maxFeatures <= 0) {
+            return fullFeatures;
+        }
+        const step = Math.ceil(fullFeatures.length / this.maxFeatures);
+        const capped = Math.min(fullFeatures.length, step * this.maxFeatures);
+        const projected = new Float32Array(Math.floor(capped / step));
+        let pi = 0;
+        for (let i = 0; i < capped && pi < projected.length; i += step) {
+            projected[pi++] = fullFeatures[i];
+        }
+        return projected;
     }
     
     /**
@@ -248,6 +260,35 @@ export class ReservoirIO {
         this.inputWeights = new Float32Array(this.N);
         this.readoutMask = new Float32Array(this.N);
         this.clearHistory();
+    }
+
+    setFeatureBudget(maxFeatures) {
+        this.maxFeatures = Math.max(0, maxFeatures | 0);
+    }
+
+    setHistoryLength(len) {
+        this.historyLength = Math.max(1, len | 0);
+        this.clearHistory();
+    }
+
+    /**
+     * Dynamic moving-dot input weights (normalized coordinates 0-1)
+     */
+    setMovingDotWeightsNorm(nx, ny, radiusNorm = 0.05, strength = 1.0) {
+        this.inputWeights.fill(0);
+        const radius = Math.max(1, Math.floor(this.gridSize * radiusNorm));
+        const cx = Math.floor(nx * this.gridSize) % this.gridSize;
+        const cy = Math.floor(ny * this.gridSize) % this.gridSize;
+        const r2 = radius * radius;
+        for (let y = -radius; y <= radius; y++) {
+            for (let x = -radius; x <= radius; x++) {
+                if (x * x + y * y <= r2) {
+                    const gx = (cx + x + this.gridSize) % this.gridSize;
+                    const gy = (cy + y + this.gridSize) % this.gridSize;
+                    this.inputWeights[gy * this.gridSize + gx] = strength;
+                }
+            }
+        }
     }
 }
 
@@ -406,6 +447,22 @@ export class OnlineLearner {
      */
     getSampleCount() {
         return this.sampleCount;
+    }
+
+    /**
+    * Approximate condition number using diag(P)
+    */
+    getConditionEstimate() {
+        if (!this.P || this.dim === 0) return null;
+        let minD = Infinity;
+        let maxD = 0;
+        for (let i = 0; i < this.dim; i++) {
+            const v = this.P[i * this.dim + i];
+            minD = Math.min(minD, v);
+            maxD = Math.max(maxD, v);
+        }
+        if (minD <= 0 || !isFinite(minD) || !isFinite(maxD)) return null;
+        return maxD / minD;
     }
     
     /**
@@ -630,6 +687,10 @@ export class RCTasks {
         this.time = 0;
         this.taskType = 'sine';
         this.history = []; // For NARMA
+        this.movingDotPeriod = 400;
+        this.movingDotHorizon = 5;
+        this.movingDotWidth = 0.05;
+        this.movingDotY = 0.5;
     }
     
     /**
@@ -656,6 +717,8 @@ export class RCTasks {
                 return this.narma10Task();
             case 'memory':
                 return this.memoryTask();
+            case 'moving_dot':
+                return this.movingDotTask();
             default:
                 return { input: 0, target: 0 };
         }
@@ -730,6 +793,22 @@ export class RCTasks {
         
         return { input, target };
     }
+
+    /**
+     * Moving dot task: input is localized moving dot; target is future x position
+     */
+    movingDotTask() {
+        const phase = (this.time % this.movingDotPeriod) / this.movingDotPeriod;
+        const nextPhase = ((this.time + this.movingDotHorizon) % this.movingDotPeriod) / this.movingDotPeriod;
+        // Move horizontally sinusoidally
+        const x = 0.5 + 0.4 * Math.sin(2 * Math.PI * phase);
+        const xNext = 0.5 + 0.4 * Math.sin(2 * Math.PI * nextPhase);
+        const input = 1.0; // constant amplitude; spatial pattern in weights
+        const target = xNext; // predict future x in [0,1]
+        // Store current x for weight placement
+        this.currentDotX = x;
+        return { input, target };
+    }
     
     /**
      * Reset task state
@@ -737,6 +816,7 @@ export class RCTasks {
     reset() {
         this.time = 0;
         this.history = [];
+        this.currentDotX = 0.5;
     }
 }
 
@@ -762,6 +842,8 @@ export class ReservoirComputer {
         
         // Running NRMSE during training
         this.lastNRMSE = Infinity;
+        this.maxFeatures = 512;
+        this.io.setFeatureBudget(this.maxFeatures);
     }
     
     /**
@@ -772,6 +854,14 @@ export class ReservoirComputer {
         this.io.setOutputRegion(outputRegion, 0.1);
         this.io.clearHistory();
         console.log(`RC configured: input=${inputRegion}, output=${outputRegion}, readouts=${this.io.numReadouts}`);
+    }
+
+    setFeatureBudget(maxFeatures) {
+        this.io.setFeatureBudget(maxFeatures);
+    }
+
+    setHistoryLength(len) {
+        this.io.setHistoryLength(len);
     }
     
     /**
@@ -841,6 +931,12 @@ export class ReservoirComputer {
         
         // Set input signal for next simulation step
         this.io.setInputSignal(input);
+        // For moving dot, update spatial weights
+        if (this.tasks.taskType === 'moving_dot') {
+            const x = this.tasks.currentDotX ?? 0.5;
+            const y = this.tasks.movingDotY;
+            this.io.setMovingDotWeightsNorm(x, y, this.tasks.movingDotWidth, 1.0);
+        }
         
         // Extract features from current state
         const features = this.io.extractFeatures(theta);
@@ -909,6 +1005,15 @@ export class ReservoirComputer {
      */
     getInputWeights() {
         return this.io.inputWeights;
+    }
+
+    setFeatureBudget(maxFeatures) {
+        this.maxFeatures = maxFeatures;
+        this.io.setFeatureBudget(maxFeatures);
+    }
+
+    setHistoryLength(len) {
+        this.io.setHistoryLength(len);
     }
     
     /**

@@ -41,8 +41,8 @@ export class Simulation {
         
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        // Params buffer: 43 floats = 172 bytes (rounded to 176 for alignment)
-        this.paramsBuf = this.device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        // Params buffer: padded to 288 bytes (holds 69 floats + padding, 16-byte aligned)
+        this.paramsBuf = this.device.createBuffer({ size: 288, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
         // Global order parameter buffer (stores complex mean field Z = (cos, sin) as vec2)
         this.globalOrderBuf = this.device.createBuffer({ 
@@ -77,19 +77,25 @@ export class Simulation {
         // ============= LOCAL ORDER STATISTICS BUFFERS =============
         // Atomic accumulator for local order stats (4 values: sum_r, sync_count, sum_grad, sum_r2)
         this.localStatsAtomicBuf = this.device.createBuffer({
-            size: 16, // 4 * i32
+            size: 4 * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
         
-        // Output buffer for normalized statistics (5 floats)
+        // Histogram atomic buffer (16 bins)
+        this.localHistAtomicBuf = this.device.createBuffer({
+            size: 16 * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        
+        // Output buffer for normalized statistics (5 floats + 16-bin histogram)
         this.localStatsBuf = this.device.createBuffer({
-            size: 20, // 5 * f32
+            size: (5 + 16) * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
         });
         
         // Staging buffer for reading back local stats
         this.localStatsReadbackBuf = this.device.createBuffer({
-            size: 20,
+            size: (5 + 16) * 4,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
         });
         
@@ -188,7 +194,8 @@ export class Simulation {
                 { binding: 0, resource: { buffer: this.orderBuf } },          // local order values
                 { binding: 1, resource: { buffer: this.thetaStagingBuf } },   // theta for gradient
                 { binding: 2, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 3, resource: { buffer: this.gridSizeUniformBuf } },
+                { binding: 3, resource: { buffer: this.localHistAtomicBuf } },
+                { binding: 4, resource: { buffer: this.gridSizeUniformBuf } },
             ],
         });
         
@@ -196,8 +203,9 @@ export class Simulation {
             layout: this.localStatsNormalizePipeline.getBindGroupLayout(0),
             entries: [
                 { binding: 0, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 1, resource: { buffer: this.localStatsBuf } },
-                { binding: 2, resource: { buffer: this.nUniformBuf } },
+                { binding: 1, resource: { buffer: this.localHistAtomicBuf } },
+                { binding: 2, resource: { buffer: this.localStatsBuf } },
+                { binding: 3, resource: { buffer: this.nUniformBuf } },
             ],
         });
     }
@@ -235,7 +243,7 @@ export class Simulation {
         this.device.queue.writeBuffer(this.paramsBuf, 0, dtData);
         
         const timeData = new Float32Array([p.frameTime]);
-        this.device.queue.writeBuffer(this.paramsBuf, 15 * 4, timeData);
+        this.device.queue.writeBuffer(this.paramsBuf, 16 * 4, timeData);
         
         // Only write full params if something other than dt/time changed
         // (This will be called explicitly when params change via updateFullParams)
@@ -243,31 +251,56 @@ export class Simulation {
     
     updateFullParams(p) {
         // Pack all parameters - called only when user changes settings
-        // 28 base params + 5 ring widths + 5 ring weights + 3 composition + 1 asymmetric orientation + 3 Gabor + 3 zoom/pan + 3 pad = 51 floats
+        // Layout matches shader structs (72 floats = 288 bytes)
+        const injMode = (() => {
+            if (typeof p.rcInjectionMode === 'string') {
+                if (p.rcInjectionMode === 'phase_drive') return 1;
+                if (p.rcInjectionMode === 'coupling_mod') return 2;
+                return 0;
+            }
+            return p.rcInjectionMode || 0;
+        })();
         const data = new Float32Array([
+            // 0-3
             p.dt * p.timeScale * (p.paused ? 0 : 1), p.K0, p.range, p.ruleMode,
+            // 4-7
             this.gridSize, this.gridSize, p.harmonicA, p.globalCoupling ? 1.0 : 0.0,
+            // 8-11
             p.delaySteps, p.sigma, p.sigma2, p.beta,
-            p.showOrder ? 1.0 : 0.0, p.colormap, p.noiseStrength, p.frameTime,
-            p.harmonicB, p.viewMode, p.kernelShape, p.kernelOrientation,
-            p.kernelAspect, p.kernelScale2Weight, p.kernelScale3Weight, p.kernelAsymmetry,
-            p.kernelRings, 
-            // Ring widths (5 individual fields)
-            p.kernelRingWidths[0], p.kernelRingWidths[1], p.kernelRingWidths[2],
-            p.kernelRingWidths[3], p.kernelRingWidths[4],
-            // Ring weights (5 individual fields)
-            p.kernelRingWeights[0], p.kernelRingWeights[1], p.kernelRingWeights[2],
-            p.kernelRingWeights[3], p.kernelRingWeights[4],
-            // Composition parameters
-            p.kernelCompositionEnabled ? 1.0 : 0.0, p.kernelSecondary, p.kernelMixRatio,
-            p.kernelAsymmetricOrientation,
-            // Gabor parameters
+            // 12-15
+            p.showOrder ? 1.0 : 0.0, p.colormap, p.colormapPalette ?? 0, p.noiseStrength,
+            // 16-19
+            p.frameTime, p.harmonicB, p.viewMode, p.kernelShape,
+            // 20-23
+            p.kernelOrientation, p.kernelAspect, p.kernelScale2Weight, p.kernelScale3Weight,
+            // 24-27
+            p.kernelAsymmetry, p.kernelRings, p.kernelRingWidths[0], p.kernelRingWidths[1],
+            // 28-31
+            p.kernelRingWidths[2], p.kernelRingWidths[3], p.kernelRingWidths[4], p.kernelRingWeights[0],
+            // 32-35
+            p.kernelRingWeights[1], p.kernelRingWeights[2], p.kernelRingWeights[3], p.kernelRingWeights[4],
+            // 36-39
+            p.kernelCompositionEnabled ? 1.0 : 0.0, p.kernelSecondary, p.kernelMixRatio, p.kernelAsymmetricOrientation,
+            // 40-42
             p.kernelSpatialFreqMag, p.kernelSpatialFreqAngle, p.kernelGaborPhase,
-            // Zoom/pan parameters
+            // 43-45
             p.zoom || 1.0, p.panX || 0.0, p.panY || 0.0,
-            (p.smoothingMode ?? 0) > 0 ? 1.0 : 0.0, // bilinear flag: enable smoothing if mode > 0
-            p.smoothingMode ?? 0, // smoothing mode: 0=nearest (none), 1=bilinear, 2=bicubic, 3=gaussian
-            0 // pad
+            // 46-49
+            (p.smoothingMode ?? 0) > 0 ? 1.0 : 0.0, p.smoothingMode ?? 0, injMode, p.leak ?? 0.0,
+            // 50-51 pad
+            0, 0,
+            // 52-55 interaction scale
+            p.scaleBase ?? 1.0, p.scaleRadial ?? 0.0, p.scaleRandom ?? 0.0, p.scaleRing ?? 0.0,
+            // 56-59 flow
+            p.flowRadial ?? 0.0, p.flowRotate ?? 0.0, p.flowSwirl ?? 0.0, p.flowBubble ?? 0.0,
+            // 60-62 more flow
+            p.flowRing ?? 0.0, p.flowVortex ?? 0.0, p.flowVertical ?? 0.0,
+            // 63-66 orientation
+            p.orientRadial ?? 0.0, p.orientCircles ?? 0.0, p.orientSwirl ?? 0.0, p.orientBubble ?? 0.0,
+            // 67
+            p.orientLinear ?? 0.0,
+            // 68-70 mesh flag + pads (to 72 floats total)
+            (p.surfaceMode === 'mesh' ? 1.0 : 0.0), 0, 0, 0
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }
@@ -289,6 +322,7 @@ export class Simulation {
             // Reset atomic accumulators to zero
             commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 8);
             commandEncoder.clearBuffer(this.localStatsAtomicBuf, 0, 16);
+            commandEncoder.clearBuffer(this.localHistAtomicBuf, 0, 64);
             
             // Copy current theta texture to staging buffer for reduction shader
             commandEncoder.copyTextureToBuffer(
@@ -422,7 +456,7 @@ export class Simulation {
         commandEncoder.copyBufferToBuffer(
             this.localStatsBuf, 0,
             this.localStatsReadbackBuf, 0,
-            20
+            (5 + 16) * 4
         );
         
         this.readbackPending = true;
@@ -456,11 +490,13 @@ export class Simulation {
             const localData = new Float32Array(this.localStatsReadbackBuf.getMappedRange().slice(0));
             this.localStatsReadbackBuf.unmap();
             
+            const hist = localData.slice(5, 21);
             this.lastLocalStats = {
                 meanR: localData[0],        // Mean local R - better measure of organization
                 syncFraction: localData[1], // Fraction with R > 0.7
                 gradient: localData[2],     // Mean phase gradient - high = waves/spirals
                 variance: localData[3],     // Variance of local R
+                histogram: hist,
             };
             
             this.readbackPending = false;
@@ -717,6 +753,9 @@ export class Simulation {
         if (this.localStatsAtomicBuf) {
             this.localStatsAtomicBuf.destroy();
         }
+        if (this.localHistAtomicBuf) {
+            this.localHistAtomicBuf.destroy();
+        }
         if (this.localStatsBuf) {
             this.localStatsBuf.destroy();
         }
@@ -772,7 +811,8 @@ export class Simulation {
                 { binding: 0, resource: { buffer: this.orderBuf } },
                 { binding: 1, resource: { buffer: this.thetaStagingBuf } },
                 { binding: 2, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 3, resource: { buffer: this.gridSizeUniformBuf } },
+                { binding: 3, resource: { buffer: this.localHistAtomicBuf } },
+                { binding: 4, resource: { buffer: this.gridSizeUniformBuf } },
             ],
         });
         
@@ -780,8 +820,9 @@ export class Simulation {
             layout: this.localStatsNormalizePipeline.getBindGroupLayout(0),
             entries: [
                 { binding: 0, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 1, resource: { buffer: this.localStatsBuf } },
-                { binding: 2, resource: { buffer: this.nUniformBuf } },
+                { binding: 1, resource: { buffer: this.localHistAtomicBuf } },
+                { binding: 2, resource: { buffer: this.localStatsBuf } },
+                { binding: 3, resource: { buffer: this.nUniformBuf } },
             ],
         });
         

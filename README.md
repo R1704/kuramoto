@@ -79,9 +79,13 @@ The simulation implements 6 different coupling mechanisms:
 
 Switch rules using **keyboard 0-5** or the dropdown menu.
 
-### 11 Colormap Modes
+### Data Layers + Palettes
 
-Rich visualization options including Phase, Velocity, Curvature, Order, Image Texture, Viridis, Plasma, Twilight, Inferno, Chirality, and Phase+Gradient. Colormaps are synchronized between 2D and 3D views for consistent visualization.
+Visualization now separates **data layers** from **palettes**:
+- Layers: Phase, Velocity, Curvature, Order, Chirality, Phase+Gradient, Image Texture.
+- Palettes: Rainbow, Viridis, Plasma, Inferno, Twilight (cyclic), Greyscale.
+
+Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
 
 ### Fast 2D Rendering
 
@@ -199,29 +203,19 @@ Grid resizing uses intelligent interpolation:
   - Perfect for image textures
   - Direct phase visualization
   - Publication-quality figures
-  - **Zoom**: Mouse wheel (0.5× to 10×)
-  - **Pan**: Click and drag
+  - **Zoom**: Mouse wheel (1× to 10×), anchored to cursor
+  - **Pan**: Locked (no drag); zoom preserves focus
   - **Reset View**: Double-click or press **Z**
 
 Toggle with **V** key or buttons.
 
 ## 🎨 Visualization Modes
 
-Press **C** to cycle through colormaps:
+Visualization separates **Data Layer** and **Palette**:
+- **Layers**: Phase, Velocity (|∇θ|), Curvature (∇²θ proxy), Order (local R), Chirality (curl), Phase+Gradient (phase hue × gradient brightness), Image Texture (external input).
+- **Palettes**: Rainbow, Viridis, Plasma, Inferno, Twilight (cyclic), Greyscale.
 
-| Mode | Name | Shows | Color Scheme |
-|------|------|-------|--------------|
-| **0** | Phase | Raw oscillator phase | Blue → Cyan → Green → Yellow → Red |
-| **1** | Velocity | Phase gradient (∇θ) | Blue (slow) → Orange (fast) |
-| **2** | Curvature | Phase Laplacian (∇²θ) | Purple (concave) → Yellow (convex) |
-| **3** | Order | Local synchronization | Red (chaos) → Green (sync) |
-| **4** | Image Texture | External image modulated by phase | Original colors × phase brightness |
-| **5** | Viridis | Perceptually uniform | Blue → Green → Yellow |
-| **6** | Plasma | Hot magenta-yellow | Magenta → Orange → Yellow |
-| **7** | Twilight | Cyclic colormap | Purple → Red → Yellow → Blue |
-| **8** | Inferno | Black to bright | Black → Purple → Orange → Yellow |
-| **9** | Chirality | Spiral rotation direction | Blue (CW) → Gray → Red (CCW) |
-| **10** | Phase+Gradient | Combined visualization | Phase hue with gradient brightness |
+Shortcuts: **C** cycles palettes; **Shift+C** cycles data layers.
 
 ### Order Parameter Overlay
 
@@ -320,7 +314,7 @@ Spatial coupling kernel with multiple shape options:
 ### Rule & Mode Control
 - **0-5**: Switch coupling rules
 - **V**: Toggle 2D/3D view
-- **C**: Cycle colormaps (11 modes)
+- **C**: Cycle palettes; **Shift+C**: Cycle data layers
 - **O**: Toggle order overlay
 - **G**: Toggle global coupling
 - **S**: Cycle smoothing modes (none/bilinear/bicubic/gaussian)
@@ -340,6 +334,7 @@ Spatial coupling kernel with multiple shape options:
 - **Z**: Reset zoom/pan to default
 - **+** / **=**: Zoom in
 - **-**: Zoom out
+- **Cmd+Drag**: Draw; **Cmd+Shift+Drag**: Erase (2D & 3D, camera ignores Cmd)
 
 ### Camera (3D Mode)
 - **Left-drag**: Rotate
@@ -377,7 +372,7 @@ Click preset buttons to load fascinating patterns:
 5. Range → 2
 6. Global Coupling → OFF
 7. Press "Reset"
-8. Press C to switch to Velocity colormap
+8. Data Layer → Velocity (Shift+C), palette as desired (C to cycle)
 → Observe diagonal stripes moving
 ```
 
@@ -434,10 +429,11 @@ Click preset buttons to load fascinating patterns:
 3. Wait 10-15 seconds for pattern to settle
 4. Press V (2D mode for cleaner view)
 5. Zoom to frame pattern
-6. Choose appropriate colormap:
-   - Phase (0): show structure
-   - Velocity (1): show dynamics
-   - Order (3): show synchronization
+6. Choose appropriate layer/palette:
+   - Data Layer → Phase for structure
+   - Data Layer → Velocity for dynamics
+   - Data Layer → Order for synchronization
+   - Palette → pick Viridis/Twilight/etc. for print-safe contrast
 7. Screenshot at stable moment
 ```
 

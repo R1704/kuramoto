@@ -12,6 +12,7 @@
 - ✅ Smoothing modes (nearest, bilinear, bicubic Catmull-Rom, Gaussian 3×3)
 - ✅ Grid resize interpolation (phase-aware for θ, scalar for ω)
 - ✅ **Reservoir Computing Phase 1** (see below)
+- ✅ Interaction primer alignment (Cmd-draw/erase in 2D/3D, palette vs data-layer split, zoom-to-cursor 2D)
 
 ---
 
@@ -236,4 +237,4 @@ Input Signal → Input Buffer → GPU Simulation → Feature Extraction → CPU 
 4. **Add memory capacity test** - Measure information retention
 5. **Explore criticality connection** - Does K near Kc improve RC?
 6. **Multi-input channels** - Support multiple simultaneous signals
-
+7. **Interaction polish** - Cursor-centered zoom, Cmd+drag draw/erase in both views, richer palettes (phase viridis/inferno/greyscale)

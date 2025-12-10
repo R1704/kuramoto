@@ -1278,6 +1278,17 @@
                     </div>
                     <input type="range" id="dt-slider" min="0.001" max="0.1" step="0.001" value="0.03">
                 </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Leak / Damping</span>
+                        <span class="control-value" id="leak-value">0.00</span>
+                    </div>
+                    <input type="range" id="leak-slider" min="0.0" max="1.0" step="0.01" value="0.0">
+                    <div style="font-size: 9px; color: #666; margin-top: 2px;">
+                        0 = no leak; higher values damp dynamics to enforce fading memory
+                    </div>
+                </div>
                 
                 <div class="control-group">
                     <div class="control-label">
@@ -1307,20 +1318,42 @@
                 
                 <div class="control-group">
                     <div class="control-label">
-                        <span>Color Mode</span>
+                        <span>Data Layer</span>
+                        <span class="control-value" style="color:#888;">Shift+C cycles</span>
                     </div>
-                    <select id="colormap-select">
-                        <option value="0">Phase (rainbow)</option>
+                    <select id="data-layer-select">
+                        <option value="0">Phase</option>
                         <option value="1">Velocity (dθ/dt)</option>
                         <option value="2">Curvature (∇²θ)</option>
                         <option value="3">Order Parameter</option>
-                        <option value="4">Image Texture</option>
-                        <option value="5">Viridis</option>
-                        <option value="6">Plasma</option>
-                        <option value="7">Twilight (cyclic)</option>
-                        <option value="8">Inferno</option>
-                        <option value="9">Chirality (spirals)</option>
-                        <option value="10">Phase + Gradient</option>
+                        <option value="4">Chirality (spirals)</option>
+                        <option value="5">Phase + Gradient</option>
+                        <option value="6">Image Texture</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Palette</span>
+                        <span class="control-value" style="color:#888;">C cycles</span>
+                    </div>
+                    <select id="palette-select">
+                        <option value="0">Rainbow (cyclic)</option>
+                        <option value="1">Viridis</option>
+                        <option value="2">Plasma</option>
+                        <option value="3">Inferno</option>
+                        <option value="4">Twilight (cyclic)</option>
+                        <option value="5">Greyscale</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>3D Surface Mode</span>
+                    </div>
+                    <select id="surface-mode-select">
+                        <option value="mesh" selected>Continuous Mesh</option>
+                        <option value="instanced">Instanced Quads</option>
                     </select>
                 </div>
                 
@@ -1334,6 +1367,56 @@
                     </select>
                 </div>
             </div>
+
+            <!-- 7. INTERACTION TOOLS (from primer) -->
+            <!-- 7. INTERACTION (expert controls) -->
+            <div class="section">
+                <div class="section-title">Interaction</div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Scale Modulation</span>
+                    </div>
+                    <label style="font-size: 10px; color: #888; display: block;">Base Scale</label>
+                    <input type="range" id="scale-slider" min="0.2" max="4.0" step="0.05" value="1.0">
+                    <label style="font-size: 10px; color: #888; display: block; margin-top: 6px;">Radial</label>
+                    <input type="range" id="scale-radial-slider" min="0.0" max="2.0" step="0.05" value="0.0">
+                    <label style="font-size: 10px; color: #888; display: block; margin-top: 6px;">Random</label>
+                    <input type="range" id="scale-random-slider" min="0.0" max="2.0" step="0.05" value="0.0">
+                    <label style="font-size: 10px; color: #888; display: block; margin-top: 6px;">Ring</label>
+                    <input type="range" id="scale-ring-slider" min="0.0" max="2.0" step="0.05" value="0.0">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Flow Field</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px; color: #888;">
+                        <label>Radial</label><input type="range" id="flow-radial-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                        <label>Rotate</label><input type="range" id="flow-rotate-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                        <label>Swirl</label><input type="range" id="flow-swirl-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                        <label>Bubble</label><input type="range" id="flow-bubble-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                        <label>Ring</label><input type="range" id="flow-ring-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                        <label>Vortex</label><input type="range" id="flow-vortex-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                        <label>Vertical</label><input type="range" id="flow-vertical-slider" min="-5.0" max="5.0" step="0.1" value="0">
+                    </div>
+                    <div style="font-size: 10px; color: #888; margin-top: 4px;">Center is zero; sliders snap to 0 (hold Ctrl to avoid snap).</div>
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Orientation Map</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px; color: #888;">
+                        <label>Radial</label><input type="range" id="orient-radial-slider" min="-2.0" max="2.0" step="0.05" value="0">
+                        <label>Circles</label><input type="range" id="orient-circles-slider" min="-2.0" max="2.0" step="0.05" value="0">
+                        <label>Swirl</label><input type="range" id="orient-swirl-slider" min="-2.0" max="2.0" step="0.05" value="0">
+                        <label>Bubble</label><input type="range" id="orient-bubble-slider" min="-2.0" max="2.0" step="0.05" value="0">
+                        <label>Linear</label><input type="range" id="orient-linear-slider" min="-2.0" max="2.0" step="0.05" value="0">
+                    </div>
+                    <div style="font-size: 10px; color: #888; margin-top: 4px;">Positive linear = vertical, negative = horizontal.</div>
+                </div>
+            </div>
             
             <!-- KEYBOARD SHORTCUTS -->
             <div class="keyboard-hint">
@@ -1341,7 +1424,7 @@
                 <kbd>0</kbd>-<kbd>5</kbd> Switch rules<br>
                 <kbd>R</kbd> Reset state<br>
                 <kbd>G</kbd> Toggle global coupling<br>
-                <kbd>C</kbd> Cycle colormaps<br>
+                <kbd>C</kbd> Cycle palettes &nbsp;|&nbsp; <kbd>Shift</kbd>+<kbd>C</kbd> Cycle data layer<br>
                 <kbd>V</kbd> Toggle 2D/3D view<br>
                 <kbd>Space</kbd> Pause/Resume<br>
                 <kbd>[</kbd><kbd>]</kbd> Adjust speed<br>
@@ -1351,13 +1434,15 @@
                 <kbd>+</kbd><kbd>-</kbd> Zoom in/out (2D)<br>
                 <kbd>Z</kbd> Reset zoom (2D)<br>
                 <kbd>S</kbd> Cycle smoothing modes<br>
+                <kbd>P</kbd> Toggle phase space plot<br>
                 <kbd>L</kbd> Toggle log scale (χ plot)<br>
                 <kbd>K</kbd> Start K-scan<br>
                 <kbd>Shift</kbd>+<kbd>K</kbd> Go to Kc<br>
                 <br>
                 <strong>Mouse (2D Mode)</strong><br>
-                Drag to pan<br>
-                Scroll to zoom<br>
+                Cmd+Drag: draw<br>
+                Cmd+Shift+Drag: erase<br>
+                Scroll to zoom (towards cursor)<br>
                 Double-click to reset view
             </div>
         </div>
@@ -1390,7 +1475,7 @@
                         <span class="stat-value" id="stat-globalR">0.000</span>
                     </div>
                     <div class="stat-row">
-                        <span class="stat-label">Susceptibility χ:</span>
+                        <span class="stat-label">Susceptibility χ (temporal var):</span>
                         <span class="stat-value" id="stat-chi">0.0000</span>
                     </div>
                     <div class="stat-row">
@@ -1414,6 +1499,11 @@
                         <span>1</span>
                     </div>
                 </div>
+
+                <div style="margin-top: 12px;">
+                    <div class="viz-title" style="margin-bottom: 6px;">Local R Histogram</div>
+                    <canvas id="local-hist" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px; background: #0f0f1a;"></canvas>
+                </div>
             </div>
             
             <!-- TIME SERIES PLOTS -->
@@ -1425,6 +1515,19 @@
             <div class="viz-section">
                 <div class="viz-title">χ(t) Susceptibility</div>
                 <canvas id="chi-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px;"></canvas>
+            </div>
+
+            <!-- PHASE SPACE -->
+            <div class="viz-section" id="phase-space-section">
+                <div class="viz-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>🗺️ Phase Space</span>
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="phase-space-toggle" checked style="width: 14px; height: 14px; cursor: pointer;">
+                        <span>Show</span>
+                    </label>
+                </div>
+                <canvas id="phase-space-canvas" width="280" height="180" style="width: 100%; height: 180px; border-radius: 4px; background: #0f0f1a;"></canvas>
+                <div style="margin-top: 6px; color: #777; font-size: 11px;">Subsampled θ plotted on unit circle.</div>
             </div>
             
             <!-- PHASE DIAGRAM -->
@@ -1510,7 +1613,24 @@
                             <option value="sine">Sine Wave Prediction</option>
                             <option value="narma10">NARMA-10</option>
                             <option value="memory">Memory Capacity</option>
+                            <option value="moving_dot">Moving Dot (Spatiotemporal)</option>
                         </select>
+                    </div>
+                    
+                    <!-- Input Mode -->
+                    <div class="control-group" style="margin-bottom: 8px;">
+                        <label style="font-size: 11px; color: #aaa;">Input Mode</label>
+                        <select id="rc-injection-mode" style="width: 100%; padding: 4px; font-size: 11px;">
+                            <option value="freq_mod" selected>Frequency Modulation</option>
+                            <option value="phase_drive">Phase Drive (Torque)</option>
+                            <option value="coupling_mod">Coupling Modulation</option>
+                        </select>
+                    </div>
+
+                    <!-- Feature Budget -->
+                    <div class="control-group" style="margin-bottom: 8px;">
+                        <label style="font-size: 10px; color: #888;">Feature Budget: <span id="rc-feature-budget-val">512</span></label>
+                        <input type="range" id="rc-feature-budget" min="64" max="2048" step="64" value="512" style="width: 100%;">
                     </div>
                     
                     <!-- Input/Output Regions -->
@@ -1546,6 +1666,12 @@
                         <button id="rc-stop-btn" class="small-btn" style="flex: 1;" disabled>⏹ Stop</button>
                         <button id="rc-test-btn" class="small-btn" style="flex: 1;" disabled>🧪 Test</button>
                     </div>
+
+                    <!-- RC vs K Sweep -->
+                    <div style="display: flex; gap: 4px; align-items: center; margin-bottom: 6px;">
+                        <button id="rc-ksweep-btn" class="small-btn" style="flex: 1;">📈 RC K Sweep</button>
+                        <span id="rc-ksweep-status" class="kscan-progress" style="flex: 1; text-align: right;">idle</span>
+                    </div>
                     
                     <!-- Status -->
                     <div class="stats-grid">
@@ -1561,6 +1687,19 @@
                             <span class="stat-label">NRMSE:</span>
                             <span class="stat-value" id="rc-nrmse">—</span>
                         </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Cond (diag):</span>
+                            <span class="stat-value" id="rc-cond">—</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 8px;">
+                        <label style="font-size: 10px; color: #888;">RC K Sweep Results</label>
+                        <pre id="rc-ksweep-results" style="background:#0f0f1a; color:#aaa; font-size:10px; padding:6px; border-radius:4px; min-height:32px; white-space:pre-wrap;">—</pre>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        <label style="font-size: 10px; color: #888;">NRMSE vs K</label>
+                        <canvas id="rc-ksweep-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px; background: #1a1a2e;"></canvas>
                     </div>
                     
                     <!-- Prediction Plot -->

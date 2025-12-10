@@ -26,53 +26,26 @@ export class UIManager {
         canvas.addEventListener('wheel', (e) => {
             if (this.state.viewMode !== 1) return; // Only in 2D mode
             e.preventDefault();
-            
+
+            const rect = canvas.getBoundingClientRect();
+            const cx = (e.clientX - rect.left) / rect.width - 0.5;
+            const cy = (e.clientY - rect.top) / rect.height - 0.5;
+
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-            this.state.zoom = Math.max(0.5, Math.min(10.0, this.state.zoom * zoomFactor));
+            const prevZoom = this.state.zoom;
+            const newZoom = Math.max(1.0, Math.min(10.0, prevZoom * zoomFactor)); // keep at least canvas-sized
+
+            // Keep cursor position stable by adjusting pan
+            const invPrev = 1.0 / prevZoom;
+            const invNew = 1.0 / newZoom;
+            this.state.panX += cx * (invPrev - invNew);
+            this.state.panY -= cy * (invPrev - invNew); // flip y
+
+            this.state.zoom = newZoom;
             this.cb.onParamChange();
         }, { passive: false });
-        
-        // Mouse drag for pan (in 2D mode)
-        let isPanning = false;
-        let lastX = 0, lastY = 0;
-        
-        canvas.addEventListener('mousedown', (e) => {
-            if (this.state.viewMode !== 1) return; // Only in 2D mode
-            if (e.button === 0) { // Left click
-                isPanning = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
-                canvas.style.cursor = 'grabbing';
-            }
-        });
-        
-        window.addEventListener('mousemove', (e) => {
-            if (!isPanning) return;
-            
-            const dx = (e.clientX - lastX) / canvas.width;
-            const dy = (e.clientY - lastY) / canvas.height;
-            
-            // Pan is scaled by zoom level
-            this.state.panX -= dx / this.state.zoom;
-            this.state.panY += dy / this.state.zoom; // Y is flipped
-            
-            // Clamp pan to reasonable bounds
-            this.state.panX = Math.max(-1.0, Math.min(1.0, this.state.panX));
-            this.state.panY = Math.max(-1.0, Math.min(1.0, this.state.panY));
-            
-            lastX = e.clientX;
-            lastY = e.clientY;
-            this.cb.onParamChange();
-        });
-        
-        window.addEventListener('mouseup', () => {
-            if (isPanning) {
-                isPanning = false;
-                canvas.style.cursor = 'default';
-            }
-        });
-        
-        // Double-click to reset zoom/pan
+
+        // Disable drag panning in 2D (keep fixed) but allow double-click reset
         canvas.addEventListener('dblclick', () => {
             if (this.state.viewMode !== 1) return;
             this.state.zoom = 1.0;
@@ -110,6 +83,41 @@ export class UIManager {
         bind('beta-slider', 'beta');
         bind('delay-slider', 'delaySteps', 'int');
         bind('noise-slider', 'noiseStrength');
+        bind('leak-slider', 'leak');
+
+        // Scale sliders
+        bind('scale-slider', 'scaleBase');
+        bind('scale-radial-slider', 'scaleRadial');
+        bind('scale-random-slider', 'scaleRandom');
+        bind('scale-ring-slider', 'scaleRing');
+
+        // Flow sliders
+        bind('flow-radial-slider', 'flowRadial');
+        bind('flow-rotate-slider', 'flowRotate');
+        bind('flow-swirl-slider', 'flowSwirl');
+        bind('flow-bubble-slider', 'flowBubble');
+        bind('flow-ring-slider', 'flowRing');
+        bind('flow-vortex-slider', 'flowVortex');
+        bind('flow-vertical-slider', 'flowVertical');
+
+        // Orientation sliders
+        bind('orient-radial-slider', 'orientRadial');
+        bind('orient-circles-slider', 'orientCircles');
+        bind('orient-swirl-slider', 'orientSwirl');
+        bind('orient-bubble-slider', 'orientBubble');
+        bind('orient-linear-slider', 'orientLinear');
+        
+        // Phase space toggle
+        const phaseToggle = document.getElementById('phase-space-toggle');
+        if (phaseToggle) {
+            phaseToggle.addEventListener('change', () => {
+                this.state.phaseSpaceEnabled = phaseToggle.checked;
+                if (this.cb.onPhaseSpaceToggle) {
+                    this.cb.onPhaseSpaceToggle(phaseToggle.checked);
+                }
+                this.updateDisplay();
+            });
+        }
         
         // Kernel shape controls
         const kernelShapeSelect = document.getElementById('kernel-shape-select');
@@ -377,7 +385,20 @@ export class UIManager {
             });
         }
         
-        bind('colormap-select', 'colormap', 'int', 'change');
+        bind('data-layer-select', 'colormap', 'int', 'change');
+        bind('palette-select', 'colormapPalette', 'int', 'change');
+        // Surface mode (3D)
+        const surfaceSelect = document.getElementById('surface-mode-select');
+        if (surfaceSelect) {
+            surfaceSelect.addEventListener('change', () => {
+                this.state.surfaceMode = surfaceSelect.value;
+                if (this.cb.onSurfaceModeChange) {
+                    this.cb.onSurfaceModeChange(surfaceSelect.value);
+                } else if (this.cb.onParamChange) {
+                    this.cb.onParamChange();
+                }
+            });
+        }
         bind('omega-amplitude-slider', 'omegaAmplitude');
         
         // Statistics enable/disable
@@ -654,9 +675,13 @@ export class UIManager {
                     this.updateDisplay();
                 }
             }
-            // Cycle colormaps (0-10: 11 modes total)
-            else if (e.key === 'c' || e.key === 'C') {
-                this.state.colormap = (this.state.colormap + 1) % 11;
+            // Cycle palettes (c) and data layers (shift+c)
+            else if ((e.key === 'c' || e.key === 'C') && !e.shiftKey) {
+                this.state.colormapPalette = (this.state.colormapPalette + 1) % 6;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            } else if (e.key === 'C' && e.shiftKey) {
+                this.state.colormap = (this.state.colormap + 1) % 7;
                 this.cb.onParamChange();
                 this.updateDisplay();
             }
@@ -680,6 +705,14 @@ export class UIManager {
             else if (e.key === 'v' || e.key === 'V') {
                 this.state.viewMode = this.state.viewMode === 0 ? 1 : 0;
                 this.cb.onParamChange();
+                this.updateDisplay();
+            }
+            // Toggle phase space plot
+            else if (e.key === 'p' || e.key === 'P') {
+                this.state.phaseSpaceEnabled = !this.state.phaseSpaceEnabled;
+                if (this.cb.onPhaseSpaceToggle) {
+                    this.cb.onPhaseSpaceToggle(this.state.phaseSpaceEnabled);
+                }
                 this.updateDisplay();
             }
             // Reset zoom/pan with Z key (in 2D mode)
@@ -754,6 +787,7 @@ export class UIManager {
         update('beta-slider', this.state.beta);
         update('delay-slider', this.state.delaySteps);
         update('noise-slider', this.state.noiseStrength);
+        update('leak-slider', this.state.leak);
         update('omega-amplitude-slider', this.state.omegaAmplitude);
         
         // Update kernel shape controls
@@ -772,6 +806,11 @@ export class UIManager {
         update('kernel-spatial-freq-slider', this.state.kernelSpatialFreqMag);
         update('kernel-freq-angle-slider', this.state.kernelSpatialFreqAngle);
         update('kernel-gabor-phase-slider', this.state.kernelGaborPhase);
+
+        const layerSelect = document.getElementById('data-layer-select');
+        if (layerSelect) layerSelect.value = this.state.colormap;
+        const paletteSelect = document.getElementById('palette-select');
+        if (paletteSelect) paletteSelect.value = this.state.colormapPalette;
         
         // Update kernel orientation display to show degrees
         const orientationDisp = document.getElementById('kernel-orientation-value');
@@ -991,9 +1030,6 @@ export class UIManager {
         const omegaSelect = document.getElementById('omega-pattern-select');
         if (omegaSelect) omegaSelect.value = this.state.omegaPattern;
         
-        const colormapSelect = document.getElementById('colormap-select');
-        if (colormapSelect) colormapSelect.value = this.state.colormap;
-        
         const timeDisplay = document.getElementById('time-scale-display');
         if (timeDisplay) timeDisplay.textContent = this.state.timeScale.toFixed(1) + '×';
         
@@ -1006,9 +1042,17 @@ export class UIManager {
         const statsContent = document.getElementById('stats-content');
         if (statsContent) statsContent.style.opacity = this.state.showStatistics ? '1' : '0.3';
         
+        // Phase space toggle and visibility
+        const phaseToggle = document.getElementById('phase-space-toggle');
+        if (phaseToggle) phaseToggle.checked = this.state.phaseSpaceEnabled !== false;
+        const phaseSection = document.getElementById('phase-space-section');
+        if (phaseSection) phaseSection.style.display = this.state.phaseSpaceEnabled ? 'block' : 'none';
+        
         // Update smoothing mode select
         const smoothingSelect = document.getElementById('smoothing-mode-select');
         if (smoothingSelect) smoothingSelect.value = this.state.smoothingMode ?? 0;
+        const surfaceSelect = document.getElementById('surface-mode-select');
+        if (surfaceSelect) surfaceSelect.value = this.state.surfaceMode || 'mesh';
         
         // Update view mode buttons
         const view3dBtn = document.getElementById('view-3d-btn');
@@ -1046,6 +1090,34 @@ export class UIManager {
         if (externalInputControls) {
             externalInputControls.style.display = this.state.omegaPattern === 'image' ? 'block' : 'none';
         }
+
+        // RC injection mode select
+        const rcInjectionSelect = document.getElementById('rc-injection-mode');
+        if (rcInjectionSelect) rcInjectionSelect.value = this.state.rcInjectionMode || 'freq_mod';
+        
+        const rcFeatureBudget = document.getElementById('rc-feature-budget');
+        const rcFeatureBudgetVal = document.getElementById('rc-feature-budget-val');
+        if (rcFeatureBudget) rcFeatureBudget.value = this.state.rcMaxFeatures;
+        if (rcFeatureBudgetVal) rcFeatureBudgetVal.textContent = this.state.rcMaxFeatures;
+
+        // Interaction sliders
+        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        setVal('scale-slider', this.state.scaleBase);
+        setVal('scale-radial-slider', this.state.scaleRadial);
+        setVal('scale-random-slider', this.state.scaleRandom);
+        setVal('scale-ring-slider', this.state.scaleRing);
+        setVal('flow-radial-slider', this.state.flowRadial);
+        setVal('flow-rotate-slider', this.state.flowRotate);
+        setVal('flow-swirl-slider', this.state.flowSwirl);
+        setVal('flow-bubble-slider', this.state.flowBubble);
+        setVal('flow-ring-slider', this.state.flowRing);
+        setVal('flow-vortex-slider', this.state.flowVortex);
+        setVal('flow-vertical-slider', this.state.flowVertical);
+        setVal('orient-radial-slider', this.state.orientRadial);
+        setVal('orient-circles-slider', this.state.orientCircles);
+        setVal('orient-swirl-slider', this.state.orientSwirl);
+        setVal('orient-bubble-slider', this.state.orientBubble);
+        setVal('orient-linear-slider', this.state.orientLinear);
     }
     
     loadExternalImage(img) {

@@ -3,14 +3,23 @@ struct Params {
     dt: f32, K0: f32, range: f32, rule_mode: f32,
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
-    show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
     kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
     kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
     ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
     ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
-    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, pad1: f32, pad2: f32,
+    // Interaction modifiers
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
 }
 
 // Textures for theta state (better 2D spatial cache locality)
@@ -51,6 +60,12 @@ fn loadThetaShared(local_c: i32, local_r: i32) -> f32 {
     let sc = u32(local_c + i32(HALO));
     let sr = u32(local_r + i32(HALO));
     return shared_theta[sr * SHARED_SIZE + sc];
+}
+
+// Simple hash for pseudo-random modulation
+fn hash21(p: vec2<f32>) -> f32 {
+    let h = dot(p, vec2<f32>(12.9898, 78.233));
+    return fract(sin(h) * 43758.5453);
 }
 
 // Cooperative tile loading - each thread loads multiple values to fill shared memory
@@ -521,13 +536,58 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         dtheta = dtheta + noise(i);
     }
     
-    // Reservoir computing input: frequency modulation
-    // The input modulates the natural frequency, creating phase differences
-    // input_drive = weight * signal, where signal oscillates and weight marks input region
-    let input_drive = input_weights[i] * input_signal * 5.0; // 5x amplification
-    let omega_eff = omega[i] + input_drive;
+    // Reservoir computing input: selectable injection mode
+    // mode 0: frequency modulation (default)
+    // mode 1: additive phase drive (torque)
+    // mode 2: coupling modulation (scales dtheta locally)
+    let input_drive = input_weights[i] * input_signal;
+    var omega_eff = omega[i];
+    var dtheta_input = 0.0;
+    let inj_mode = i32(params.input_mode + 0.5);
+    if (inj_mode == 0) {
+        omega_eff = omega_eff + input_drive * 5.0;
+    } else if (inj_mode == 1) {
+        dtheta_input = input_drive * 5.0;
+    } else if (inj_mode == 2) {
+        dtheta = dtheta * (1.0 + input_drive * 0.5);
+    }
     
-    var newTheta = t + (omega_eff + dtheta) * params.dt;
+    // Apply flow/orientation modulation (phase advection proxy)
+    // Simple additive bias based on position normalized to [-0.5, 0.5]
+    let norm_x = (f32(global_c) / params.cols) - 0.5;
+    let norm_y = (f32(global_r) / params.rows) - 0.5;
+
+    // Flow contributions
+    let flow =
+        (params.flow_radial * norm_x +
+        params.flow_rotate * (-norm_y) +
+        params.flow_swirl * (norm_x * norm_y) +
+        params.flow_bubble * (norm_x * norm_x - norm_y * norm_y) +
+        params.flow_ring * (norm_x * norm_x + norm_y * norm_y) +
+        params.flow_vortex * (norm_x * -norm_y) +
+        params.flow_vertical * norm_y) * 2.0;
+    // Orientation modulation (acts as anisotropic scaling of dtheta)
+    var orient = 1.0 +
+        params.orient_radial * abs(norm_x) * 4.0 +
+        params.orient_circles * abs(norm_y) * 4.0 +
+        params.orient_swirl * (norm_x * norm_y) * 4.0 +
+        params.orient_bubble * (norm_x * norm_x - norm_y * norm_y) * 4.0 +
+        params.orient_linear * norm_y * 4.0;
+    orient = clamp(orient, 0.05, 8.0);
+
+    // Scale modulation of K0 (effective) - clamp to avoid negative/huge values
+    let rand = hash21(vec2<f32>(f32(global_c), f32(global_r))) - 0.5;
+    let scale_mod = params.scale_base
+        + params.scale_radial * (abs(norm_x) + abs(norm_y)) * 2.0
+        + params.scale_random * rand * 2.0
+        + params.scale_ring * (norm_x * norm_x + norm_y * norm_y) * 4.0;
+    let K_scaled = params.K0 * clamp(scale_mod, 0.1, 5.0);
+    // Adjust dtheta by new K (approximate): rescale by ratio of K_scaled / K0
+    let dtheta_scaled = dtheta * (K_scaled / params.K0);
+
+    var dyn = omega_eff + dtheta_scaled * orient + dtheta_input + flow;
+    dyn = dyn * (1.0 - params.leak);
+    var newTheta = t + dyn * params.dt;
     
     let TWO_PI = 6.28318530718;
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
@@ -541,14 +601,22 @@ struct Params {
     dt: f32, K0: f32, range: f32, rule_mode: f32,
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
-    show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
     kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
     kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
     ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
     ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
-    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, pad1: f32, pad2: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
 }
 @group(0) @binding(0) var theta_tex: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
@@ -596,32 +664,48 @@ struct VertexOutput {
     @location(3) texcoord: vec2<f32>,
 }
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexOutput {
-    let cols = u32(params.cols);
-    let rows = u32(params.rows);
-    let c = ii % cols; let r = ii / cols;
-    let qx = f32(vi & 1u); let qz = f32((vi >> 1u) & 1u);
-    
-    // Use view_mode to control 2D vs 3D: 0.0 = 3D, 1.0 = 2D
-    let is_3d = params.view_mode < 0.5;
-    let theta_val = loadThetaRender(c, r);
+fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> VertexOutput {
+    let cols = params.cols;
+    let rows = params.rows;
+    let use_mesh = params.mesh_mode > 0.5;
+
+    // Grid coordinates (float)
+    var gx = pos.x;
+    var gy = pos.y;
+    // Cell indices used for sampling
+    var c_i: i32 = 0;
+    var r_i: i32 = 0;
+    if (!use_mesh) {
+        // Quad verts are 0..1, instance supplies cell index
+        let c = i32(ii % u32(cols));
+        let r = i32(ii / u32(cols));
+        gx = f32(c) + pos.x;
+        gy = f32(r) + pos.y;
+        c_i = c;
+        r_i = r;
+    } else {
+        c_i = clamp(i32(gx), 0, i32(cols) - 1);
+        r_i = clamp(i32(gy), 0, i32(rows) - 1);
+    }
+
+    // Sample theta/order at the cell (flat per-instance when instanced)
+    let theta_val = loadThetaRender(u32(c_i), u32(r_i));
     let height_3d = sin(theta_val) * 2.0;
-    // In 2D mode, use a small offset per oscillator to prevent Z-fighting
-    let height_2d = f32(ii) * 0.0001;
+    let is_3d = params.view_mode < 0.5;
+    let height_2d = f32(r_i) * 0.0001; // tiny offset to avoid Z-fight in 2D
     let h = select(height_2d, height_3d, is_3d);
-    
-    let x = (f32(c) + qx) * 0.5 - params.cols * 0.5 * 0.5;
-    let z = (f32(r) + qz) * 0.5 - params.rows * 0.5 * 0.5;
+
+    // World coords centered
+    let x = gx * 0.5 - cols * 0.25;
+    let z = gy * 0.5 - rows * 0.25;
+
     var output: VertexOutput;
     output.position = viewProj * vec4<f32>(x, h, z, 1.0);
-    // Always pass the actual height value for coloring, not the flattened one
     output.height = height_3d;
-    output.order_val = order[ii];
-    output.gradient = compute_gradient(ii, cols, rows);
-    
-    // Calculate texture coordinates (normalized grid position)
-    output.texcoord = vec2<f32>((f32(c) + qx) / params.cols, 1.0 - (f32(r) + qz) / params.rows);
-    
+    let idx = u32(r_i) * u32(cols) + u32(c_i);
+    output.order_val = order[idx];
+    output.gradient = compute_gradient(idx, u32(cols), u32(rows));
+    output.texcoord = vec2<f32>(gx / cols, 1.0 - (gy / rows));
     return output;
 }
 
@@ -706,77 +790,97 @@ fn colormap3d_inferno(t: f32) -> vec3<f32> {
     return mix(colors[i], colors[i + 1], f);
 }
 
+// Cosine phase map to match 2D default palette
+fn colormap_phase(t: f32) -> vec3<f32> {
+    let phase = t * 6.28318530718;
+    return vec3<f32>(
+        0.5 + 0.5 * cos(phase),
+        0.5 + 0.5 * cos(phase - 2.094),
+        0.5 + 0.5 * cos(phase + 2.094)
+    );
+}
+
+fn palette_rainbow(t: f32) -> vec3<f32> {
+    // Match 2D default (cosine-based phase map)
+    return colormap_phase(t);
+}
+
+fn sample_palette(t: f32, palette: i32) -> vec3<f32> {
+    let tt = clamp(t, 0.0, 1.0);
+    switch palette {
+        case 1: { return colormap3d_viridis(tt); }
+        case 2: { return colormap3d_plasma(tt); }
+        case 3: { return colormap3d_inferno(tt); }
+        case 4: { return colormap3d_twilight(tt); }
+        case 5: { return vec3<f32>(tt, tt, tt); }
+        default: { return palette_rainbow(tt); }
+    }
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    var col: vec3<f32>;
-    let mode = i32(params.colormap);
-    let t = clamp((input.height / 2.0 + 1.0) * 0.5, 0.0, 1.0); // Normalized phase
-    
-    if (mode == 0) {
-        // Phase (original rainbow)
-        if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
-        else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
-        else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
-        else { let s = (t - 0.75) * 4.0; col = vec3<f32>(1.0, 1.0 - s, 0.0); }
-    } else if (mode == 1) {
-        // Velocity (gradient magnitude)
-        let vel = clamp(input.gradient * 2.0, 0.0, 1.0);
-        col = mix(vec3<f32>(0.0, 0.0, 0.5), vec3<f32>(1.0, 0.5, 0.0), vel);
-    } else if (mode == 2) {
-        // Curvature
-        let curv = clamp(input.gradient, 0.0, 1.0);
-        col = mix(vec3<f32>(0.2, 0.0, 0.5), vec3<f32>(1.0, 0.8, 0.0), curv);
-    } else if (mode == 3) {
-        // Order parameter
-        col = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), input.order_val);
-    } else if (mode == 4) {
-        // Image texture modulated by phase
-        let texColor = textureSample(externalTexture, textureSampler, input.texcoord).rgb;
-        let phaseMod = 0.5 + 0.5 * sin(input.height);
-        col = texColor * (0.7 + 0.3 * phaseMod);
-    } else if (mode == 5) {
-        // Viridis
-        col = colormap3d_viridis(t);
-    } else if (mode == 6) {
-        // Plasma
-        col = colormap3d_plasma(t);
-    } else if (mode == 7) {
-        // Twilight (cyclic)
-        col = colormap3d_twilight(t);
-    } else if (mode == 8) {
-        // Inferno
-        col = colormap3d_inferno(t);
-    } else if (mode == 9) {
-        // Chirality - use gradient as proxy (3D doesn't have curl computed)
-        let chirality = clamp((input.gradient - 0.5) * 2.0, -1.0, 1.0);
-        if (chirality > 0.0) {
-            col = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(1.0, 0.2, 0.1), chirality);
-        } else {
-            col = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(0.1, 0.4, 1.0), -chirality);
-        }
-    } else if (mode == 10) {
-        // Phase + gradient brightness
-        if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
-        else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
-        else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
-        else { let s = (t - 0.75) * 4.0; col = vec3<f32>(1.0, 1.0 - s, 0.0); }
-        let brightness = 0.3 + 0.7 * clamp(input.gradient * 3.0, 0.0, 1.0);
-        col = col * brightness;
+    // Re-sample theta/order in fragment so colors match 2D path exactly
+    var uv = clamp(input.texcoord, vec2<f32>(0.0), vec2<f32>(0.9999));
+    let cols = i32(params.cols);
+    let rows = i32(params.rows);
+    let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
+    let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
+
+    let theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
+    let order_idx = u32(r) * u32(cols) + u32(c);
+    let order_val = order[order_idx];
+
+    // Gradient (finite diff) to mirror 2D shader
+    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), 0).r;
+    let left  = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), 0).r;
+    let up    = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), 0).r;
+    let down  = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), 0).r;
+    var dx = right - left;
+    var dy = up - down;
+    if (dx > 3.14159) { dx -= 6.28318; }
+    if (dx < -3.14159) { dx += 6.28318; }
+    if (dy > 3.14159) { dy -= 6.28318; }
+    if (dy < -3.14159) { dy += 6.28318; }
+    let gradient = sqrt(dx * dx + dy * dy) * 0.5;
+
+    let height = sin(theta) * 2.0;
+    let t_phase = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
+
+    let layer = i32(params.colormap);
+    let palette = i32(params.colormap_palette);
+    var color: vec3<f32>;
+
+    if (layer == 0) {
+        color = sample_palette(t_phase, palette);
+    } else if (layer == 1) {
+        let vel = clamp(gradient * 2.0, 0.0, 1.0);
+        color = sample_palette(vel, palette);
+    } else if (layer == 2) {
+        let curv = clamp(gradient, 0.0, 1.0);
+        color = sample_palette(curv, palette);
+    } else if (layer == 3) {
+        color = sample_palette(order_val, palette);
+    } else if (layer == 4) {
+        let chirality = clamp((gradient - 0.5) * 2.0, -1.0, 1.0);
+        let val = 0.5 + 0.5 * chirality;
+        color = sample_palette(val, palette);
+    } else if (layer == 5) {
+        let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
+        color = sample_palette(t_phase, palette) * brightness;
+    } else if (layer == 6) {
+        let texColor = textureSample(externalTexture, textureSampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb;
+        let phaseMod = 0.5 + 0.5 * sin(theta);
+        color = texColor * (0.7 + 0.3 * phaseMod);
     } else {
-        // Default to phase
-        if (t < 0.25) { col = vec3<f32>(0.0, t * 4.0, 1.0); }
-        else if (t < 0.5) { let s = (t - 0.25) * 4.0; col = vec3<f32>(0.0, 1.0, 1.0 - s); }
-        else if (t < 0.75) { let s = (t - 0.5) * 4.0; col = vec3<f32>(s, 1.0, 0.0); }
-        else { let s = (t - 0.75) * 4.0; col = vec3<f32>(1.0, 1.0 - s, 0.0); }
+        color = sample_palette(t_phase, palette);
     }
-    
-    // Apply order overlay
+
     if (params.show_order > 0.5) {
-        let brightness = 0.4 + 0.6 * input.order_val;
-        col = col * brightness;
+        let brightness = 0.4 + 0.6 * order_val;
+        color = color * brightness;
     }
-    
-    return vec4<f32>(col, 1.0);
+
+    return vec4<f32>(color, 1.0);
 }
 `;
 
@@ -887,14 +991,22 @@ struct Params {
     dt: f32, K0: f32, range: f32, rule_mode: f32,
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
-    show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
     kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
     kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
     ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
     ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
-    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, pad1: f32, pad2: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, pad1: f32, pad2: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;
@@ -927,7 +1039,8 @@ export const LOCAL_ORDER_STATS_SHADER = `
 // stats_atomic[1] = count of R > 0.7 (sync fraction numerator, scaled by 10000)
 // stats_atomic[2] = sum of gradient magnitude (scaled by 10000)
 // stats_atomic[3] = sum of R^2 for variance (scaled by 10000)
-@group(0) @binding(3) var<uniform> grid_size: u32;
+@group(0) @binding(3) var<storage, read_write> hist_atomic: array<atomic<i32>, 16>;
+@group(0) @binding(4) var<uniform> grid_size: u32;
 
 var<workgroup> shared_sums: array<vec4<f32>, 256>;
 
@@ -972,6 +1085,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
         sums.y = select(0.0, 1.0, r > 0.7);           // Sync count (R > 0.7)
         sums.z = phase_gradient(global_id, cols, rows); // Gradient magnitude
         sums.w = r * r;                               // R^2 for variance
+
+        // Histogram bin
+        var bin = i32(floor(r * 16.0));
+        if (bin < 0) { bin = 0; }
+        if (bin > 15) { bin = 15; }
+        atomicAdd(&hist_atomic[bin], 1);
     }
     
     // Store in shared memory
@@ -999,13 +1118,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 // Normalize local order statistics
 export const LOCAL_ORDER_STATS_NORMALIZE_SHADER = `
 @group(0) @binding(0) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
-@group(0) @binding(1) var<storage, read_write> stats_out: array<f32, 5>;
+@group(0) @binding(1) var<storage, read_write> hist_atomic: array<atomic<i32>, 16>;
+@group(0) @binding(2) var<storage, read_write> stats_out: array<f32, 21>;
 // stats_out[0] = mean local R
 // stats_out[1] = sync fraction (R > 0.7)
 // stats_out[2] = mean gradient magnitude
 // stats_out[3] = variance of local R
 // stats_out[4] = N (for reference)
-@group(0) @binding(2) var<uniform> N: u32;
+// stats_out[5..20] = histogram bins normalized to [0,1]
+@group(0) @binding(3) var<uniform> N: u32;
 
 @compute @workgroup_size(1)
 fn main() {
@@ -1022,6 +1143,12 @@ fn main() {
     stats_out[2] = sum_grad / n;                     // Mean gradient (indicates waves)
     stats_out[3] = (sum_r2 / n) - (mean_r * mean_r); // Var(R) = E[R^2] - E[R]^2
     stats_out[4] = n;
+    
+    // Histogram normalize
+    for (var i = 0u; i < 16u; i = i + 1u) {
+        let count = f32(atomicLoad(&hist_atomic[i]));
+        stats_out[5u + i] = count / n;
+    }
 }
 `;
 
@@ -1034,15 +1161,22 @@ struct Params {
     dt: f32, K0: f32, range: f32, rule_mode: f32,
     cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
     delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
-    show_order: f32, colormap: f32, noise_strength: f32, time: f32,
-    harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
     kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
     kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
     ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
     ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
     kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
-    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32, zoom: f32, panX: f32,
-    panY: f32, bilinear: f32, smoothingMode: f32, pad3: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, pad1: f32, pad2: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
 }
 
 @group(0) @binding(0) var theta_tex: texture_2d<f32>;
@@ -1370,6 +1504,18 @@ fn colormap_inferno(t: f32) -> vec3<f32> {
     return mix(colors[i], colors[i + 1], f);
 }
 
+fn sample_palette_2d(t: f32, palette: i32) -> vec3<f32> {
+    let tt = clamp(t, 0.0, 1.0);
+    switch palette {
+        case 1: { return colormap_viridis(tt); }
+        case 2: { return colormap_plasma(tt); }
+        case 3: { return colormap_inferno(tt); }
+        case 4: { return colormap_twilight(tt); }
+        case 5: { return vec3<f32>(tt, tt, tt); }
+        default: { return colormap_phase(tt); }
+    }
+}
+
 // ============================================================================
 // FRAGMENT SHADER
 // ============================================================================
@@ -1380,7 +1526,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     
     // Apply zoom and pan
     var uv = input.uv;
-    uv = (uv - 0.5) / zoom + vec2<f32>(params.panX, params.panY) + 0.5;
+    uv = (uv - 0.5) / zoom + vec2<f32>(params.pan_x, params.pan_y) + 0.5;
     
     // Sample external texture BEFORE any early returns to satisfy WGSL uniform control flow
     // requirement for textureSample. We clamp UVs and sample unconditionally.
@@ -1401,8 +1547,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Load theta value - use smoothing based on mode
     // smoothingMode: 0=nearest, 1=bilinear, 2=bicubic, 3=gaussian
     var theta: f32;
-    if (params.bilinear > 0.5) {
-        theta = sample_theta_smooth(uv, params.cols, params.rows, params.smoothingMode);
+    if (params.smoothing_enabled > 0.5) {
+        theta = sample_theta_smooth(uv, params.cols, params.rows, params.smoothing_mode);
     } else {
         theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
     }
@@ -1437,78 +1583,44 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Negate curl to match 3D coordinate system (UV Y is inverted)
     curl = -curl;
     
-    // Select colormap based on mode
-    var col3: vec3<f32>;
-    let mode = i32(params.colormap);
-    
     // Use sin(theta) mapping to match 3D shader's height-based coloring
     let height = sin(theta) * 2.0;
     let t_height = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
-    // Also keep linear theta mapping for some colormaps
-    let t_linear = theta / 6.28318530718;
     
-    if (mode == 0) {
-        // Phase - classic rainbow (matches 3D exactly)
-        let phase_t = t_height;
-        if (phase_t < 0.25) { col3 = vec3<f32>(0.0, phase_t * 4.0, 1.0); }
-        else if (phase_t < 0.5) { let s = (phase_t - 0.25) * 4.0; col3 = vec3<f32>(0.0, 1.0, 1.0 - s); }
-        else if (phase_t < 0.75) { let s = (phase_t - 0.5) * 4.0; col3 = vec3<f32>(s, 1.0, 0.0); }
-        else { let s = (phase_t - 0.75) * 4.0; col3 = vec3<f32>(1.0, 1.0 - s, 0.0); }
-    } else if (mode == 1) {
-        // Velocity (gradient magnitude) - blue to orange
+    let layer = i32(params.colormap);
+    let palette = i32(params.colormap_palette);
+    var col3: vec3<f32>;
+
+    if (layer == 0) {
+        // Phase
+        col3 = sample_palette_2d(t_height, palette);
+    } else if (layer == 1) {
+        // Velocity (gradient magnitude)
         let vel = clamp(gradient * 2.0, 0.0, 1.0);
-        col3 = mix(vec3<f32>(0.0, 0.0, 0.5), vec3<f32>(1.0, 0.5, 0.0), vel);
-    } else if (mode == 2) {
-        // Curvature - purple to yellow
+        col3 = sample_palette_2d(vel, palette);
+    } else if (layer == 2) {
+        // Curvature proxy
         let curv = clamp(gradient, 0.0, 1.0);
-        col3 = mix(vec3<f32>(0.2, 0.0, 0.5), vec3<f32>(1.0, 0.8, 0.0), curv);
-    } else if (mode == 3) {
-        // Order parameter - red (chaos) to green (sync)
-        col3 = mix(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), order_val);
-    } else if (mode == 4) {
+        col3 = sample_palette_2d(curv, palette);
+    } else if (layer == 3) {
+        // Order parameter
+        col3 = sample_palette_2d(order_val, palette);
+    } else if (layer == 4) {
+        // Chirality / curl
+        let chi = clamp(curl * 5.0, -1.0, 1.0);
+        let val = 0.5 + 0.5 * chi;
+        col3 = sample_palette_2d(val, palette);
+    } else if (layer == 5) {
+        // Phase + gradient brightness
+        let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
+        col3 = sample_palette_2d(t_height, palette) * brightness;
+    } else if (layer == 6) {
         // Image texture modulated by phase (matches 3D)
-        // Use the pre-sampled texture color (sampled before early return for uniform control flow)
         let texColor = presampled_tex_color;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         col3 = texColor * (0.7 + 0.3 * phaseMod);
-    } else if (mode == 5) {
-        // Viridis - perceptually uniform (use sin-based mapping like 3D)
-        col3 = colormap_viridis(t_height);
-    } else if (mode == 6) {
-        // Plasma - hot magenta to yellow (use sin-based mapping like 3D)
-        col3 = colormap_plasma(t_height);
-    } else if (mode == 7) {
-        // Twilight - cyclic, good for phase (use linear for full cycle)
-        col3 = colormap_twilight(t_linear);
-    } else if (mode == 8) {
-        // Inferno - black to yellow (use sin-based mapping like 3D)
-        col3 = colormap_inferno(t_height);
-    } else if (mode == 9) {
-        // Chirality - spiral rotation direction
-        // Blue = clockwise, Red = counterclockwise, Gray = no rotation
-        let chirality = clamp(curl * 5.0, -1.0, 1.0);
-        if (chirality > 0.0) {
-            col3 = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(1.0, 0.2, 0.1), chirality);
-        } else {
-            col3 = mix(vec3<f32>(0.5, 0.5, 0.5), vec3<f32>(0.1, 0.4, 1.0), -chirality);
-        }
-    } else if (mode == 10) {
-        // Combined: phase hue + gradient brightness (matches 3D exactly)
-        var hue_col: vec3<f32>;
-        let pt = t_height;
-        if (pt < 0.25) { hue_col = vec3<f32>(0.0, pt * 4.0, 1.0); }
-        else if (pt < 0.5) { let s = (pt - 0.25) * 4.0; hue_col = vec3<f32>(0.0, 1.0, 1.0 - s); }
-        else if (pt < 0.75) { let s = (pt - 0.5) * 4.0; hue_col = vec3<f32>(s, 1.0, 0.0); }
-        else { let s = (pt - 0.75) * 4.0; hue_col = vec3<f32>(1.0, 1.0 - s, 0.0); }
-        let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
-        col3 = hue_col * brightness;
     } else {
-        // Default to phase (matches 3D exactly)
-        let pt = t_height;
-        if (pt < 0.25) { col3 = vec3<f32>(0.0, pt * 4.0, 1.0); }
-        else if (pt < 0.5) { let s = (pt - 0.25) * 4.0; col3 = vec3<f32>(0.0, 1.0, 1.0 - s); }
-        else if (pt < 0.75) { let s = (pt - 0.5) * 4.0; col3 = vec3<f32>(s, 1.0, 0.0); }
-        else { let s = (pt - 0.75) * 4.0; col3 = vec3<f32>(1.0, 1.0 - s, 0.0); }
+        col3 = sample_palette_2d(t_height, palette);
     }
     
     // Apply order overlay if enabled

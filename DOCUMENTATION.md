@@ -903,7 +903,7 @@ Similar to:
 **How to observe:**
 1. Load "Breathing Mode" preset
 2. Watch central region pulse
-3. Use Velocity colormap (C key) to see motion
+3. Set Data Layer → Velocity (Shift+C) to see motion
 4. Adjust $\beta$ to speed up/slow down breathing
 
 ---
@@ -1646,7 +1646,8 @@ $$G = \frac{1}{16}\begin{bmatrix}1 & 2 & 1 \\ 2 & 4 & 2 \\ 1 & 2 & 1\end{bmatrix
 
 | Key | Action |
 |-----|--------|
-| **C** | Cycle colormap (11 modes) |
+| **C** | Cycle palette |
+| **Shift+C** | Cycle data layer |
 | **O** | Toggle order parameter overlay |
 | **S** | Cycle smoothing modes (none → bilinear → bicubic → gaussian → none) |
 | **M** | (if implemented) Toggle 3D height visualization |
@@ -1949,20 +1950,18 @@ This implementation includes several powerful extensions beyond the basic Kuramo
 
 ---
 
-### 5. Improved Colormap Cycling
+### 5. Palette / Data-Layer Cycling
 
-**Feature:** Smart colormap cycling with keyboard shortcut
+**Feature:** Separate data layers from palettes with shortcuts
 
 **Behavior:**
-- Press **C** to cycle through colormaps
-- **Without external input**: Cycles 0→1→2→3→0 (skips Image Texture)
-- **With external input**: Cycles 0→1→2→3→4→0 (includes Image Texture)
-- Dropdown automatically updates to show current mode
+- **C** cycles palettes (Rainbow, Viridis, Plasma, Inferno, Twilight, Greyscale)
+- **Shift+C** cycles data layers (Phase, Velocity, Curvature, Order, Chirality, Phase+Grad, Image)
+- Dropdowns update automatically to reflect current selections
 
-**Why skip Image Texture?**
-- Mode 4 requires loaded texture (otherwise renders black)
-- Automatic skipping prevents user confusion
-- Seamless workflow: load image → mode 4 becomes available
+**Notes:**
+- Image layer still requires a loaded texture; otherwise it renders fallback colors.
+- Phase+Grad multiplies palette hue by gradient brightness for edge-focused views.
 
 ---
 
@@ -2106,10 +2105,11 @@ Step 3: Optimize view
   - Zoom to frame pattern nicely
   - Remove UI if possible
 
-Step 4: Choose colormap
-  - Phase (0): Show phase structure
-  - Velocity (1): Show dynamics
-  - Order (3): Show synchronization
+Step 4: Choose data layer + palette
+  - Data Layer → Phase: Show structure
+  - Data Layer → Velocity: Show dynamics
+  - Data Layer → Order: Show synchronization
+  - Palette → Pick Viridis/Twilight/etc. for print-safe contrast
 
 Step 5: Capture
   - Screenshot at 60 FPS moment
@@ -2124,7 +2124,8 @@ Step 5: Capture
 |-----|--------|----------|
 | **0-5** | Switch coupling rule | Rules |
 | **V** | Toggle 2D/3D view | View |
-| **C** | Cycle colormap | Visualization |
+| **C** | Cycle palette | Visualization |
+| **Shift+C** | Cycle data layer | Visualization |
 | **O** | Toggle order overlay | Visualization |
 | **Space** | Pause/Resume | Control |
 | **[** | Slower (×0.5) | Speed |
@@ -2174,8 +2175,8 @@ Height: y = 2sin(θᵢ) in 3D, y = small_offset in 2D
 ### Common Issues
 
 **Issue: Image texture shows black**
-- Cause: No image loaded, or colormap 4 selected without image
-- Fix: Upload image first, or press C to cycle away from mode 4
+- Cause: No image loaded, or Data Layer = Image without a texture bound
+- Fix: Upload image first, or switch to another data layer (Shift+C / dropdown)
 
 **Issue: 2D view is flipped/rotated**
 - Cause: Texture coordinate mismatch
@@ -2235,7 +2236,7 @@ See `EXTENSIONS.md` for detailed proposals:
    - Observe stripes moving diagonally
 
 4. To enhance visualization:
-   - Press **C** to switch to Velocity colormap
+   - Data Layer → Velocity (Shift+C) to highlight motion
    - Stripes should be orange (moving) with blue background
 
 ---
@@ -2394,7 +2395,7 @@ $$w(r) = \frac{1}{(r + r_0)^\alpha}$$
 
 **UI Additions:**
 - New "Adaptive Dynamics" section with 6-8 controls
-- Visualization of spatial sigma/beta distributions (new colormap mode?)
+- Visualization of spatial sigma/beta distributions (dedicated data layer)
 - Real-time statistics panel (mean sigma, beta variance, etc.)
 
 ### 7. Research Opportunities

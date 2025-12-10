@@ -1062,3 +1062,11 @@ class PhaseDiagramBuilder {
 **Total timeline:** 4-5 weeks for Phases 0-3, +1 week for Phase 4
 
 The statistics infrastructure (Phase 0) is valuable even without RC — it makes the existing simulation more useful for research and education. Recommend starting there.
+
+---
+
+## Recent Additions (RC UX)
+- Input modulation modes: frequency mod (default), additive phase drive, coupling modulation
+- Spatiotemporal benchmark: moving-dot input with dynamic weights and future-position target
+- Feature conditioning: budget + diagonal condition estimate
+- Visualization palettes expanded (phase viridis/inferno/greyscale) for clearer RC demos
