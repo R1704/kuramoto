@@ -42,7 +42,8 @@
 **Implemented features:**
 
 1. **Input Injection** (`src/reservoir.js`, `src/shaders.js`)
-   - Frequency modulation: `ω_eff = ω + input_weights × input_signal × amplification`
+   - Injection modes: `freq_mod` (ω modulation), `phase_drive` (additive torque), `coupling_mod` (local K modulation); selectable without shader rebuild.
+   - Frequency modulation baseline: `ω_eff = ω + input_weights × input_signal × amplification`
    - GPU buffers: `inputWeightsBuf` (binding 7), `inputSignalBuf` (binding 8)
    - Input regions: center, left/top edge, random sparse
    - Gradient falloff option for smoother propagation

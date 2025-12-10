@@ -87,6 +87,11 @@ Visualization now separates **data layers** from **palettes**:
 
 Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
 
+### 3D Surface Modes
+- **Continuous Mesh** (default) for smooth height fields.
+- **Instanced Quads** for per-cell tiles (sharp phase jumps, alias-free defects).
+Switch via **3D Surface Mode** dropdown in the Visuals panel; mesh rebuilds automatically on grid resize to stay centered.
+
 ### Fast 2D Rendering
 
 Dedicated 2D rendering path using a single full-screen triangle instead of N² instanced quads. Provides 2-5× speedup for large grids while maintaining full colormap and zoom/pan support.

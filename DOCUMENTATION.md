@@ -1493,6 +1493,11 @@ The 3D height $h(x,y,t)$ encodes phase information:
 
 $$h(x, y, t) = A \sin(\theta(x, y, t))$$
 
+#### Surface Modes (3D)
+- **Continuous Mesh**: stitched grid (default). Auto-rebuilds when grid size changes to keep the mesh centered/scaled.  
+- **Instanced Quads**: draws each cell as a separate tile (great for highlighting discontinuities/defects).
+Switch in the **3D Surface Mode** dropdown; both modes share the same colormaps and camera.
+
 where $A = 2.0$ (amplitude).
 
 **Interpretation:**

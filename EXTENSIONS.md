@@ -10,6 +10,9 @@ An integrated handbook that documents the interactive controls and lays out a re
   - Hold **Cmd+Drag** to draw random phase seeds; **Cmd+Shift+Drag** to erase. Works in **both 2D and 3D** and no longer fights camera panning (camera ignores Cmd).
   - 2D view: fixed canvas, scroll zoom anchors to cursor, min zoom = 1× canvas; **double-click** resets zoom/pan. 3D view: Cmd-drag stops orbit/pan.
 
+- **3D Surface Modes**
+  - Toggle **Continuous Mesh** vs **Instanced Quads** in the Visuals panel. Mesh is smooth and auto-rebuilds on grid resize; Instanced shows per-cell tiles (great for alias-free phase discontinuities).
+
 - **Scale field (K modulation)**
   - Sliders modulate effective coupling **K** spatially: base, radial, random, and ring terms combine then clamp to 0.1–5×. Higher values stiffen local sync; lower values loosen it.
 

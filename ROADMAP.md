@@ -13,6 +13,7 @@
 - ✅ Grid resize interpolation (phase-aware for θ, scalar for ω)
 - ✅ **Reservoir Computing Phase 1** (see below)
 - ✅ Interaction primer alignment (Cmd-draw/erase in 2D/3D, palette vs data-layer split, zoom-to-cursor 2D)
+- ✅ 3D surface modes (continuous mesh vs instanced quads) with auto mesh rebuild on grid resize
 
 ---
 
