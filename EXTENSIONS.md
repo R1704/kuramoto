@@ -82,6 +82,14 @@ These items map onto the roadmap tiers below; the highest leverage is coupling R
 | 15 | T3 (Structural) | 🌀 Chimera Detection | Hard | 1-2 wks | Medium | Automatic sync/async segmentation and reporting. |
 | 16 | T4 (Research) | 📊 Frequency Spectrum (FFT) | Hard | 1 wk | Medium | WebGPU FFT of phase/velocity; chaos diagnostics. |
 
+### Immediate Next Steps (Consolidated, prioritized)
+- **Stability pass on surface modes** (mesh vs instanced): regression-test resize/zoom/draw parity in 2D/3D; add a tiny visual marker showing mode in the UI.  
+- **RC vs Criticality presets**: ship a preset that runs K-sweep + NRMSE overlay per task (sine/NARMA/memory) so users can see performance vs K without manual setup.  
+- **Spatiotemporal benchmark polish**: make the moving-dot task visually obvious (dot overlay + target trail) and log its NRMSE separately from scalar tasks.  
+- **Input-mode comparison panel**: side-by-side small plots for `freq_mod` / `phase_drive` / `coupling_mod` with the same seed to expose differences quickly.  
+- **Save/Load (state + params)**: JSON round-trip for θ/ω/params with versioning; add “Copy link with state” as stretch (ties to sharing).  
+- **Order-history strip**: light-weight R(t)/χ(t) sparkline with pause/export so stats remain observable when other panels are hidden.
+
 ---
 
 ## Tier Details & Implementation Sketches
