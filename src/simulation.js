@@ -1,10 +1,12 @@
 import { COMPUTE_SHADER, GLOBAL_ORDER_REDUCTION_SHADER, GLOBAL_ORDER_NORMALIZE_SHADER, LOCAL_ORDER_STATS_SHADER, LOCAL_ORDER_STATS_NORMALIZE_SHADER } from './shaders.js';
+import { MAX_GRAPH_DEGREE } from './topology.js';
 
 export class Simulation {
     constructor(device, gridSize) {
         this.device = device;
         this.gridSize = gridSize;
         this.N = gridSize * gridSize;
+        this.maxGraphDegree = MAX_GRAPH_DEGREE;
         this.delayBufferSize = 32;
         this.delayBufferIndex = 0;
         this.delayBuffers = [];
@@ -41,8 +43,8 @@ export class Simulation {
         
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        // Params buffer: padded to 288 bytes (holds 69 floats + padding, 16-byte aligned)
-        this.paramsBuf = this.device.createBuffer({ size: 288, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        // Params buffer: padded to 304 bytes (76 floats, 16-byte aligned)
+        this.paramsBuf = this.device.createBuffer({ size: 304, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
         // Global order parameter buffer (stores complex mean field Z = (cos, sin) as vec2)
         this.globalOrderBuf = this.device.createBuffer({ 
@@ -112,6 +114,21 @@ export class Simulation {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
         this.device.queue.writeBuffer(this.nUniformBuf, 0, new Uint32Array([this.N]));
+
+        // ============= GRAPH TOPOLOGY BUFFERS =============
+        const neighborSlots = this.N * this.maxGraphDegree;
+        this.graphNeighborsBuf = this.device.createBuffer({
+            size: neighborSlots * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.graphWeightsBuf = this.device.createBuffer({
+            size: neighborSlots * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.graphCountsBuf = this.device.createBuffer({
+            size: this.N * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
         
         // ============= RESERVOIR COMPUTING BUFFERS =============
         // Input weights: how strongly each oscillator receives input signal
@@ -230,10 +247,28 @@ export class Simulation {
                     { binding: 6, resource: this.thetaTextures[nextIdx].createView() },
                     { binding: 7, resource: { buffer: this.inputWeightsBuf } },
                     { binding: 8, resource: { buffer: this.inputSignalBuf } },
+                    { binding: 9, resource: { buffer: this.graphNeighborsBuf } },
+                    { binding: 10, resource: { buffer: this.graphWeightsBuf } },
+                    { binding: 11, resource: { buffer: this.graphCountsBuf } },
                 ],
             }));
         }
         return this.bindGroupCache.get(cacheKey);
+    }
+
+    writeTopology(topology) {
+        if (!topology) return;
+        const expectedSlots = this.N * this.maxGraphDegree;
+        if (topology.neighbors?.length !== expectedSlots ||
+            topology.weights?.length !== expectedSlots ||
+            topology.counts?.length !== this.N) {
+            console.warn('Topology buffers have unexpected length; skipping upload');
+            return;
+        }
+        this.device.queue.writeBuffer(this.graphNeighborsBuf, 0, topology.neighbors);
+        this.device.queue.writeBuffer(this.graphWeightsBuf, 0, topology.weights);
+        this.device.queue.writeBuffer(this.graphCountsBuf, 0, topology.counts);
+        this.topologyInfo = topology;
     }
 
     updateParams(p) {
@@ -251,7 +286,7 @@ export class Simulation {
     
     updateFullParams(p) {
         // Pack all parameters - called only when user changes settings
-        // Layout matches shader structs (72 floats = 288 bytes)
+        // Layout matches shader structs (76 floats = 304 bytes)
         const injMode = (() => {
             if (typeof p.rcInjectionMode === 'string') {
                 if (p.rcInjectionMode === 'phase_drive') return 1;
@@ -259,6 +294,11 @@ export class Simulation {
                 return 0;
             }
             return p.rcInjectionMode || 0;
+        })();
+        const topoMode = (() => {
+            if (p.topologyMode === 'ws' || p.topologyMode === 'watts_strogatz') return 1;
+            if (p.topologyMode === 'ba' || p.topologyMode === 'barabasi_albert') return 2;
+            return 0;
         })();
         const data = new Float32Array([
             // 0-3
@@ -299,8 +339,10 @@ export class Simulation {
             p.orientRadial ?? 0.0, p.orientCircles ?? 0.0, p.orientSwirl ?? 0.0, p.orientBubble ?? 0.0,
             // 67
             p.orientLinear ?? 0.0,
-            // 68-70 mesh flag + pads (to 72 floats total)
-            (p.surfaceMode === 'mesh' ? 1.0 : 0.0), 0, 0, 0
+            // 68-71 mesh flag + pads
+            (p.surfaceMode === 'mesh' ? 1.0 : 0.0), 0, 0, 0,
+            // 72-75 topology mode/meta
+            topoMode, this.maxGraphDegree, p.topologyAvgDegree ?? 0, 0
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }
@@ -779,6 +821,15 @@ export class Simulation {
         }
         if (this.inputSignalBuf) {
             this.inputSignalBuf.destroy();
+        }
+        if (this.graphNeighborsBuf) {
+            this.graphNeighborsBuf.destroy();
+        }
+        if (this.graphWeightsBuf) {
+            this.graphWeightsBuf.destroy();
+        }
+        if (this.graphCountsBuf) {
+            this.graphCountsBuf.destroy();
         }
         
         // Clear bind group cache since textures/buffers changed

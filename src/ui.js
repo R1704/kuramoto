@@ -85,6 +85,78 @@ export class UIManager {
         bind('noise-slider', 'noiseStrength');
         bind('leak-slider', 'leak');
 
+        // Topology controls
+        const topologySelect = document.getElementById('topology-select');
+        if (topologySelect) {
+            topologySelect.addEventListener('change', () => {
+                this.state.topologyMode = topologySelect.value;
+                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
+                this.updateDisplay();
+            });
+        }
+        const wsKSlider = document.getElementById('ws-k-slider');
+        if (wsKSlider) {
+            wsKSlider.addEventListener('change', () => {
+                this.state.topologyWSK = parseInt(wsKSlider.value);
+                const disp = document.getElementById('ws-k-value');
+                if (disp) disp.textContent = this.state.topologyWSK;
+                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
+            });
+        }
+        const wsPSlider = document.getElementById('ws-p-slider');
+        if (wsPSlider) {
+            wsPSlider.addEventListener('change', () => {
+                this.state.topologyWSRewire = parseFloat(wsPSlider.value);
+                const disp = document.getElementById('ws-p-value');
+                if (disp) disp.textContent = this.state.topologyWSRewire.toFixed(2);
+                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
+            });
+        }
+        const baM0Slider = document.getElementById('ba-m0-slider');
+        if (baM0Slider) {
+            baM0Slider.addEventListener('change', () => {
+                this.state.topologyBAM0 = parseInt(baM0Slider.value);
+                const disp = document.getElementById('ba-m0-value');
+                if (disp) disp.textContent = this.state.topologyBAM0;
+                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
+            });
+        }
+        const baMSlider = document.getElementById('ba-m-slider');
+        if (baMSlider) {
+            baMSlider.addEventListener('change', () => {
+                this.state.topologyBAM = parseInt(baMSlider.value);
+                const disp = document.getElementById('ba-m-value');
+                if (disp) disp.textContent = this.state.topologyBAM;
+                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
+            });
+        }
+        const topologySeedInput = document.getElementById('topology-seed-input');
+        if (topologySeedInput) {
+            topologySeedInput.addEventListener('change', () => {
+                this.state.topologySeed = parseInt(topologySeedInput.value) || 1;
+                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
+            });
+        }
+        const topoRegenBtn = document.getElementById('topology-regenerate-btn');
+        if (topoRegenBtn) {
+            topoRegenBtn.addEventListener('click', () => {
+                if (this.cb.onTopologyRegenerate) {
+                    this.cb.onTopologyRegenerate();
+                } else if (this.cb.onTopologyChange) {
+                    this.cb.onTopologyChange();
+                }
+            });
+        }
+        const graphOverlayToggle = document.getElementById('graph-overlay-toggle');
+        if (graphOverlayToggle) {
+            graphOverlayToggle.addEventListener('change', () => {
+                this.state.graphOverlayEnabled = graphOverlayToggle.checked;
+                if (this.cb.onOverlayToggle) {
+                    this.cb.onOverlayToggle(graphOverlayToggle.checked);
+                }
+            });
+        }
+
         // Scale sliders
         bind('scale-slider', 'scaleBase');
         bind('scale-radial-slider', 'scaleRadial');
@@ -789,6 +861,56 @@ export class UIManager {
         update('noise-slider', this.state.noiseStrength);
         update('leak-slider', this.state.leak);
         update('omega-amplitude-slider', this.state.omegaAmplitude);
+        
+        const topoSelect = document.getElementById('topology-select');
+        if (topoSelect) topoSelect.value = this.state.topologyMode || 'grid';
+        const isWS = this.state.topologyMode === 'ws' || this.state.topologyMode === 'watts_strogatz';
+        const isBA = this.state.topologyMode === 'ba' || this.state.topologyMode === 'barabasi_albert';
+        const wsControls = document.getElementById('ws-controls');
+        if (wsControls) wsControls.style.display = isWS ? 'block' : 'none';
+        const baControls = document.getElementById('ba-controls');
+        if (baControls) baControls.style.display = isBA ? 'block' : 'none';
+        const maxDeg = this.state.topologyMaxDegree || 16;
+        const wsK = document.getElementById('ws-k-slider');
+        const wsKVal = document.getElementById('ws-k-value');
+        if (wsK) wsK.max = maxDeg;
+        if (wsK) wsK.value = this.state.topologyWSK ?? 4;
+        if (wsKVal) wsKVal.textContent = this.state.topologyWSK ?? 0;
+        const wsP = document.getElementById('ws-p-slider');
+        const wsPVal = document.getElementById('ws-p-value');
+        if (wsP) wsP.value = this.state.topologyWSRewire ?? 0.2;
+        if (wsPVal) wsPVal.textContent = (this.state.topologyWSRewire ?? 0).toFixed(2);
+        const baM0 = document.getElementById('ba-m0-slider');
+        const baM0Val = document.getElementById('ba-m0-value');
+        if (baM0) baM0.max = maxDeg;
+        if (baM0) baM0.value = this.state.topologyBAM0 ?? 5;
+        if (baM0Val) baM0Val.textContent = this.state.topologyBAM0 ?? 0;
+        const baM = document.getElementById('ba-m-slider');
+        const baMVal = document.getElementById('ba-m-value');
+        if (baM) baM.max = maxDeg;
+        if (baM) baM.value = this.state.topologyBAM ?? 3;
+        if (baMVal) baMVal.textContent = this.state.topologyBAM ?? 0;
+        const topoSeed = document.getElementById('topology-seed-input');
+        if (topoSeed) topoSeed.value = this.state.topologySeed ?? 1;
+        const topoSeedVal = document.getElementById('topology-seed-value');
+        if (topoSeedVal) topoSeedVal.textContent = this.state.topologySeed ?? 1;
+        const avg = this.state.topologyAvgDegree ?? 0;
+        const metaText = `avg deg ${avg.toFixed(2)} | max ${maxDeg}`;
+        const topoMeta = document.getElementById('topology-meta');
+        if (topoMeta) topoMeta.textContent = metaText;
+        const topoAvgLabel = document.getElementById('topology-avgdegree');
+        if (topoAvgLabel) topoAvgLabel.textContent = metaText;
+        const topoWarn = document.getElementById('topology-warning');
+        if (topoWarn) {
+            if (this.state.topologyClamped) {
+                topoWarn.style.display = 'block';
+                topoWarn.textContent = `Clamped at max degree ${maxDeg}`;
+            } else {
+                topoWarn.style.display = 'none';
+            }
+        }
+        const overlayToggle = document.getElementById('graph-overlay-toggle');
+        if (overlayToggle) overlayToggle.checked = !!this.state.graphOverlayEnabled;
         
         // Update kernel shape controls
         const kernelShapeSelect = document.getElementById('kernel-shape-select');

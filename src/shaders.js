@@ -20,6 +20,7 @@ struct Params {
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
 }
 
 // Textures for theta state (better 2D spatial cache locality)
@@ -32,6 +33,9 @@ struct Params {
 @group(0) @binding(6) var theta_out: texture_storage_2d<r32float, write>;
 @group(0) @binding(7) var<storage, read> input_weights: array<f32>;
 @group(0) @binding(8) var<uniform> input_signal: f32;
+@group(0) @binding(9) var<storage, read> graph_neighbors: array<u32>;
+@group(0) @binding(10) var<storage, read> graph_weights: array<f32>;
+@group(0) @binding(11) var<storage, read> graph_counts: array<u32>;
 
 // ============================================================================
 // SHARED MEMORY TILE for fast neighbor access
@@ -41,6 +45,7 @@ struct Params {
 const TILE_SIZE: u32 = 16u;
 const HALO: u32 = 8u;
 const SHARED_SIZE: u32 = 32u; // TILE_SIZE + 2 * HALO
+const MAX_GRAPH_DEGREE: u32 = 16u; // Keep in sync with topology.js
 
 var<workgroup> shared_theta: array<f32, 1024>; // 32 * 32 = 1024
 
@@ -110,6 +115,91 @@ fn noise(i: u32) -> f32 {
     return (hash(seed) - 0.5) * params.noise_strength * 2.0;
 }
 
+// Load theta using linear index (graph mode helper)
+fn loadThetaByIndex(idx: u32, cols: u32) -> f32 {
+    let col = i32(idx % cols);
+    let row = i32(idx / cols);
+    return textureLoad(theta_in, vec2<i32>(col, row), 0).r;
+}
+
+// Local order for graph topology (degree-limited adjacency)
+fn localOrderGraph(i: u32, cols: u32) -> f32 {
+    let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
+    if (count == 0u) { return 0.0; }
+    let base = i * MAX_GRAPH_DEGREE;
+    var sx = 0.0; var sy = 0.0; var norm = 0.0;
+    for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
+        if (j >= count) { break; }
+        let idx = graph_neighbors[base + j];
+        let theta_j = loadThetaByIndex(idx, cols);
+        let w = abs(graph_weights[base + j]);
+        sx = sx + cos(theta_j) * w;
+        sy = sy + sin(theta_j) * w;
+        norm = norm + max(w, 0.0001);
+    }
+    let inv = 1.0 / norm;
+    let cx = sx * inv;
+    let cy = sy * inv;
+    return sqrt(cx * cx + cy * cy);
+}
+
+// Coupling sum for graph mode (returns sum, norm)
+fn graphCoupling(i: u32, t: f32, cols: u32) -> vec2<f32> {
+    let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
+    if (count == 0u) { return vec2<f32>(0.0, 1.0); }
+    let base = i * MAX_GRAPH_DEGREE;
+    var sum = 0.0; var norm = 0.0;
+    for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
+        if (j >= count) { break; }
+        let idx = graph_neighbors[base + j];
+        let theta_j = loadThetaByIndex(idx, cols);
+        let w = graph_weights[base + j];
+        sum = sum + w * sin(theta_j - t);
+        norm = norm + abs(w);
+    }
+    if (norm < 0.0001) { norm = f32(count); }
+    return vec2<f32>(sum, norm);
+}
+
+// Coupling sum using delayed theta (graph mode)
+fn graphCouplingDelayed(i: u32, t: f32, cols: u32) -> vec2<f32> {
+    let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
+    if (count == 0u) { return vec2<f32>(0.0, 1.0); }
+    let base = i * MAX_GRAPH_DEGREE;
+    var sum = 0.0; var norm = 0.0;
+    for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
+        if (j >= count) { break; }
+        let idx = graph_neighbors[base + j];
+        let theta_j = theta_delayed[idx];
+        let w = graph_weights[base + j];
+        sum = sum + w * sin(theta_j - t);
+        norm = norm + abs(w);
+    }
+    if (norm < 0.0001) { norm = f32(count); }
+    return vec2<f32>(sum, norm);
+}
+
+// Harmonics coupling for graph mode (returns s1, s2, s3, norm)
+fn graphHarmonics(i: u32, t: f32, cols: u32) -> vec4<f32> {
+    let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
+    if (count == 0u) { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }
+    let base = i * MAX_GRAPH_DEGREE;
+    var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var norm = 0.0;
+    for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
+        if (j >= count) { break; }
+        let idx = graph_neighbors[base + j];
+        let theta_j = loadThetaByIndex(idx, cols);
+        let w = graph_weights[base + j];
+        let d = theta_j - t;
+        s1 = s1 + w * sin(d);
+        s2 = s2 + w * sin(2.0 * d);
+        s3 = s3 + w * sin(3.0 * d);
+        norm = norm + abs(w);
+    }
+    if (norm < 0.0001) { norm = f32(count); }
+    return vec4<f32>(s1, s2, s3, norm);
+}
+
 // Local order using shared memory - reads from pre-loaded tile
 fn localOrderShared(local_c: i32, local_r: i32, rng: i32) -> f32 {
     var sx = 0.0; var sy = 0.0; var cnt = 0.0;
@@ -140,6 +230,20 @@ fn localOrderGlobal(i: u32, cols: u32, rows: u32) -> f32 {
         cnt = cnt + 1.0;
     }
     return sqrt((sx/cnt)*(sx/cnt) + (sy/cnt)*(sy/cnt));
+}
+
+// Spatial coupling helper (shared-memory neighborhood)
+fn spatialCoupling(local_c: i32, local_r: i32, rng: i32, t: f32) -> vec2<f32> {
+    var sum = 0.0; var cnt = 0.0;
+    for (var dr = -rng; dr <= rng; dr = dr + 1) {
+        for (var dc = -rng; dc <= rng; dc = dc + 1) {
+            if (dr == 0 && dc == 0) { continue; }
+            let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+            sum = sum + sin(theta_j - t);
+            cnt = cnt + 1.0;
+        }
+    }
+    return vec2<f32>(sum, cnt);
 }
 
 // Helper function to compute kernel weight for a specific shape
@@ -331,7 +435,7 @@ fn mexhat_weight(dx: f32, dy: f32) -> f32 {
     }
 }
 
-fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
+fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -340,21 +444,19 @@ fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
         let Z_sin = global_order.y;
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
+    } else if (params.topology_mode > 0.5) {
+        let res = graphCoupling(i, t, cols);
+        sum = res.x;
+        cnt = res.y;
     } else {
-        // Use shared memory for local coupling
-        for (var dr = -rng; dr <= rng; dr = dr + 1) {
-            for (var dc = -rng; dc <= rng; dc = dc + 1) {
-                if (dr == 0 && dc == 0) { continue; }
-                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
-                sum = sum + sin(theta_j - t);
-                cnt = cnt + 1.0;
-            }
-        }
+        let res = spatialCoupling(local_c, local_r, rng, t);
+        sum = res.x;
+        cnt = res.y;
     }
-    return params.K0 * (sum / cnt);
+    return params.K0 * (sum / max(cnt, 1e-5));
 }
 
-fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
+fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, ri: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -363,23 +465,20 @@ fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
         let Z_sin = global_order.y;
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
+    } else if (params.topology_mode > 0.5) {
+        let res = graphCoupling(i, t, cols);
+        sum = res.x;
+        cnt = res.y;
     } else {
-        // Use shared memory for local coupling
-        for (var dr = -rng; dr <= rng; dr = dr + 1) {
-            for (var dc = -rng; dc <= rng; dc = dc + 1) {
-                if (dr == 0 && dc == 0) { continue; }
-                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
-                sum = sum + sin(theta_j - t);
-                cnt = cnt + 1.0;
-            }
-        }
+        let res = spatialCoupling(local_c, local_r, rng, t);
+        sum = res.x;
+        cnt = res.y;
     }
-    let ri = localOrderShared(local_c, local_r, rng);
     let Ki = params.K0 * (1.0 - 0.8 * ri);
-    return Ki * (sum / cnt);
+    return Ki * (sum / max(cnt, 1e-5));
 }
 
-fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
+fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -388,22 +487,20 @@ fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
         let Z_sin = global_order.y;
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
+    } else if (params.topology_mode > 0.5) {
+        let res = graphCoupling(i, t, cols);
+        sum = res.x;
+        cnt = res.y;
     } else {
-        // Use shared memory for local coupling
-        for (var dr = -rng; dr <= rng; dr = dr + 1) {
-            for (var dc = -rng; dc <= rng; dc = dc + 1) {
-                if (dr == 0 && dc == 0) { continue; }
-                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
-                sum = sum + sin(theta_j - t);
-                cnt = cnt + 1.0;
-            }
-        }
+        let res = spatialCoupling(local_c, local_r, rng, t);
+        sum = res.x;
+        cnt = res.y;
     }
-    let lap = sum / cnt;
+    let lap = sum / max(cnt, 1e-5);
     return params.K0 * min(1.0, abs(lap) * 2.0) * lap;
 }
 
-fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
+fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32) -> f32 {
     var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -417,6 +514,9 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
         s2 = s1 * params.harmonic_a * Z_mag;
         s3 = s1 * params.harmonic_b * Z_mag;
         cnt = 1.0;
+    } else if (params.topology_mode > 0.5) {
+        let res = graphHarmonics(i, t, cols);
+        s1 = res.x; s2 = res.y; s3 = res.z; cnt = res.w;
     } else {
         // Use shared memory for local coupling
         for (var dr = -rng; dr <= rng; dr = dr + 1) {
@@ -431,11 +531,16 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32) -> f32 {
             }
         }
     }
-    return params.K0 * ((s1 + params.harmonic_a * s2 + params.harmonic_b * s3) / cnt);
+    return params.K0 * ((s1 + params.harmonic_a * s2 + params.harmonic_b * s3) / max(cnt, 1e-5));
 }
 
 // rule_kernel needs larger range - use shared memory when possible, fall back to global
-fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, t: f32) -> f32 {
+fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, t: f32, i: u32) -> f32 {
+    if (params.topology_mode > 0.5) {
+        let res = graphCoupling(i, t, u32(cols));
+        return params.K0 * (res.x / max(res.y, 1e-5));
+    }
+
     var sum = 0.0; var wtotal = 0.0;
     
     let rng_ext = i32(params.sigma2 * 3.0);
@@ -470,9 +575,16 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
     return 0.0;
 }
 
-fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u32, rows: u32, rng: i32, t: f32) -> f32 {
+fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u32, rows: u32, rng: i32, t: f32, i: u32) -> f32 {
     // Delay mode uses storage buffer for delayed theta values, not shared memory
     var sum = 0.0; var cnt = 0.0;
+    
+    if (params.topology_mode > 0.5) {
+        let res = graphCouplingDelayed(i, t, cols);
+        sum = res.x;
+        cnt = res.y;
+        return params.K0 * (sum / max(cnt, 1e-5));
+    }
     
     for (var dr = -rng; dr <= rng; dr = dr + 1) {
         for (var dc = -rng; dc <= rng; dc = dc + 1) {
@@ -486,7 +598,7 @@ fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u3
             cnt = cnt + 1.0;
         }
     }
-    return params.K0 * (sum / cnt);
+    return params.K0 * (sum / max(cnt, 1e-5));
 }
 
 @compute @workgroup_size(16, 16)
@@ -518,18 +630,23 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let i = global_r * cols + global_c;
     let t = loadThetaShared(local_c, local_r);  // Center value from shared memory
     let rng = i32(params.range);
-    
-    // Compute order parameter using shared memory
-    order[i] = localOrderShared(local_c, local_r, rng);
+    // Compute local order (graph vs spatial)
+    var ri = 0.0;
+    if (params.topology_mode > 0.5) {
+        ri = localOrderGraph(i, cols);
+    } else {
+        ri = localOrderShared(local_c, local_r, rng);
+    }
+    order[i] = ri;
     
     var dtheta = 0.0;
     let mode = i32(params.rule_mode);
-    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t); }
-    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t); }
-    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t); }
-    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t); }
-    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), t); }
-    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t); }
+    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t, i, cols); }
+    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t, i, cols, ri); }
+    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t, i, cols); }
+    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t, i, cols); }
+    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), t, i); }
+    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t, i); }
     
     // Add noise perturbation
     if (params.noise_strength > 0.001) {
@@ -617,6 +734,7 @@ struct Params {
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
 }
 @group(0) @binding(0) var theta_tex: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
@@ -1007,6 +1125,7 @@ struct Params {
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;
@@ -1177,6 +1296,7 @@ struct Params {
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
 }
 
 @group(0) @binding(0) var theta_tex: texture_2d<f32>;

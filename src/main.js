@@ -6,6 +6,7 @@ import { Presets } from './presets.js';
 import { drawKernel } from './kernel.js';
 import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, LyapunovCalculator } from './statistics.js';
 import { ReservoirComputer } from './reservoir.js';
+import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
 
 const STATE = {
     dt: 0.03,
@@ -17,6 +18,15 @@ const STATE = {
     harmonicA: 0.4,
     harmonicB: 0.0,
     globalCoupling: false,
+    topologyMode: 'grid', // 'grid', 'ws', 'ba'
+    topologySeed: 1,
+    topologyWSK: 4,
+    topologyWSRewire: 0.2,
+    topologyBAM0: 5,
+    topologyBAM: 3,
+    topologyAvgDegree: 0,
+    topologyMaxDegree: MAX_GRAPH_DEGREE,
+    topologyClamped: false,
     delaySteps: 10,
     sigma: 1.2,
     sigma2: 1.2,
@@ -53,6 +63,7 @@ const STATE = {
     orientSwirl: 0.0,
     orientBubble: 0.0,
     orientLinear: 0.0,
+    graphOverlayEnabled: false,
     // Zoom/pan for 2D mode
     zoom: 1.0,
     panX: 0.0,
@@ -209,6 +220,10 @@ async function init() {
     renderer.setMeshMode(STATE.surfaceMode);
     renderer.setContext(context);
     const camera = new Camera(canvas);
+    const graphOverlay = document.getElementById('graph-overlay');
+    const graphOverlayCtx = graphOverlay ? graphOverlay.getContext('2d') : null;
+    let overlayDirty = true;
+    let lastViewMode = STATE.viewMode;
     
     // Initialize statistics tracking
     const stats = new StatisticsTracker(STATE.gridSize * STATE.gridSize);
@@ -227,6 +242,109 @@ async function init() {
     let chi_plot = null;
     let phaseDiagramPlot = null;
     let phaseSpacePlot = null;
+    let ui = null;
+
+    const regenerateTopology = () => {
+        const maxDegree = STATE.topologyMaxDegree || MAX_GRAPH_DEGREE;
+        STATE.topologySeed = Math.max(1, Math.floor(STATE.topologySeed || 1));
+        const topology = generateTopology({
+            mode: STATE.topologyMode,
+            gridSize: STATE.gridSize,
+            maxDegree,
+            seed: STATE.topologySeed,
+            wsK: STATE.topologyWSK,
+            wsRewire: STATE.topologyWSRewire,
+            baM0: STATE.topologyBAM0,
+            baM: STATE.topologyBAM,
+        });
+        sim.writeTopology(topology);
+        STATE.topologyAvgDegree = (STATE.topologyMode === 'grid') ? 0 : (topology.avgDegree ?? 0);
+        STATE.topologyMaxDegree = maxDegree;
+        const normalizeMode = (m) => {
+            if (m === 'watts_strogatz' || m === 'ws') return 'ws';
+            if (m === 'barabasi_albert' || m === 'ba') return 'ba';
+            return 'grid';
+        };
+        STATE.topologyMode = normalizeMode(topology.mode || STATE.topologyMode);
+        STATE.topologyClamped = topology.clamped || false;
+        if (STATE.topologyClamped) {
+            console.warn(`Topology clamped at degree ${maxDegree}`);
+        }
+        sim.updateFullParams(STATE);
+        if (ui?.updateDisplay) ui.updateDisplay();
+        overlayDirty = true;
+        return topology;
+    };
+
+    const ensureOverlaySize = () => {
+        if (!graphOverlay || !canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const displayW = canvas.clientWidth || canvas.width;
+        const displayH = canvas.clientHeight || canvas.height;
+        graphOverlay.width = Math.round(displayW * dpr);
+        graphOverlay.height = Math.round(displayH * dpr);
+        graphOverlay.style.width = `${displayW}px`;
+        graphOverlay.style.height = `${displayH}px`;
+    };
+
+    const drawGraphOverlay = (topology) => {
+        if (!graphOverlayCtx || !graphOverlay) return;
+        ensureOverlaySize();
+        graphOverlayCtx.clearRect(0, 0, graphOverlay.width, graphOverlay.height);
+        graphOverlay.style.display = 'none';
+        if (!STATE.graphOverlayEnabled || STATE.viewMode !== 1) return;
+        if (!topology || !topology.counts || !topology.neighbors) return;
+        if (STATE.topologyMode === 'grid') return;
+        if (STATE.gridSize > 256) return; // keep overlay lightweight on huge grids
+
+        const counts = topology.counts;
+        const neighbors = topology.neighbors;
+        const maxDeg = sim.maxGraphDegree;
+        const grid = STATE.gridSize;
+        const w = graphOverlay.width;
+        const h = graphOverlay.height;
+
+        let edges = 0;
+        for (let i = 0; i < counts.length; i++) edges += counts[i];
+        edges = Math.max(1, Math.floor(edges / 2));
+
+        const maxEdges = 400;
+        const prob = Math.min(1, maxEdges / edges);
+        let drawn = 0;
+        let rng = STATE.topologySeed || 1;
+        const rand = () => {
+            rng = (rng * 1664525 + 1013904223) >>> 0;
+            return rng / 4294967296;
+        };
+
+        graphOverlayCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+        graphOverlayCtx.lineWidth = 1.0;
+        graphOverlay.style.display = 'block';
+
+        for (let i = 0; i < counts.length; i++) {
+            const deg = Math.min(counts[i], maxDeg);
+            if (!deg) continue;
+            const base = i * maxDeg;
+            const cx = ((i % grid) + 0.5) / grid * w;
+            const cy = (Math.floor(i / grid) + 0.5) / grid * h;
+            for (let j = 0; j < deg; j++) {
+                const nbr = neighbors[base + j];
+                if (nbr <= i) continue; // draw each undirected edge once
+                if (rand() > prob) continue;
+                const nx = ((nbr % grid) + 0.5) / grid * w;
+                const ny = (Math.floor(nbr / grid) + 0.5) / grid * h;
+                const jitter = 0.002;
+                const jx = (rand() - 0.5) * w * jitter;
+                const jy = (rand() - 0.5) * h * jitter;
+                graphOverlayCtx.beginPath();
+                graphOverlayCtx.moveTo(cx + jx, cy + jy);
+                graphOverlayCtx.lineTo(nx - jx, ny - jy);
+                graphOverlayCtx.stroke();
+                drawn++;
+                if (drawn >= maxEdges) return;
+            }
+        }
+    };
 
     // RC K sweep state
     let rcSweep = {
@@ -245,10 +363,25 @@ async function init() {
     resetSimulation(sim);
     initDrawing(canvas, sim);
 
-    const ui = new UIManager(STATE, {
+    ui = new UIManager(STATE, {
         onParamChange: () => { 
+            if (STATE.viewMode !== lastViewMode) {
+                overlayDirty = true;
+                lastViewMode = STATE.viewMode;
+            }
             sim.updateFullParams(STATE);
             drawKernel(STATE); 
+        },
+        onTopologyChange: () => {
+            regenerateTopology();
+        },
+        onTopologyRegenerate: () => {
+            STATE.topologySeed = (STATE.topologySeed || 1) + 1;
+            regenerateTopology();
+        },
+        onOverlayToggle: (enabled) => {
+            STATE.graphOverlayEnabled = enabled;
+            overlayDirty = true;
         },
         onSurfaceModeChange: (mode) => {
             STATE.surfaceMode = mode;
@@ -313,7 +446,7 @@ async function init() {
             lyapunovCalc.resize(newSize * newSize);
             reservoir.resize(newSize);
             renderer.invalidateBindGroup(); // Buffers changed, need new bind group
-            sim.updateFullParams(STATE);
+            regenerateTopology();
             drawKernel(STATE);
         },
         onStartKScan: () => {
@@ -1171,8 +1304,8 @@ async function init() {
     }
     
     // Initialize display
+    regenerateTopology();
     ui.updateDisplay();
-    sim.updateFullParams(STATE); // Initialize params buffer
     drawKernel(STATE);
     
     // Statistics throttling - compute every N frames for better performance
@@ -1217,6 +1350,11 @@ async function init() {
             renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr);
             
             device.queue.submit([encoder.finish()]);
+
+            if (overlayDirty) {
+                drawGraphOverlay(sim.topologyInfo);
+                overlayDirty = false;
+            }
             
             // Reservoir Computing: Always inject input signal when RC is enabled (for visualization)
             // Full RC step (training/inference) only when active

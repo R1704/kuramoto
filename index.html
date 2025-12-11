@@ -576,12 +576,27 @@
             font-size: 10px;
             color: #4a9eff;
         }
+        
+        #canvas-container {
+            position: relative;
+        }
+        
+        #graph-overlay {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div id="app">
         <div id="canvas-container">
             <canvas id="canvas" width="1000" height="800"></canvas>
+            <canvas id="graph-overlay" width="1000" height="800"></canvas>
         </div>
         
         <div id="control-panel">
@@ -783,6 +798,67 @@
                     </div>
                     <input type="range" id="delay-slider" min="1" max="30" step="1" value="10">
                 </div>
+            </div>
+            
+            <!-- Graph Topology -->
+            <div class="section">
+                <div class="section-title">Graph Topology</div>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Topology</span>
+                        <span class="control-value" id="topology-avgdegree">avg deg 0</span>
+                    </div>
+                    <select id="topology-select">
+                        <option value="grid">Grid (spatial)</option>
+                        <option value="ws">Watts–Strogatz</option>
+                        <option value="ba">Barabási–Albert</option>
+                    </select>
+                    <div id="topology-warning" style="font-size: 10px; color: #f5a524; margin-top: 6px; display: none;">Degree limited; clamped</div>
+                </div>
+                <div class="control-group">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="graph-overlay-toggle">
+                        <span style="font-size: 12px;">Show edge sample (2D)</span>
+                    </label>
+                </div>
+                
+                <div class="control-group" id="ws-controls" style="display: none;">
+                    <div class="control-label">
+                        <span>WS Degree (k)</span>
+                        <span class="control-value" id="ws-k-value">4</span>
+                    </div>
+                    <input type="range" id="ws-k-slider" min="2" max="16" step="1" value="4">
+                    <div class="control-label" style="margin-top: 8px;">
+                        <span>Rewire (p)</span>
+                        <span class="control-value" id="ws-p-value">0.20</span>
+                    </div>
+                    <input type="range" id="ws-p-slider" min="0" max="1" step="0.01" value="0.2">
+                </div>
+                
+                <div class="control-group" id="ba-controls" style="display: none;">
+                    <div class="control-label">
+                        <span>Seed Clique (m₀)</span>
+                        <span class="control-value" id="ba-m0-value">5</span>
+                    </div>
+                    <input type="range" id="ba-m0-slider" min="2" max="16" step="1" value="5">
+                    <div class="control-label" style="margin-top: 8px;">
+                        <span>Attach Edges (m)</span>
+                        <span class="control-value" id="ba-m-value">3</span>
+                    </div>
+                    <input type="range" id="ba-m-slider" min="1" max="8" step="1" value="3">
+                </div>
+                
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Seed</span>
+                        <span class="control-value" id="topology-seed-value">1</span>
+                    </div>
+                    <input type="number" id="topology-seed-input" min="1" step="1" value="1">
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button id="topology-regenerate-btn" class="small-btn" style="flex: 1;">🔁 Regenerate</button>
+                    </div>
+                </div>
+                <div id="topology-meta" style="font-size: 10px; color: #888;">avg deg 0.00 | max 16</div>
             </div>
             
             <!-- 4. KERNEL PARAMETERS -->
