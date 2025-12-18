@@ -497,12 +497,17 @@ export class UIManager {
         }
         
         // Selects for patterns
+        // Import updateURLFromState lazily (avoid circular import issues) and call when patterns change
         const bindSelect = (id, key) => {
             const el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', () => {
                 this.state[key] = el.value;
                 this.cb.onPatternChange(key); // Trigger pattern application
+                try {
+                    // dynamic import to avoid static circular dependency
+                    import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
+                } catch (e) {}
             });
         };
         
@@ -682,16 +687,19 @@ export class UIManager {
                 this.state.ruleMode = parseInt(e.key);
                 this.cb.onParamChange();
                 this.updateDisplay();
+                import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Reset
             else if (e.key === 'r' || e.key === 'R') {
                 this.cb.onReset();
+                import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Toggle global coupling
             else if (e.key === 'g' || e.key === 'G') {
                 this.state.globalCoupling = !this.state.globalCoupling;
                 this.cb.onParamChange();
                 this.updateDisplay();
+                import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Adjust grid size (Shift + arrows) or coupling strength/range (arrows alone)
             else if (e.key === 'ArrowUp') {
@@ -704,12 +712,14 @@ export class UIManager {
                         gridInput.value = newSize;
                         document.getElementById('grid-size-value').textContent = newSize;
                         this.cb.onResizeGrid(newSize);
+                        import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                     }
                 } else {
                     // Up: Increase coupling strength
                     this.state.K0 = Math.min(3.0, this.state.K0 + 0.1);
                     this.cb.onParamChange();
                     this.updateDisplay();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             else if (e.key === 'ArrowDown') {
@@ -722,12 +732,14 @@ export class UIManager {
                         gridInput.value = newSize;
                         document.getElementById('grid-size-value').textContent = newSize;
                         this.cb.onResizeGrid(newSize);
+                           import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                     }
                 } else {
                     // Down: Decrease coupling strength
                     this.state.K0 = Math.max(0.0, this.state.K0 - 0.1);
                     this.cb.onParamChange();
                     this.updateDisplay();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             // Adjust range
@@ -737,6 +749,7 @@ export class UIManager {
                     this.state.range = Math.max(1, this.state.range - 1);
                     this.cb.onParamChange();
                     this.updateDisplay();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             else if (e.key === 'ArrowRight') {
@@ -745,6 +758,7 @@ export class UIManager {
                     this.state.range = Math.min(8, this.state.range + 1);
                     this.cb.onParamChange();
                     this.updateDisplay();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             // Cycle palettes (c) and data layers (shift+c)
@@ -752,32 +766,38 @@ export class UIManager {
                 this.state.colormapPalette = (this.state.colormapPalette + 1) % 6;
                 this.cb.onParamChange();
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             } else if (e.key === 'C' && e.shiftKey) {
                 this.state.colormap = (this.state.colormap + 1) % 7;
                 this.cb.onParamChange();
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Pause/Resume
             else if (e.key === ' ') {
                 e.preventDefault();
                 this.cb.onPause();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Speed controls
             else if (e.key === '[') {
                 this.state.timeScale = Math.max(0.1, this.state.timeScale * 0.5);
                 this.cb.onParamChange();
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             else if (e.key === ']') {
                 this.state.timeScale = Math.min(4.0, this.state.timeScale * 2.0);
                 this.cb.onParamChange();
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Toggle 2D/3D view with V key
             else if (e.key === 'v' || e.key === 'V') {
                 this.state.viewMode = this.state.viewMode === 0 ? 1 : 0;
                 this.cb.onParamChange();
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Toggle phase space plot
             else if (e.key === 'p' || e.key === 'P') {
@@ -786,6 +806,7 @@ export class UIManager {
                     this.cb.onPhaseSpaceToggle(this.state.phaseSpaceEnabled);
                 }
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Reset zoom/pan with Z key (in 2D mode)
             else if (e.key === 'z' || e.key === 'Z') {
@@ -794,6 +815,7 @@ export class UIManager {
                     this.state.panX = 0.0;
                     this.state.panY = 0.0;
                     this.cb.onParamChange();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             // Zoom in/out with +/- keys (in 2D mode)
@@ -801,12 +823,14 @@ export class UIManager {
                 if (this.state.viewMode === 1) {
                     this.state.zoom = Math.min(10.0, this.state.zoom * 1.2);
                     this.cb.onParamChange();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             else if (e.key === '-' || e.key === '_') {
                 if (this.state.viewMode === 1) {
                     this.state.zoom = Math.max(0.5, this.state.zoom / 1.2);
                     this.cb.onParamChange();
+                       import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
                 }
             }
             // K-scan shortcut (K key)
@@ -830,12 +854,14 @@ export class UIManager {
                 console.log(`Smoothing mode: ${modes[this.state.smoothingMode]}`);
                 this.cb.onParamChange();
                 this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
             // Toggle log scale for susceptibility plot (L key)
             else if (e.key === 'l' && !e.shiftKey && !e.ctrlKey) {
                 if (this.cb.onToggleLogScale) {
                     this.cb.onToggleLogScale();
                 }
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
         });
     }

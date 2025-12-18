@@ -4,6 +4,7 @@ import { Camera } from './common.js';
 import { UIManager } from './ui.js';
 import { Presets } from './presets.js';
 import { drawKernel } from './kernel.js';
+import { loadStateFromURL, updateURLFromState } from './urlstate.js';
 import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, LyapunovCalculator } from './statistics.js';
 import { ReservoirComputer } from './reservoir.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
@@ -215,6 +216,9 @@ async function init() {
     const format = navigator.gpu.getPreferredCanvasFormat();
     context.configure({ device, format, alphaMode: 'opaque' });
 
+    // Load state from URL (may modify STATE.gridSize before constructing Simulation)
+    loadStateFromURL(STATE);
+
     const sim = new Simulation(device, STATE.gridSize);
     const renderer = new Renderer(device, format, canvas, STATE.gridSize);
     renderer.setMeshMode(STATE.surfaceMode);
@@ -371,13 +375,17 @@ async function init() {
             }
             sim.updateFullParams(STATE);
             drawKernel(STATE); 
+            // Reflect new parameter state into URL
+            updateURLFromState(STATE, true);
         },
         onTopologyChange: () => {
             regenerateTopology();
+            updateURLFromState(STATE, true);
         },
         onTopologyRegenerate: () => {
             STATE.topologySeed = (STATE.topologySeed || 1) + 1;
             regenerateTopology();
+            updateURLFromState(STATE, true);
         },
         onOverlayToggle: (enabled) => {
             STATE.graphOverlayEnabled = enabled;
@@ -396,9 +404,9 @@ async function init() {
             STATE.paused = !STATE.paused; 
             document.getElementById('pause-btn').textContent = STATE.paused ? 'Resume' : 'Pause';
         },
-        onReset: () => resetSimulation(sim),
-        onRandomize: () => randomizeTheta(sim),
-        onPreset: (name) => loadPreset(name, sim, ui),
+    onReset: () => { resetSimulation(sim); updateURLFromState(STATE, true); },
+    onRandomize: () => { randomizeTheta(sim); updateURLFromState(STATE, true); },
+    onPreset: (name) => { loadPreset(name, sim, ui); updateURLFromState(STATE, true); },
         onPatternChange: (key) => {
             if(key === 'thetaPattern') applyThetaPattern(sim, STATE.thetaPattern);
             if(key === 'omegaPattern') applyOmegaPattern(sim, STATE.omegaPattern, STATE.omegaAmplitude);
@@ -502,6 +510,7 @@ async function init() {
                 sim.setInputSignal(0);
                 console.log('RC disabled');
             }
+            updateURLFromState(STATE, true);
         },
         onRCConfigure: () => {
             reservoir.setFeatureBudget(STATE.rcMaxFeatures);
@@ -510,6 +519,7 @@ async function init() {
             reservoir.setTask(STATE.rcTask);
             // Write input weights to GPU
             sim.writeInputWeights(reservoir.getInputWeights());
+            updateURLFromState(STATE, true);
         },
         onRCStartTraining: () => {
             if (!STATE.rcEnabled) {
@@ -526,24 +536,28 @@ async function init() {
             STATE.rcTraining = true;
             STATE.rcInference = false;
             updateRCDisplay();
+            updateURLFromState(STATE, true);
         },
         onRCStopTraining: () => {
             STATE.rcTraining = false;
             const nrmse = reservoir.stopTraining();
             STATE.rcNRMSE = nrmse;
             updateRCDisplay();
+            updateURLFromState(STATE, true);
         },
         onRCStartInference: () => {
             if (reservoir.startInference()) {
                 STATE.rcInference = true;
                 STATE.rcTraining = false;
                 updateRCDisplay();
+                updateURLFromState(STATE, true);
             }
         },
         onRCStopInference: () => {
             reservoir.stopInference();
             STATE.rcInference = false;
             updateRCDisplay();
+            updateURLFromState(STATE, true);
         },
         onDrawMode: (mode) => {
             STATE.drawMode = mode;
@@ -1826,4 +1840,26 @@ function rgbToHue(r, g, b) {
 init().catch(e => {
     console.error('Fatal error during initialization:', e);
     showError('Failed to initialize: ' + e.message);
+});
+
+// Handle browser navigation (back/forward) to restore state from URL
+window.addEventListener('popstate', () => {
+    // Reload STATE from URL and apply
+    import('./urlstate.js').then(m => {
+        m.loadStateFromURL(STATE);
+        // Apply grid size change requires a resize cycle; we'll request a page reload if grid size differs
+        // For simplicity, if gridSize differs from current sim, reload page to reconstruct everything.
+        const currentGrid = STATE.gridSize;
+        // Try to update in-place if possible
+        try {
+            // update UI and simulation parameters
+            if (typeof sim !== 'undefined' && sim) {
+                sim.updateFullParams(STATE);
+            }
+            if (typeof ui !== 'undefined' && ui) ui.updateDisplay();
+        } catch (e) {
+            console.warn('Could not apply URL state in-place:', e);
+            window.location.reload();
+        }
+    }).catch(() => { window.location.reload(); });
 });
