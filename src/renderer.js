@@ -107,65 +107,79 @@ export class Renderer {
         this.lastThetaTexture = null;
     }
 
-    draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d') {
+    draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d', renderAllLayers = false, activeLayer = 0) {
         // Use fast 2D renderer when in 2D mode (if available)
         if (viewMode === '2d' && this.pipeline2D) {
             this.draw2D(commandEncoder, sim);
             return;
         }
         
-        // Update camera uniform
-        this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
-        // Ensure mesh flag in params matches current draw mode (mesh_mode is float index 68)
-        const meshFlag = this.meshMode === 'mesh' ? 1.0 : 0.0;
-        this.device.queue.writeBuffer(sim.paramsBuf, 68 * 4, new Float32Array([meshFlag]));
+        const drawOne = (layerIdx) => {
+            // Update camera uniform
+            this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
+            // Ensure mesh flag in params matches current draw mode (mesh_mode is float index 68)
+            const meshFlag = this.meshMode === 'mesh' ? 1.0 : 0.0;
+            this.device.queue.writeBuffer(sim.paramsBuf, 68 * 4, new Float32Array([meshFlag]));
+            // Update active layer (index 79)
+            this.device.queue.writeBuffer(sim.paramsBuf, 79 * 4, new Float32Array([layerIdx]));
 
-        // Create bind group only if it doesn't exist or textures changed
-        if (!this.bindGroup || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
-            this.bindGroup = this.device.createBindGroup({
-                layout: this.pipeline.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: sim.thetaTexture.createView() },
-                    { binding: 1, resource: { buffer: sim.paramsBuf } },
-                    { binding: 2, resource: { buffer: this.cameraBuf } },
-                    { binding: 3, resource: { buffer: sim.orderBuf } },
-                    { binding: 4, resource: this.externalSampler },
-                    { binding: 5, resource: this.externalTexture.createView() },
-                ],
-            });
-            this.lastSim = sim;
-            this.lastThetaTexture = sim.thetaTexture;
-        }
-
-        const pass = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: this.context.getCurrentTexture().createView(),
-                clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
-                loadOp: 'clear',
-                storeOp: 'store',
-            }],
-            depthStencilAttachment: {
-                view: this.depthTexture.createView(),
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            },
-        });
-        pass.setPipeline(this.pipeline);
-        pass.setBindGroup(0, this.bindGroup);
-        if (this.meshMode === 'mesh' && this.vertexBuffer && this.indexBuffer) {
-            pass.setVertexBuffer(0, this.vertexBuffer);
-            pass.setIndexBuffer(this.indexBuffer, 'uint32');
-            pass.drawIndexed(this.indexCount, 1, 0, 0, 0);
-        } else {
-            // Instanced quad path - ensure quad buffer exists
-            if (!this.quadVertexBuffer) {
-                this.initQuadBuffer();
+            // Create bind group only if it doesn't exist or textures changed
+            if (!this.bindGroup || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
+                this.bindGroup = this.device.createBindGroup({
+                    layout: this.pipeline.getBindGroupLayout(0),
+                    entries: [
+                        { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
+                        { binding: 1, resource: { buffer: sim.paramsBuf } },
+                        { binding: 2, resource: { buffer: this.cameraBuf } },
+                        { binding: 3, resource: { buffer: sim.orderBuf } },
+                        { binding: 4, resource: this.externalSampler },
+                        { binding: 5, resource: this.externalTexture.createView() },
+                    ],
+                });
+                this.lastSim = sim;
+                this.lastThetaTexture = sim.thetaTexture;
             }
-            pass.setVertexBuffer(0, this.quadVertexBuffer);
-            pass.draw(6, N); // 6 verts per quad, N instances
+
+            const pass = commandEncoder.beginRenderPass({
+                colorAttachments: [{
+                    view: this.context.getCurrentTexture().createView(),
+                    clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                }],
+                depthStencilAttachment: {
+                    view: this.depthTexture.createView(),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            });
+            pass.setPipeline(this.pipeline);
+            pass.setBindGroup(0, this.bindGroup);
+            if (this.meshMode === 'mesh' && this.vertexBuffer && this.indexBuffer) {
+                pass.setVertexBuffer(0, this.vertexBuffer);
+                pass.setIndexBuffer(this.indexBuffer, 'uint32');
+                pass.drawIndexed(this.indexCount, 1, 0, 0, 0);
+            } else {
+                // Instanced quad path - ensure quad buffer exists
+                if (!this.quadVertexBuffer) {
+                    this.initQuadBuffer();
+                }
+                const instanceCount = sim.layerSize ?? N;
+                pass.setVertexBuffer(0, this.quadVertexBuffer);
+                pass.draw(6, instanceCount); // 6 verts per quad, one layer of instances
+            }
+            pass.end();
+        };
+
+        if (renderAllLayers && viewMode === '3d') {
+            for (let layer = 0; layer < (sim.layers || 1); layer++) {
+                drawOne(layer);
+            }
+        } else {
+            const layerIdx = Math.min(Math.max(0, activeLayer ?? 0), (sim.layers || 1) - 1);
+            drawOne(layerIdx);
         }
-        pass.end();
     }
     
     draw2D(commandEncoder, sim) {
@@ -187,7 +201,7 @@ export class Renderer {
             bindGroup = this.device.createBindGroup({
                 layout: this.pipeline2D.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: sim.thetaTexture.createView() },
+                    { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
                     { binding: 1, resource: { buffer: sim.paramsBuf } },
                     { binding: 2, resource: { buffer: sim.orderBuf } },
                     { binding: 3, resource: this.externalSampler },

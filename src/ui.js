@@ -84,6 +84,9 @@ export class UIManager {
         bind('delay-slider', 'delaySteps', 'int');
         bind('noise-slider', 'noiseStrength');
         bind('leak-slider', 'leak');
+        bind('layer-coupling-up-slider', 'layerCouplingUp');
+        bind('layer-coupling-down-slider', 'layerCouplingDown');
+        bind('layer-z-offset-slider', 'layerZOffset');
 
         // Topology controls
         const topologySelect = document.getElementById('topology-select');
@@ -188,6 +191,27 @@ export class UIManager {
                     this.cb.onPhaseSpaceToggle(phaseToggle.checked);
                 }
                 this.updateDisplay();
+            });
+        }
+
+        const activeLayerInput = document.getElementById('active-layer-input');
+        if (activeLayerInput) {
+            activeLayerInput.addEventListener('change', () => {
+                const maxLayer = Math.max(0, (this.state.layerCount ?? 1) - 1);
+                let val = parseInt(activeLayerInput.value);
+                if (isNaN(val)) val = 0;
+                val = Math.min(maxLayer, Math.max(0, val));
+                this.state.activeLayer = val;
+                activeLayerInput.value = val;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const renderAllToggle = document.getElementById('render-all-layers-toggle');
+        if (renderAllToggle) {
+            renderAllToggle.addEventListener('change', () => {
+                this.state.renderAllLayers = renderAllToggle.checked;
+                if (this.cb.onParamChange) this.cb.onParamChange();
             });
         }
         
@@ -863,6 +887,21 @@ export class UIManager {
                 }
                    import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
+            // Cycle active layer down/up with [ and ]
+            else if (e.key === '[') {
+                const maxLayer = Math.max(0, (this.state.layerCount ?? 1) - 1);
+                this.state.activeLayer = Math.max(0, (this.state.activeLayer ?? 0) - 1);
+                if (this.cb.onParamChange) this.cb.onParamChange();
+                this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
+            }
+            else if (e.key === ']') {
+                const maxLayer = Math.max(0, (this.state.layerCount ?? 1) - 1);
+                this.state.activeLayer = Math.min(maxLayer, (this.state.activeLayer ?? 0) + 1);
+                if (this.cb.onParamChange) this.cb.onParamChange();
+                this.updateDisplay();
+                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
+            }
         });
     }
 
@@ -886,7 +925,27 @@ export class UIManager {
         update('delay-slider', this.state.delaySteps);
         update('noise-slider', this.state.noiseStrength);
         update('leak-slider', this.state.leak);
+        update('layer-coupling-up-slider', this.state.layerCouplingUp ?? 0);
+        update('layer-coupling-down-slider', this.state.layerCouplingDown ?? 0);
         update('omega-amplitude-slider', this.state.omegaAmplitude);
+        const layerCount = Math.max(1, this.state.layerCount ?? 1);
+        const lcVal = document.getElementById('layer-count-value');
+        if (lcVal) lcVal.textContent = layerCount;
+        const activeLayerInput = document.getElementById('active-layer-input');
+        const activeLayerVal = document.getElementById('active-layer-value');
+        if (activeLayerInput) {
+            activeLayerInput.max = Math.max(0, layerCount - 1);
+            activeLayerInput.value = Math.min(layerCount - 1, Math.max(0, this.state.activeLayer ?? 0));
+        }
+        if (activeLayerVal) activeLayerVal.textContent = this.state.activeLayer ?? 0;
+        const coupUpVal = document.getElementById('layer-coupling-up-value');
+        if (coupUpVal) coupUpVal.textContent = (this.state.layerCouplingUp ?? 0).toFixed(2);
+        const coupDownVal = document.getElementById('layer-coupling-down-value');
+        if (coupDownVal) coupDownVal.textContent = (this.state.layerCouplingDown ?? 0).toFixed(2);
+        const zOffVal = document.getElementById('layer-z-offset-value');
+        if (zOffVal) zOffVal.textContent = (this.state.layerZOffset ?? 0).toFixed(2);
+        const renderAllToggle = document.getElementById('render-all-layers-toggle');
+        if (renderAllToggle) renderAllToggle.checked = !!this.state.renderAllLayers;
         
         const topoSelect = document.getElementById('topology-select');
         if (topoSelect) topoSelect.value = this.state.topologyMode || 'grid';

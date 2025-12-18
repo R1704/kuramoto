@@ -43,6 +43,12 @@ const STATE = {
     viewMode: 0, // 0 = 3D, 1 = 2D
     surfaceMode: 'mesh', // 'mesh' or 'instanced'
     gridSize: 256, // Adjustable grid size
+    layerCount: 1, // Number of stacked layers (same resolution)
+    activeLayer: 0, // Which layer to visualize
+    layerCouplingUp: 0.0, // coupling from lower layer to this layer
+    layerCouplingDown: 0.0, // coupling from upper layer to this layer
+    renderAllLayers: false,
+    layerZOffset: 0.15,
     smoothingMode: 0, // 0=nearest (none), 1=bilinear, 2=bicubic, 3=gaussian
     showStatistics: true, // Enable/disable statistics computation and display
     leak: 0.0, // simple leak/damping on dynamics (0 = none)
@@ -219,7 +225,9 @@ async function init() {
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
 
-    const sim = new Simulation(device, STATE.gridSize);
+    const sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
+    STATE.layerCount = sim.layers;
+    STATE.activeLayer = Math.min(STATE.activeLayer || 0, STATE.layerCount - 1);
     const renderer = new Renderer(device, format, canvas, STATE.gridSize);
     renderer.setMeshMode(STATE.surfaceMode);
     renderer.setContext(context);
@@ -230,10 +238,10 @@ async function init() {
     let lastViewMode = STATE.viewMode;
     
     // Initialize statistics tracking
-    const stats = new StatisticsTracker(STATE.gridSize * STATE.gridSize);
+    const stats = new StatisticsTracker(STATE.gridSize * STATE.gridSize * STATE.layerCount);
     
     // Initialize Lyapunov calculator
-    let lyapunovCalc = new LyapunovCalculator(STATE.gridSize * STATE.gridSize);
+    let lyapunovCalc = new LyapunovCalculator(STATE.gridSize * STATE.gridSize * STATE.layerCount);
     let lleUpdateInterval = null;
     
     // Initialize Reservoir Computer
@@ -434,7 +442,7 @@ async function init() {
                 
                 // Interpolate omega as well (using scalar interpolation, NOT phase interpolation)
                 if (sim.omegaData) {
-                    const interpolatedOmega = Simulation.interpolateScalar(sim.omegaData, oldSize, newSize);
+                    const interpolatedOmega = Simulation.interpolateScalar(sim.omegaData, oldSize, newSize, sim.layers || 1);
                     sim.writeOmega(interpolatedOmega);
                     sim.storeOmega(interpolatedOmega);
                 } else {
@@ -450,8 +458,8 @@ async function init() {
             // Rebuild rendering buffers to match new grid
             renderer.rebuildMesh(newSize);
             
-            stats.resize(newSize * newSize);
-            lyapunovCalc.resize(newSize * newSize);
+            stats.resize(newSize * newSize * STATE.layerCount);
+            lyapunovCalc.resize(newSize * newSize * STATE.layerCount);
             reservoir.resize(newSize);
             renderer.invalidateBindGroup(); // Buffers changed, need new bind group
             regenerateTopology();
@@ -734,7 +742,7 @@ async function init() {
             // Resize simulation
             STATE.gridSize = gridSize;
             sim.resize(gridSize);
-            stats.resize(gridSize * gridSize);
+            stats.resize(gridSize * gridSize * STATE.layerCount);
             renderer.invalidateBindGroup();
             resetSimulation(sim);
             sim.updateFullParams(STATE);
@@ -785,7 +793,7 @@ async function init() {
         STATE.gridSize = originalGridSize;
         STATE.K0 = originalK;
         sim.resize(originalGridSize);
-        stats.resize(originalGridSize * originalGridSize);
+        stats.resize(originalGridSize * originalGridSize * STATE.layerCount);
         renderer.invalidateBindGroup();
         resetSimulation(sim);
         sim.updateFullParams(STATE);
@@ -1361,7 +1369,7 @@ async function init() {
             
             const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
             const viewModeStr = STATE.viewMode === 0 ? '3d' : '2d';
-            renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr);
+            renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr, STATE.renderAllLayers, STATE.activeLayer);
             
             device.queue.submit([encoder.finish()]);
 
@@ -1504,6 +1512,8 @@ function resetSimulation(sim) {
 function applyThetaPattern(sim, pattern) {
     const N = sim.N;
     const GRID = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = GRID * GRID;
     const theta = new Float32Array(N);
     const TWO_PI = 6.28318;
 
@@ -1511,22 +1521,31 @@ function applyThetaPattern(sim, pattern) {
         for(let i=0; i<N; i++) theta[i] = Math.random() * TWO_PI;
     } else if (pattern === 'gradient') {
         const k = TWO_PI / (GRID * 1.414);
-        for(let r=0; r<GRID; r++) {
-            for(let c=0; c<GRID; c++) {
-                theta[r*GRID+c] = k * (c + r);
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for(let r=0; r<GRID; r++) {
+                for(let c=0; c<GRID; c++) {
+                    theta[offset + r*GRID+c] = k * (c + r);
+                }
             }
         }
     } else if (pattern === 'spiral') {
         const cx = GRID/2, cy = GRID/2;
-        for(let r=0; r<GRID; r++) {
-            for(let c=0; c<GRID; c++) {
-                theta[r*GRID+c] = Math.atan2(r-cy, c-cx);
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for(let r=0; r<GRID; r++) {
+                for(let c=0; c<GRID; c++) {
+                    theta[offset + r*GRID+c] = Math.atan2(r-cy, c-cx);
+                }
             }
         }
     } else if (pattern === 'checkerboard') {
-        for(let r=0; r<GRID; r++) {
-            for(let c=0; c<GRID; c++) {
-                theta[r*GRID+c] = ((r+c)%2) * Math.PI;
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for(let r=0; r<GRID; r++) {
+                for(let c=0; c<GRID; c++) {
+                    theta[offset + r*GRID+c] = ((r+c)%2) * Math.PI;
+                }
             }
         }
     } else if (pattern === 'synchronized') {
@@ -1536,24 +1555,26 @@ function applyThetaPattern(sim, pattern) {
         const ctx = lastExternalCanvas.getContext('2d');
         const imageData = ctx.getImageData(0, 0, lastExternalCanvas.width, lastExternalCanvas.height);
         const pixels = imageData.data;
-        const TWO_PI = 6.28318;
         
-        for (let i = 0; i < N; i++) {
-            const row = Math.floor(i / GRID);
-            const col = i % GRID;
-            
-            // Map grid position to image position (flip Y)
-            const imgX = Math.floor(col * lastExternalCanvas.width / GRID);
-            const imgY = Math.floor((GRID - 1 - row) * lastExternalCanvas.height / GRID);
-            const pixelIndex = (imgY * lastExternalCanvas.width + imgX) * 4;
-            
-            const r = pixels[pixelIndex] / 255;
-            const g = pixels[pixelIndex + 1] / 255;
-            const b = pixels[pixelIndex + 2] / 255;
-            
-            // Map brightness to phase
-            const brightness = (r + g + b) / 3;
-            theta[i] = brightness * TWO_PI;
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const row = Math.floor(i / GRID);
+                const col = i % GRID;
+                
+                // Map grid position to image position (flip Y)
+                const imgX = Math.floor(col * lastExternalCanvas.width / GRID);
+                const imgY = Math.floor((GRID - 1 - row) * lastExternalCanvas.height / GRID);
+                const pixelIndex = (imgY * lastExternalCanvas.width + imgX) * 4;
+                
+                const r = pixels[pixelIndex] / 255;
+                const g = pixels[pixelIndex + 1] / 255;
+                const b = pixels[pixelIndex + 2] / 255;
+                
+                // Map brightness to phase
+                const brightness = (r + g + b) / 3;
+                theta[offset + i] = brightness * TWO_PI;
+            }
         }
     }
     sim.writeTheta(theta);
@@ -1562,6 +1583,8 @@ function applyThetaPattern(sim, pattern) {
 function applyOmegaPattern(sim, pattern, amp) {
     const N = sim.N;
     const GRID = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = GRID * GRID;
     const omega = new Float32Array(N);
 
     if (pattern === 'random') {
@@ -1573,23 +1596,32 @@ function applyOmegaPattern(sim, pattern, amp) {
     } else if (pattern === 'uniform') {
         omega.fill(amp);
     } else if (pattern === 'gradient') {
-        for(let r=0; r<GRID; r++) {
-            for(let c=0; c<GRID; c++) {
-                omega[r*GRID+c] = (r/(GRID-1) * 2 - 1) * amp;
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for(let r=0; r<GRID; r++) {
+                for(let c=0; c<GRID; c++) {
+                    omega[offset + r*GRID+c] = (r/(GRID-1) * 2 - 1) * amp;
+                }
             }
         }
     } else if (pattern === 'checkerboard') {
-        for(let r=0; r<GRID; r++) {
-            for(let c=0; c<GRID; c++) {
-                omega[r*GRID+c] = ((r+c)%2 ? 1 : -1) * amp;
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for(let r=0; r<GRID; r++) {
+                for(let c=0; c<GRID; c++) {
+                    omega[offset + r*GRID+c] = ((r+c)%2 ? 1 : -1) * amp;
+                }
             }
         }
     } else if (pattern === 'center_fast') {
         const cx = GRID/2, cy = GRID/2, sigma = GRID/4;
-        for(let r=0; r<GRID; r++) {
-            for(let c=0; c<GRID; c++) {
-                const d2 = (c-cx)**2 + (r-cy)**2;
-                omega[r*GRID+c] = amp * Math.exp(-d2 / (2*sigma*sigma));
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for(let r=0; r<GRID; r++) {
+                for(let c=0; c<GRID; c++) {
+                    const d2 = (c-cx)**2 + (r-cy)**2;
+                    omega[offset + r*GRID+c] = amp * Math.exp(-d2 / (2*sigma*sigma));
+                }
             }
         }
     }

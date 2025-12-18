@@ -2,10 +2,12 @@ import { COMPUTE_SHADER, GLOBAL_ORDER_REDUCTION_SHADER, GLOBAL_ORDER_NORMALIZE_S
 import { MAX_GRAPH_DEGREE } from './topology.js';
 
 export class Simulation {
-    constructor(device, gridSize) {
+    constructor(device, gridSize, layerCount = 1) {
         this.device = device;
         this.gridSize = gridSize;
-        this.N = gridSize * gridSize;
+        this.layers = Math.max(1, Math.floor(layerCount));
+        this.layerSize = gridSize * gridSize;
+        this.N = this.layerSize * this.layers;
         this.maxGraphDegree = MAX_GRAPH_DEGREE;
         this.delayBufferSize = 32;
         this.delayBufferIndex = 0;
@@ -19,19 +21,14 @@ export class Simulation {
     initBuffers() {
         const bufferUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
         
-        // Using textures for theta (better 2D spatial cache locality)
-        this.thetaTextures = [
-            this.device.createTexture({
-                size: [this.gridSize, this.gridSize],
-                format: 'r32float',
-                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-            }),
-            this.device.createTexture({
-                size: [this.gridSize, this.gridSize],
-                format: 'r32float',
-                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-            })
-        ];
+        const makeThetaTexture = () => this.device.createTexture({
+            size: [this.gridSize, this.gridSize, this.layers],
+            format: 'r32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        });
+
+        // Using array textures for theta to support multiple layers
+        this.thetaTextures = [makeThetaTexture(), makeThetaTexture()];
         this.thetaIndex = 0;
         this.thetaTexture = this.thetaTextures[this.thetaIndex];
         
@@ -43,8 +40,8 @@ export class Simulation {
         
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        // Params buffer: padded to 304 bytes (76 floats, 16-byte aligned)
-        this.paramsBuf = this.device.createBuffer({ size: 304, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        // Params buffer: padded to 320 bytes (80 floats, 16-byte aligned)
+        this.paramsBuf = this.device.createBuffer({ size: 320, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
         // Global order parameter buffer (stores complex mean field Z = (cos, sin) as vec2)
         this.globalOrderBuf = this.device.createBuffer({ 
@@ -238,13 +235,13 @@ export class Simulation {
             this.bindGroupCache.set(cacheKey, this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: this.thetaTextures[currentIdx].createView() },
+                    { binding: 0, resource: this.thetaTextures[currentIdx].createView({ dimension: '2d-array' }) },
                     { binding: 1, resource: { buffer: this.omegaBuf } },
                     { binding: 2, resource: { buffer: this.paramsBuf } },
                     { binding: 3, resource: { buffer: this.orderBuf } },
                     { binding: 4, resource: { buffer: this.delayBuffers[delayIdx] } },
                     { binding: 5, resource: { buffer: this.globalOrderBuf } },
-                    { binding: 6, resource: this.thetaTextures[nextIdx].createView() },
+                    { binding: 6, resource: this.thetaTextures[nextIdx].createView({ dimension: '2d-array' }) },
                     { binding: 7, resource: { buffer: this.inputWeightsBuf } },
                     { binding: 8, resource: { buffer: this.inputSignalBuf } },
                     { binding: 9, resource: { buffer: this.graphNeighborsBuf } },
@@ -259,16 +256,42 @@ export class Simulation {
     writeTopology(topology) {
         if (!topology) return;
         const expectedSlots = this.N * this.maxGraphDegree;
-        if (topology.neighbors?.length !== expectedSlots ||
-            topology.weights?.length !== expectedSlots ||
-            topology.counts?.length !== this.N) {
+        const singleLayerSlots = this.layerSize * this.maxGraphDegree;
+        let neighbors = topology.neighbors;
+        let weights = topology.weights;
+        let counts = topology.counts;
+
+        // If a single-layer topology is provided but we have multiple layers,
+        // replicate it across layers so graph mode still works.
+        if (this.layers > 1 &&
+            neighbors?.length === singleLayerSlots &&
+            weights?.length === singleLayerSlots &&
+            counts?.length === this.layerSize) {
+            const tiledNeighbors = new Uint32Array(expectedSlots);
+            const tiledWeights = new Float32Array(expectedSlots);
+            const tiledCounts = new Uint32Array(this.N);
+            for (let layer = 0; layer < this.layers; layer++) {
+                const dstNodeOffset = layer * this.layerSize;
+                const dstEdgeOffset = layer * singleLayerSlots;
+                tiledNeighbors.set(neighbors, dstEdgeOffset);
+                tiledWeights.set(weights, dstEdgeOffset);
+                tiledCounts.set(counts, dstNodeOffset);
+            }
+            neighbors = tiledNeighbors;
+            weights = tiledWeights;
+            counts = tiledCounts;
+        }
+
+        if (neighbors?.length !== expectedSlots ||
+            weights?.length !== expectedSlots ||
+            counts?.length !== this.N) {
             console.warn('Topology buffers have unexpected length; skipping upload');
             return;
         }
-        this.device.queue.writeBuffer(this.graphNeighborsBuf, 0, topology.neighbors);
-        this.device.queue.writeBuffer(this.graphWeightsBuf, 0, topology.weights);
-        this.device.queue.writeBuffer(this.graphCountsBuf, 0, topology.counts);
-        this.topologyInfo = topology;
+        this.device.queue.writeBuffer(this.graphNeighborsBuf, 0, neighbors);
+        this.device.queue.writeBuffer(this.graphWeightsBuf, 0, weights);
+        this.device.queue.writeBuffer(this.graphCountsBuf, 0, counts);
+        this.topologyInfo = { ...topology, neighbors, weights, counts };
     }
 
     updateParams(p) {
@@ -286,7 +309,7 @@ export class Simulation {
     
     updateFullParams(p) {
         // Pack all parameters - called only when user changes settings
-        // Layout matches shader structs (76 floats = 304 bytes)
+        // Layout matches shader structs (80 floats = 320 bytes)
         const injMode = (() => {
             if (typeof p.rcInjectionMode === 'string') {
                 if (p.rcInjectionMode === 'phase_drive') return 1;
@@ -300,6 +323,8 @@ export class Simulation {
             if (p.topologyMode === 'ba' || p.topologyMode === 'barabasi_albert') return 2;
             return 0;
         })();
+        const layerCount = this.layers || 1;
+        const activeLayer = Math.min(layerCount - 1, Math.max(0, Math.floor(p.activeLayer ?? 0)));
         const data = new Float32Array([
             // 0-3
             p.dt * p.timeScale * (p.paused ? 0 : 1), p.K0, p.range, p.ruleMode,
@@ -327,8 +352,8 @@ export class Simulation {
             p.zoom || 1.0, p.panX || 0.0, p.panY || 0.0,
             // 46-49
             (p.smoothingMode ?? 0) > 0 ? 1.0 : 0.0, p.smoothingMode ?? 0, injMode, p.leak ?? 0.0,
-            // 50-51 pad
-            0, 0,
+            // 50-51 layer Z offset + pad
+            p.layerZOffset ?? 0.0, 0,
             // 52-55 interaction scale
             p.scaleBase ?? 1.0, p.scaleRadial ?? 0.0, p.scaleRandom ?? 0.0, p.scaleRing ?? 0.0,
             // 56-59 flow
@@ -342,7 +367,9 @@ export class Simulation {
             // 68-71 mesh flag + pads
             (p.surfaceMode === 'mesh' ? 1.0 : 0.0), 0, 0, 0,
             // 72-75 topology mode/meta
-            topoMode, this.maxGraphDegree, p.topologyAvgDegree ?? 0, 0
+            topoMode, this.maxGraphDegree, p.topologyAvgDegree ?? 0, 0,
+            // 76-79 layer meta
+            layerCount, p.layerCouplingUp ?? 0, p.layerCouplingDown ?? 0, activeLayer
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }
@@ -369,8 +396,8 @@ export class Simulation {
             // Copy current theta texture to staging buffer for reduction shader
             commandEncoder.copyTextureToBuffer(
                 { texture: currentThetaTex },
-                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4 },
-                [this.gridSize, this.gridSize]
+                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
+                [this.gridSize, this.gridSize, this.layers]
             );
             
             // Stage 1: Parallel reduction with atomic accumulation (uses staging buffer)
@@ -419,8 +446,8 @@ export class Simulation {
         if (!computeStats) {
             commandEncoder.copyTextureToBuffer(
                 { texture: currentThetaTex },
-                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4 },
-                [this.gridSize, this.gridSize]
+                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
+                [this.gridSize, this.gridSize, this.layers]
             );
         }
         commandEncoder.copyBufferToBuffer(this.thetaStagingBuf, 0, this.delayBuffers[this.delayBufferIndex], 0, this.N * 4);
@@ -430,7 +457,7 @@ export class Simulation {
         pass.setPipeline(this.pipeline);
         pass.setBindGroup(0, this.getBindGroup(delaySteps));
         const wgCount = Math.ceil(this.gridSize / 16);
-        pass.dispatchWorkgroups(wgCount, wgCount);
+        pass.dispatchWorkgroups(wgCount, wgCount, this.layers);
         pass.end();
 
         // Swap textures
@@ -440,12 +467,14 @@ export class Simulation {
 
     // Helper to write data directly to theta textures
     writeTheta(data) {
+        const layout = { bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize };
+        const size = [this.gridSize, this.gridSize, this.layers];
         for (const tex of this.thetaTextures) {
             this.device.queue.writeTexture(
                 { texture: tex },
                 data,
-                { bytesPerRow: this.gridSize * 4 },
-                [this.gridSize, this.gridSize]
+                layout,
+                size
             );
         }
         this.thetaTexture = this.thetaTextures[this.thetaIndex];
@@ -584,8 +613,8 @@ export class Simulation {
             const encoder = this.device.createCommandEncoder();
             encoder.copyTextureToBuffer(
                 { texture: this.thetaTexture },
-                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4 },
-                [this.gridSize, this.gridSize]
+                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
+                [this.gridSize, this.gridSize, this.layers]
             );
             this.device.queue.submit([encoder.finish()]);
             
@@ -642,40 +671,46 @@ export class Simulation {
      * @param {number} dstSize - Destination grid dimension
      * @returns {Float32Array} Interpolated values
      */
-    static interpolateScalar(data, srcSize, dstSize) {
-        const result = new Float32Array(dstSize * dstSize);
+    static interpolateScalar(data, srcSize, dstSize, layers = 1) {
+        const layerSizeSrc = srcSize * srcSize;
+        const layerSizeDst = dstSize * dstSize;
+        const result = new Float32Array(layerSizeDst * layers);
         
-        for (let dstY = 0; dstY < dstSize; dstY++) {
-            for (let dstX = 0; dstX < dstSize; dstX++) {
-                // Map destination coords to source coords
-                const srcXf = (dstX + 0.5) * srcSize / dstSize - 0.5;
-                const srcYf = (dstY + 0.5) * srcSize / dstSize - 0.5;
-                
-                // Get integer coordinates and fractions
-                const x0 = Math.floor(srcXf);
-                const y0 = Math.floor(srcYf);
-                const fx = srcXf - x0;
-                const fy = srcYf - y0;
-                
-                // Wrap for periodic boundaries
-                const x0w = ((x0 % srcSize) + srcSize) % srcSize;
-                const x1w = ((x0 + 1) % srcSize + srcSize) % srcSize;
-                const y0w = ((y0 % srcSize) + srcSize) % srcSize;
-                const y1w = ((y0 + 1) % srcSize + srcSize) % srcSize;
-                
-                // Sample 4 corners
-                const v00 = data[y0w * srcSize + x0w];
-                const v10 = data[y0w * srcSize + x1w];
-                const v01 = data[y1w * srcSize + x0w];
-                const v11 = data[y1w * srcSize + x1w];
-                
-                // Standard bilinear interpolation (no phase wrapping)
-                const value = v00 * (1 - fx) * (1 - fy) +
-                              v10 * fx * (1 - fy) +
-                              v01 * (1 - fx) * fy +
-                              v11 * fx * fy;
-                
-                result[dstY * dstSize + dstX] = value;
+        for (let layer = 0; layer < layers; layer++) {
+            const srcOffset = layer * layerSizeSrc;
+            const dstOffset = layer * layerSizeDst;
+            for (let dstY = 0; dstY < dstSize; dstY++) {
+                for (let dstX = 0; dstX < dstSize; dstX++) {
+                    // Map destination coords to source coords
+                    const srcXf = (dstX + 0.5) * srcSize / dstSize - 0.5;
+                    const srcYf = (dstY + 0.5) * srcSize / dstSize - 0.5;
+                    
+                    // Get integer coordinates and fractions
+                    const x0 = Math.floor(srcXf);
+                    const y0 = Math.floor(srcYf);
+                    const fx = srcXf - x0;
+                    const fy = srcYf - y0;
+                    
+                    // Wrap for periodic boundaries
+                    const x0w = ((x0 % srcSize) + srcSize) % srcSize;
+                    const x1w = ((x0 + 1) % srcSize + srcSize) % srcSize;
+                    const y0w = ((y0 % srcSize) + srcSize) % srcSize;
+                    const y1w = ((y0 + 1) % srcSize + srcSize) % srcSize;
+                    
+                    // Sample 4 corners
+                    const v00 = data[srcOffset + y0w * srcSize + x0w];
+                    const v10 = data[srcOffset + y0w * srcSize + x1w];
+                    const v01 = data[srcOffset + y1w * srcSize + x0w];
+                    const v11 = data[srcOffset + y1w * srcSize + x1w];
+                    
+                    // Standard bilinear interpolation (no phase wrapping)
+                    const value = v00 * (1 - fx) * (1 - fy) +
+                                  v10 * fx * (1 - fy) +
+                                  v01 * (1 - fx) * fy +
+                                  v11 * fx * fy;
+                    
+                    result[dstOffset + dstY * dstSize + dstX] = value;
+                }
             }
         }
         
@@ -691,58 +726,71 @@ export class Simulation {
      * @returns {Float32Array} Interpolated theta values
      */
     static interpolateTheta(theta, srcSize, dstSize) {
-        const result = new Float32Array(dstSize * dstSize);
+        return Simulation.interpolateThetaLayers(theta, srcSize, dstSize, 1);
+    }
+
+    /**
+     * Interpolate theta for multiple layers (contiguous layout per layer)
+     */
+    static interpolateThetaLayers(theta, srcSize, dstSize, layers) {
+        const layerSizeSrc = srcSize * srcSize;
+        const layerSizeDst = dstSize * dstSize;
+        const result = new Float32Array(layerSizeDst * layers);
+        const PI = Math.PI;
+        const TWO_PI = 2 * PI;
         
-        for (let dstY = 0; dstY < dstSize; dstY++) {
-            for (let dstX = 0; dstX < dstSize; dstX++) {
-                // Map destination coords to source coords (0 to srcSize)
-                const srcXf = (dstX + 0.5) * srcSize / dstSize - 0.5;
-                const srcYf = (dstY + 0.5) * srcSize / dstSize - 0.5;
-                
-                // Get integer coordinates and fractions
-                const x0 = Math.floor(srcXf);
-                const y0 = Math.floor(srcYf);
-                const fx = srcXf - x0;
-                const fy = srcYf - y0;
-                
-                // Wrap for periodic boundaries
-                const x0w = ((x0 % srcSize) + srcSize) % srcSize;
-                const x1w = ((x0 + 1) % srcSize + srcSize) % srcSize;
-                const y0w = ((y0 % srcSize) + srcSize) % srcSize;
-                const y1w = ((y0 + 1) % srcSize + srcSize) % srcSize;
-                
-                // Sample 4 corners
-                const t00 = theta[y0w * srcSize + x0w];
-                const t10 = theta[y0w * srcSize + x1w];
-                const t01 = theta[y1w * srcSize + x0w];
-                const t11 = theta[y1w * srcSize + x1w];
-                
-                // Phase-aware interpolation: compute differences relative to t00
-                let d10 = t10 - t00;
-                let d01 = t01 - t00;
-                let d11 = t11 - t00;
-                
-                // Wrap differences to [-π, π]
-                const PI = Math.PI;
-                const TWO_PI = 2 * PI;
-                if (d10 > PI) d10 -= TWO_PI;
-                if (d10 < -PI) d10 += TWO_PI;
-                if (d01 > PI) d01 -= TWO_PI;
-                if (d01 < -PI) d01 += TWO_PI;
-                if (d11 > PI) d11 -= TWO_PI;
-                if (d11 < -PI) d11 += TWO_PI;
-                
-                // Bilinear interpolation of differences
-                const interpDiff = d10 * fx * (1 - fy) + 
-                                   d01 * (1 - fx) * fy + 
-                                   d11 * fx * fy;
-                
-                // Add back base value and wrap to [0, 2π]
-                let value = t00 + interpDiff;
-                while (value < 0) value += TWO_PI;
-                while (value >= TWO_PI) value -= TWO_PI;
-                
-                result[dstY * dstSize + dstX] = value;
+        for (let layer = 0; layer < layers; layer++) {
+            const srcOffset = layer * layerSizeSrc;
+            const dstOffset = layer * layerSizeDst;
+            for (let dstY = 0; dstY < dstSize; dstY++) {
+                for (let dstX = 0; dstX < dstSize; dstX++) {
+                    // Map destination coords to source coords (0 to srcSize)
+                    const srcXf = (dstX + 0.5) * srcSize / dstSize - 0.5;
+                    const srcYf = (dstY + 0.5) * srcSize / dstSize - 0.5;
+                    
+                    // Get integer coordinates and fractions
+                    const x0 = Math.floor(srcXf);
+                    const y0 = Math.floor(srcYf);
+                    const fx = srcXf - x0;
+                    const fy = srcYf - y0;
+                    
+                    // Wrap for periodic boundaries
+                    const x0w = ((x0 % srcSize) + srcSize) % srcSize;
+                    const x1w = ((x0 + 1) % srcSize + srcSize) % srcSize;
+                    const y0w = ((y0 % srcSize) + srcSize) % srcSize;
+                    const y1w = ((y0 + 1) % srcSize + srcSize) % srcSize;
+                    
+                    // Sample 4 corners
+                    const t00 = theta[srcOffset + y0w * srcSize + x0w];
+                    const t10 = theta[srcOffset + y0w * srcSize + x1w];
+                    const t01 = theta[srcOffset + y1w * srcSize + x0w];
+                    const t11 = theta[srcOffset + y1w * srcSize + x1w];
+                    
+                    // Phase-aware interpolation: compute differences relative to t00
+                    let d10 = t10 - t00;
+                    let d01 = t01 - t00;
+                    let d11 = t11 - t00;
+                    
+                    // Wrap differences to [-π, π]
+                    if (d10 > PI) d10 -= TWO_PI;
+                    if (d10 < -PI) d10 += TWO_PI;
+                    if (d01 > PI) d01 -= TWO_PI;
+                    if (d01 < -PI) d01 += TWO_PI;
+                    if (d11 > PI) d11 -= TWO_PI;
+                    if (d11 < -PI) d11 += TWO_PI;
+                    
+                    // Bilinear interpolation of differences
+                    const interpDiff = d10 * fx * (1 - fy) + 
+                                       d01 * (1 - fx) * fy + 
+                                       d11 * fx * fy;
+                    
+                    // Add back base value and wrap to [0, 2π]
+                    let value = t00 + interpDiff;
+                    while (value < 0) value += TWO_PI;
+                    while (value >= TWO_PI) value -= TWO_PI;
+                    
+                    result[dstOffset + dstY * dstSize + dstX] = value;
+                }
             }
         }
         
@@ -761,7 +809,7 @@ export class Simulation {
         const oldTheta = await this.readTheta();
         
         // Interpolate to new size
-        const newTheta = Simulation.interpolateTheta(oldTheta, oldSize, newGridSize);
+        const newTheta = Simulation.interpolateThetaLayers(oldTheta, oldSize, newGridSize, this.layers);
         
         // Do the resize (destroys old buffers, creates new)
         this.resize(newGridSize);
@@ -837,7 +885,8 @@ export class Simulation {
         
         // Update size
         this.gridSize = newGridSize;
-        this.N = newGridSize * newGridSize;
+        this.layerSize = newGridSize * newGridSize;
+        this.N = this.layerSize * this.layers;
         this.delayBufferIndex = 0;
         
         // Recreate textures and buffers

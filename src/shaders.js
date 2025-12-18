@@ -13,7 +13,7 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, pad1: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, pad2: f32,
     // Interaction modifiers
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
@@ -21,16 +21,17 @@ struct Params {
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
 }
 
-// Textures for theta state (better 2D spatial cache locality)
-@group(0) @binding(0) var theta_in: texture_2d<f32>;
+// Textures for theta state (array layers = hierarchical levels)
+@group(0) @binding(0) var theta_in: texture_2d_array<f32>;
 @group(0) @binding(1) var<storage, read> omega: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 @group(0) @binding(3) var<storage, read_write> order: array<f32>;
 @group(0) @binding(4) var<storage, read> theta_delayed: array<f32>;
 @group(0) @binding(5) var<storage, read> global_order: vec2<f32>;
-@group(0) @binding(6) var theta_out: texture_storage_2d<r32float, write>;
+@group(0) @binding(6) var theta_out: texture_storage_2d_array<r32float, write>;
 @group(0) @binding(7) var<storage, read> input_weights: array<f32>;
 @group(0) @binding(8) var<uniform> input_signal: f32;
 @group(0) @binding(9) var<storage, read> graph_neighbors: array<u32>;
@@ -49,14 +50,18 @@ const MAX_GRAPH_DEGREE: u32 = 16u; // Keep in sync with topology.js
 
 var<workgroup> shared_theta: array<f32, 1024>; // 32 * 32 = 1024
 
+fn flattenIndex(col: u32, row: u32, layer: u32, cols: u32, rows: u32) -> u32 {
+    return layer * cols * rows + row * cols + col;
+}
+
 // Helper to load from theta texture with 2D coordinates (for initial tile load)
-fn loadThetaGlobal(col: i32, row: i32, cols: i32, rows: i32) -> f32 {
+fn loadThetaGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> f32 {
     // Wrap coordinates for periodic boundary
     var c = col % cols;
     var r = row % rows;
     if (c < 0) { c = c + cols; }
     if (r < 0) { r = r + rows; }
-    return textureLoad(theta_in, vec2<i32>(c, r), 0).r;
+    return textureLoad(theta_in, vec2<i32>(c, r), layer, 0).r;
 }
 
 // Helper to read from shared memory tile
@@ -78,7 +83,8 @@ fn loadTile(
     local_id: vec2<u32>,
     tile_origin: vec2<i32>,
     cols: i32,
-    rows: i32
+    rows: i32,
+    layer: i32
 ) {
     let lid_x = i32(local_id.x);
     let lid_y = i32(local_id.y);
@@ -95,7 +101,7 @@ fn loadTile(
                 let global_x = tile_origin.x - i32(HALO) + i32(shared_x);
                 let global_y = tile_origin.y - i32(HALO) + i32(shared_y);
                 
-                shared_theta[shared_y * SHARED_SIZE + shared_x] = loadThetaGlobal(global_x, global_y, cols, rows);
+                shared_theta[shared_y * SHARED_SIZE + shared_x] = loadThetaGlobal(global_x, global_y, layer, cols, rows);
             }
         }
     }
@@ -116,14 +122,17 @@ fn noise(i: u32) -> f32 {
 }
 
 // Load theta using linear index (graph mode helper)
-fn loadThetaByIndex(idx: u32, cols: u32) -> f32 {
-    let col = i32(idx % cols);
-    let row = i32(idx / cols);
-    return textureLoad(theta_in, vec2<i32>(col, row), 0).r;
+fn loadThetaByIndex(idx: u32, cols: u32, rows: u32) -> f32 {
+    let layer_stride = cols * rows;
+    let layer = i32(idx / layer_stride);
+    let rem = idx - layer_stride * u32(layer);
+    let col = i32(rem % cols);
+    let row = i32(rem / cols);
+    return textureLoad(theta_in, vec2<i32>(col, row), layer, 0).r;
 }
 
 // Local order for graph topology (degree-limited adjacency)
-fn localOrderGraph(i: u32, cols: u32) -> f32 {
+fn localOrderGraph(i: u32, cols: u32, rows: u32) -> f32 {
     let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
     if (count == 0u) { return 0.0; }
     let base = i * MAX_GRAPH_DEGREE;
@@ -131,7 +140,7 @@ fn localOrderGraph(i: u32, cols: u32) -> f32 {
     for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
         if (j >= count) { break; }
         let idx = graph_neighbors[base + j];
-        let theta_j = loadThetaByIndex(idx, cols);
+        let theta_j = loadThetaByIndex(idx, cols, rows);
         let w = abs(graph_weights[base + j]);
         sx = sx + cos(theta_j) * w;
         sy = sy + sin(theta_j) * w;
@@ -144,7 +153,7 @@ fn localOrderGraph(i: u32, cols: u32) -> f32 {
 }
 
 // Coupling sum for graph mode (returns sum, norm)
-fn graphCoupling(i: u32, t: f32, cols: u32) -> vec2<f32> {
+fn graphCoupling(i: u32, t: f32, cols: u32, rows: u32) -> vec2<f32> {
     let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
     if (count == 0u) { return vec2<f32>(0.0, 1.0); }
     let base = i * MAX_GRAPH_DEGREE;
@@ -152,7 +161,7 @@ fn graphCoupling(i: u32, t: f32, cols: u32) -> vec2<f32> {
     for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
         if (j >= count) { break; }
         let idx = graph_neighbors[base + j];
-        let theta_j = loadThetaByIndex(idx, cols);
+        let theta_j = loadThetaByIndex(idx, cols, rows);
         let w = graph_weights[base + j];
         sum = sum + w * sin(theta_j - t);
         norm = norm + abs(w);
@@ -162,7 +171,7 @@ fn graphCoupling(i: u32, t: f32, cols: u32) -> vec2<f32> {
 }
 
 // Coupling sum using delayed theta (graph mode)
-fn graphCouplingDelayed(i: u32, t: f32, cols: u32) -> vec2<f32> {
+fn graphCouplingDelayed(i: u32, t: f32, cols: u32, rows: u32) -> vec2<f32> {
     let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
     if (count == 0u) { return vec2<f32>(0.0, 1.0); }
     let base = i * MAX_GRAPH_DEGREE;
@@ -180,7 +189,7 @@ fn graphCouplingDelayed(i: u32, t: f32, cols: u32) -> vec2<f32> {
 }
 
 // Harmonics coupling for graph mode (returns s1, s2, s3, norm)
-fn graphHarmonics(i: u32, t: f32, cols: u32) -> vec4<f32> {
+fn graphHarmonics(i: u32, t: f32, cols: u32, rows: u32) -> vec4<f32> {
     let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
     if (count == 0u) { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }
     let base = i * MAX_GRAPH_DEGREE;
@@ -188,7 +197,7 @@ fn graphHarmonics(i: u32, t: f32, cols: u32) -> vec4<f32> {
     for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
         if (j >= count) { break; }
         let idx = graph_neighbors[base + j];
-        let theta_j = loadThetaByIndex(idx, cols);
+        let theta_j = loadThetaByIndex(idx, cols, rows);
         let w = graph_weights[base + j];
         let d = theta_j - t;
         s1 = s1 + w * sin(d);
@@ -217,14 +226,17 @@ fn localOrderShared(local_c: i32, local_r: i32, rng: i32) -> f32 {
 }
 
 // Local order for global coupling mode (needs global access)
-fn localOrderGlobal(i: u32, cols: u32, rows: u32) -> f32 {
+fn localOrderGlobal(i: u32, cols: u32, rows: u32, layer: u32) -> f32 {
     var sx = 0.0; var sy = 0.0; var cnt = 0.0;
+    let layer_stride = cols * rows;
+    let base = layer * layer_stride;
     
-    for (var j = 0u; j < cols * rows; j = j + 1u) {
-        if (j == i) { continue; }
+    for (var j = 0u; j < layer_stride; j = j + 1u) {
+        let idx = base + j;
+        if (idx == i) { continue; }
         let jc = i32(j % cols);
         let jr = i32(j / cols);
-        let theta_j = loadThetaGlobal(jc, jr, i32(cols), i32(rows));
+        let theta_j = loadThetaGlobal(jc, jr, i32(layer), i32(cols), i32(rows));
         sx = sx + cos(theta_j);
         sy = sy + sin(theta_j);
         cnt = cnt + 1.0;
@@ -435,7 +447,7 @@ fn mexhat_weight(dx: f32, dy: f32) -> f32 {
     }
 }
 
-fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32) -> f32 {
+fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -445,7 +457,7 @@ fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32)
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
-        let res = graphCoupling(i, t, cols);
+        let res = graphCoupling(i, t, cols, rows);
         sum = res.x;
         cnt = res.y;
     } else {
@@ -456,7 +468,7 @@ fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32)
     return params.K0 * (sum / max(cnt, 1e-5));
 }
 
-fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, ri: f32) -> f32 {
+fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, ri: f32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -466,7 +478,7 @@ fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
-        let res = graphCoupling(i, t, cols);
+        let res = graphCoupling(i, t, cols, rows);
         sum = res.x;
         cnt = res.y;
     } else {
@@ -478,7 +490,7 @@ fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
     return Ki * (sum / max(cnt, 1e-5));
 }
 
-fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32) -> f32 {
+fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -488,7 +500,7 @@ fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         sum = Z_sin * cos(t) - Z_cos * sin(t);
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
-        let res = graphCoupling(i, t, cols);
+        let res = graphCoupling(i, t, cols, rows);
         sum = res.x;
         cnt = res.y;
     } else {
@@ -500,7 +512,7 @@ fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
     return params.K0 * min(1.0, abs(lap) * 2.0) * lap;
 }
 
-fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32) -> f32 {
+fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32) -> f32 {
     var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -515,7 +527,7 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         s3 = s1 * params.harmonic_b * Z_mag;
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
-        let res = graphHarmonics(i, t, cols);
+        let res = graphHarmonics(i, t, cols, rows);
         s1 = res.x; s2 = res.y; s3 = res.z; cnt = res.w;
     } else {
         // Use shared memory for local coupling
@@ -535,9 +547,9 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
 }
 
 // rule_kernel needs larger range - use shared memory when possible, fall back to global
-fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, t: f32, i: u32) -> f32 {
+fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, layer: i32, t: f32, i: u32) -> f32 {
     if (params.topology_mode > 0.5) {
-        let res = graphCoupling(i, t, u32(cols));
+        let res = graphCoupling(i, t, u32(cols), u32(rows));
         return params.K0 * (res.x / max(res.y, 1e-5));
     }
 
@@ -561,7 +573,7 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
         for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
             for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
-                let theta_j = loadThetaGlobal(global_c + dc, global_r + dr, cols, rows);
+                let theta_j = loadThetaGlobal(global_c + dc, global_r + dr, layer, cols, rows);
                 let w = mexhat_weight(f32(dc), f32(dr));
                 sum = sum + w * sin(theta_j - t);
                 wtotal = wtotal + abs(w);
@@ -580,7 +592,7 @@ fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u3
     var sum = 0.0; var cnt = 0.0;
     
     if (params.topology_mode > 0.5) {
-        let res = graphCouplingDelayed(i, t, cols);
+        let res = graphCouplingDelayed(i, t, cols, rows);
         sum = res.x;
         cnt = res.y;
         return params.K0 * (sum / max(cnt, 1e-5));
@@ -606,6 +618,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         @builtin(local_invocation_id) lid: vec3<u32>,
         @builtin(workgroup_id) wg_id: vec3<u32>) {
     let cols = u32(params.cols); let rows = u32(params.rows);
+    let layer = wg_id.z;
+    if (layer >= u32(params.layer_count)) { return; }
     
     // Local coordinates within workgroup (0-15)
     let local_c = i32(lid.x);
@@ -619,7 +633,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let tile_origin = vec2<i32>(i32(wg_id.x) * i32(TILE_SIZE), i32(wg_id.y) * i32(TILE_SIZE));
     
     // Cooperative tile loading using helper function
-    loadTile(lid.xy, tile_origin, i32(cols), i32(rows));
+    loadTile(lid.xy, tile_origin, i32(cols), i32(rows), i32(layer));
     
     // Synchronize: ensure all threads have loaded their data
     workgroupBarrier();
@@ -627,13 +641,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     // Early exit for out-of-bounds threads (after loading!)
     if (global_c >= cols || global_r >= rows) { return; }
     
-    let i = global_r * cols + global_c;
+    let layer_stride = cols * rows;
+    let i = layer * layer_stride + global_r * cols + global_c;
     let t = loadThetaShared(local_c, local_r);  // Center value from shared memory
     let rng = i32(params.range);
     // Compute local order (graph vs spatial)
     var ri = 0.0;
     if (params.topology_mode > 0.5) {
-        ri = localOrderGraph(i, cols);
+        ri = localOrderGraph(i, cols, rows);
     } else {
         ri = localOrderShared(local_c, local_r, rng);
     }
@@ -641,12 +656,24 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     
     var dtheta = 0.0;
     let mode = i32(params.rule_mode);
-    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t, i, cols); }
-    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t, i, cols, ri); }
-    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t, i, cols); }
-    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t, i, cols); }
-    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), t, i); }
+    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t, i, cols, rows); }
+    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t, i, cols, rows, ri); }
+    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t, i, cols, rows); }
+    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t, i, cols, rows); }
+    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, i); }
     else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t, i); }
+
+    // Inter-layer coupling (simple nearest-layer feedforward/feedback)
+    var inter_sum = 0.0;
+    if (layer > 0u && abs(params.layer_coupling_up) > 0.0001) {
+        let t_up = loadThetaGlobal(i32(global_c), i32(global_r), i32(layer) - 1, i32(cols), i32(rows));
+        inter_sum = inter_sum + params.layer_coupling_up * sin(t_up - t);
+    }
+    if (layer + 1u < u32(params.layer_count) && abs(params.layer_coupling_down) > 0.0001) {
+        let t_down = loadThetaGlobal(i32(global_c), i32(global_r), i32(layer) + 1, i32(cols), i32(rows));
+        inter_sum = inter_sum + params.layer_coupling_down * sin(t_down - t);
+    }
+    dtheta = dtheta + inter_sum;
     
     // Add noise perturbation
     if (params.noise_strength > 0.001) {
@@ -709,7 +736,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let TWO_PI = 6.28318530718;
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
     if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
-    textureStore(theta_out, vec2<i32>(i32(global_c), i32(global_r)), vec4<f32>(newTheta, 0.0, 0.0, 1.0));
+    textureStore(theta_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(newTheta, 0.0, 0.0, 1.0));
 }
 `;
 
@@ -728,15 +755,16 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, pad1: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, pad2: f32,
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
 }
-@group(0) @binding(0) var theta_tex: texture_2d<f32>;
+@group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<uniform> viewProj: mat4x4<f32>;
 @group(0) @binding(3) var<storage, read> order: array<f32>;
@@ -744,11 +772,11 @@ struct Params {
 @group(0) @binding(5) var externalTexture: texture_2d<f32>;
 
 // Helper to load theta from texture
-fn loadThetaRender(col: u32, row: u32) -> f32 {
-    return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), 0).r;
+fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
+    return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), i32(layer), 0).r;
 }
 
-fn compute_gradient(ii: u32, cols: u32, rows: u32) -> f32 {
+fn compute_gradient(ii: u32, cols: u32, rows: u32, layer: u32) -> f32 {
     let c = ii % cols;
     let r = ii / cols;
     
@@ -757,10 +785,10 @@ fn compute_gradient(ii: u32, cols: u32, rows: u32) -> f32 {
     var ru = (r + 1u) % rows;
     var rd = (r + rows - 1u) % rows;
     
-    let right = loadThetaRender(cr, r);
-    let left = loadThetaRender(cl, r);
-    let up = loadThetaRender(c, ru);
-    let down = loadThetaRender(c, rd);
+    let right = loadThetaRender(cr, r, layer);
+    let left = loadThetaRender(cl, r, layer);
+    let up = loadThetaRender(c, ru, layer);
+    let down = loadThetaRender(c, rd, layer);
     
     var dx = right - left;
     var dy = up - down;
@@ -786,6 +814,9 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
     let cols = params.cols;
     let rows = params.rows;
     let use_mesh = params.mesh_mode > 0.5;
+    let total_layers = max(1u, u32(params.layer_count));
+    let active_layer = min(u32(params.active_layer + 0.5), total_layers - 1u);
+    let layer_stride = u32(cols) * u32(rows);
 
     // Grid coordinates (float)
     var gx = pos.x;
@@ -807,7 +838,7 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
     }
 
     // Sample theta/order at the cell (flat per-instance when instanced)
-    let theta_val = loadThetaRender(u32(c_i), u32(r_i));
+    let theta_val = loadThetaRender(u32(c_i), u32(r_i), active_layer);
     let height_3d = sin(theta_val) * 2.0;
     let is_3d = params.view_mode < 0.5;
     let height_2d = f32(r_i) * 0.0001; // tiny offset to avoid Z-fight in 2D
@@ -818,11 +849,12 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
     let z = gy * 0.5 - rows * 0.25;
 
     var output: VertexOutput;
-    output.position = viewProj * vec4<f32>(x, h, z, 1.0);
+    let layer_offset = select(0.0, params.layer_z_offset * f32(active_layer), is_3d);
+    output.position = viewProj * vec4<f32>(x, h + layer_offset, z, 1.0);
     output.height = height_3d;
-    let idx = u32(r_i) * u32(cols) + u32(c_i);
+    let idx = active_layer * layer_stride + u32(r_i) * u32(cols) + u32(c_i);
     output.order_val = order[idx];
-    output.gradient = compute_gradient(idx, u32(cols), u32(rows));
+    output.gradient = compute_gradient(idx, u32(cols), u32(rows), active_layer);
     output.texcoord = vec2<f32>(gx / cols, 1.0 - (gy / rows));
     return output;
 }
@@ -941,18 +973,21 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var uv = clamp(input.texcoord, vec2<f32>(0.0), vec2<f32>(0.9999));
     let cols = i32(params.cols);
     let rows = i32(params.rows);
+    let total_layers = max(1u, u32(params.layer_count));
+    let active_layer = min(u32(params.active_layer + 0.5), total_layers - 1u);
+    let layer_stride = u32(cols) * u32(rows);
     let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
 
-    let theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
-    let order_idx = u32(r) * u32(cols) + u32(c);
+    let theta = textureLoad(theta_tex, vec2<i32>(c, r), i32(active_layer), 0).r;
+    let order_idx = layer_stride * active_layer + u32(r) * u32(cols) + u32(c);
     let order_val = order[order_idx];
 
     // Gradient (finite diff) to mirror 2D shader
-    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), 0).r;
-    let left  = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), 0).r;
-    let up    = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), 0).r;
-    let down  = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), 0).r;
+    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), i32(active_layer), 0).r;
+    let left  = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), i32(active_layer), 0).r;
+    let up    = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), i32(active_layer), 0).r;
+    let down  = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), i32(active_layer), 0).r;
     var dx = right - left;
     var dy = up - down;
     if (dx > 3.14159) { dx -= 6.28318; }
@@ -964,28 +999,28 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let height = sin(theta) * 2.0;
     let t_phase = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
 
-    let layer = i32(params.colormap);
+    let layer_choice = i32(params.colormap);
     let palette = i32(params.colormap_palette);
     var color: vec3<f32>;
 
-    if (layer == 0) {
+    if (layer_choice == 0) {
         color = sample_palette(t_phase, palette);
-    } else if (layer == 1) {
+    } else if (layer_choice == 1) {
         let vel = clamp(gradient * 2.0, 0.0, 1.0);
         color = sample_palette(vel, palette);
-    } else if (layer == 2) {
+    } else if (layer_choice == 2) {
         let curv = clamp(gradient, 0.0, 1.0);
         color = sample_palette(curv, palette);
-    } else if (layer == 3) {
+    } else if (layer_choice == 3) {
         color = sample_palette(order_val, palette);
-    } else if (layer == 4) {
+    } else if (layer_choice == 4) {
         let chirality = clamp((gradient - 0.5) * 2.0, -1.0, 1.0);
         let val = 0.5 + 0.5 * chirality;
         color = sample_palette(val, palette);
-    } else if (layer == 5) {
+    } else if (layer_choice == 5) {
         let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
         color = sample_palette(t_phase, palette) * brightness;
-    } else if (layer == 6) {
+    } else if (layer_choice == 6) {
         let texColor = textureSample(externalTexture, textureSampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         color = texColor * (0.7 + 0.3 * phaseMod);
@@ -1119,13 +1154,14 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, pad1: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, pad2: f32,
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;
@@ -1138,8 +1174,8 @@ fn main() {
     let x = atomicLoad(&global_order_atomic[0]);
     let y = atomicLoad(&global_order_atomic[1]);
     
-    // Convert to float, unscale, and normalize by N
-    let N = params.cols * params.rows;
+    // Convert to float, unscale, and normalize by N (accounts for layered grids)
+    let N = params.cols * params.rows * max(1.0, params.layer_count);
     global_order.x = (f32(x) / 10000.0) / N;
     global_order.y = (f32(y) / 10000.0) / N;
 }
@@ -1290,16 +1326,17 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, pad1: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, pad2: f32,
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
 }
 
-@group(0) @binding(0) var theta_tex: texture_2d<f32>;
+@group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<storage, read> order: array<f32>;
 @group(0) @binding(3) var textureSampler: sampler;
@@ -1338,7 +1375,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 // ============================================================================
 
 // Bilinear interpolation for smooth theta sampling
-fn sample_theta_bilinear(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
+fn sample_theta_bilinear(uv: vec2<f32>, cols: f32, rows: f32, layer: u32) -> f32 {
     // Convert UV to floating-point grid coordinates
     let gx = uv.x * cols - 0.5;
     let gy = uv.y * rows - 0.5;
@@ -1362,10 +1399,10 @@ fn sample_theta_bilinear(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
     let y1w = y1 % rows_i;
     
     // Sample 4 corners
-    let t00 = textureLoad(theta_tex, vec2<i32>(x0w, y0w), 0).r;
-    let t10 = textureLoad(theta_tex, vec2<i32>(x1w, y0w), 0).r;
-    let t01 = textureLoad(theta_tex, vec2<i32>(x0w, y1w), 0).r;
-    let t11 = textureLoad(theta_tex, vec2<i32>(x1w, y1w), 0).r;
+    let t00 = textureLoad(theta_tex, vec2<i32>(x0w, y0w), i32(layer), 0).r;
+    let t10 = textureLoad(theta_tex, vec2<i32>(x1w, y0w), i32(layer), 0).r;
+    let t01 = textureLoad(theta_tex, vec2<i32>(x0w, y1w), i32(layer), 0).r;
+    let t11 = textureLoad(theta_tex, vec2<i32>(x1w, y1w), i32(layer), 0).r;
     
     // Handle phase wrapping for interpolation
     // (phase can wrap from 2π to 0, need to interpolate correctly)
@@ -1417,14 +1454,14 @@ fn wrap_diff(d: f32) -> f32 {
 }
 
 // Sample theta with wrapping
-fn sample_theta_wrapped(x: i32, y: i32, cols: i32, rows: i32) -> f32 {
+fn sample_theta_wrapped(x: i32, y: i32, cols: i32, rows: i32, layer: u32) -> f32 {
     let xw = ((x % cols) + cols) % cols;
     let yw = ((y % rows) + rows) % rows;
-    return textureLoad(theta_tex, vec2<i32>(xw, yw), 0).r;
+    return textureLoad(theta_tex, vec2<i32>(xw, yw), i32(layer), 0).r;
 }
 
 // Bicubic interpolation for smoother theta sampling
-fn sample_theta_bicubic(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
+fn sample_theta_bicubic(uv: vec2<f32>, cols: f32, rows: f32, layer: u32) -> f32 {
     let gx = uv.x * cols - 0.5;
     let gy = uv.y * rows - 0.5;
     
@@ -1441,7 +1478,7 @@ fn sample_theta_bicubic(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
     let wy = cubic_weight(fy);
     
     // Sample 4x4 grid and use base point as reference for phase-aware interpolation
-    let base = sample_theta_wrapped(x0, y0, cols_i, rows_i);
+    let base = sample_theta_wrapped(x0, y0, cols_i, rows_i, layer);
     
     var sum = 0.0;
     for (var dy = -1; dy <= 2; dy++) {
@@ -1452,7 +1489,7 @@ fn sample_theta_bicubic(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
             let x = x0 + dx;
             let wX = select(select(select(wx.w, wx.z, dx == 1), wx.y, dx == 0), wx.x, dx == -1);
             
-            let t = sample_theta_wrapped(x, y, cols_i, rows_i);
+            let t = sample_theta_wrapped(x, y, cols_i, rows_i, layer);
             let d = wrap_diff(t - base);
             sum += wX * wY * d;
         }
@@ -1466,7 +1503,7 @@ fn sample_theta_bicubic(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
 }
 
 // Gaussian blur sampling (3x3 kernel)
-fn sample_theta_gaussian(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
+fn sample_theta_gaussian(uv: vec2<f32>, cols: f32, rows: f32, layer: u32) -> f32 {
     let gx = uv.x * cols;
     let gy = uv.y * rows;
     
@@ -1484,13 +1521,13 @@ fn sample_theta_gaussian(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
     );
     
     // Use center as reference for phase-aware blurring
-    let base = sample_theta_wrapped(x0, y0, cols_i, rows_i);
+    let base = sample_theta_wrapped(x0, y0, cols_i, rows_i, layer);
     
     var sum = 0.0;
     var idx = 0;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
-            let t = sample_theta_wrapped(x0 + dx, y0 + dy, cols_i, rows_i);
+            let t = sample_theta_wrapped(x0 + dx, y0 + dy, cols_i, rows_i, layer);
             let d = wrap_diff(t - base);
             sum += w[idx] * d;
             idx++;
@@ -1506,18 +1543,18 @@ fn sample_theta_gaussian(uv: vec2<f32>, cols: f32, rows: f32) -> f32 {
 
 // Main sampling function that dispatches based on smoothing mode
 // mode 0: nearest, 1: bilinear, 2: bicubic, 3: gaussian
-fn sample_theta_smooth(uv: vec2<f32>, cols: f32, rows: f32, mode: f32) -> f32 {
+fn sample_theta_smooth(uv: vec2<f32>, cols: f32, rows: f32, mode: f32, layer: u32) -> f32 {
     if (mode < 0.5) {
         // Nearest neighbor
         let gx = i32(uv.x * cols);
         let gy = i32(uv.y * rows);
-        return textureLoad(theta_tex, vec2<i32>(gx, gy), 0).r;
+        return textureLoad(theta_tex, vec2<i32>(gx, gy), i32(layer), 0).r;
     } else if (mode < 1.5) {
-        return sample_theta_bilinear(uv, cols, rows);
+        return sample_theta_bilinear(uv, cols, rows, layer);
     } else if (mode < 2.5) {
-        return sample_theta_bicubic(uv, cols, rows);
+        return sample_theta_bicubic(uv, cols, rows, layer);
     } else {
-        return sample_theta_gaussian(uv, cols, rows);
+        return sample_theta_gaussian(uv, cols, rows, layer);
     }
 }
 
@@ -1661,6 +1698,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Convert UV to grid coordinates (integer for discrete lookups)
     let cols = i32(params.cols);
     let rows = i32(params.rows);
+    let total_layers = max(1u, u32(params.layer_count));
+    let active_layer = min(u32(params.active_layer + 0.5), total_layers - 1u);
+    let layer_stride = u32(cols) * u32(rows);
     let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
     
@@ -1668,20 +1708,20 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // smoothingMode: 0=nearest, 1=bilinear, 2=bicubic, 3=gaussian
     var theta: f32;
     if (params.smoothing_enabled > 0.5) {
-        theta = sample_theta_smooth(uv, params.cols, params.rows, params.smoothing_mode);
+        theta = sample_theta_smooth(uv, params.cols, params.rows, params.smoothing_mode, active_layer);
     } else {
-        theta = textureLoad(theta_tex, vec2<i32>(c, r), 0).r;
+        theta = textureLoad(theta_tex, vec2<i32>(c, r), i32(active_layer), 0).r;
     }
     
     // Load order parameter (no interpolation needed - it's already smooth)
-    let idx = u32(r) * u32(cols) + u32(c);
+    let idx = layer_stride * active_layer + u32(r) * u32(cols) + u32(c);
     let order_val = order[idx];
     
     // Compute gradient for velocity/curvature modes (use discrete samples for accuracy)
-    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), 0).r;
-    let left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), 0).r;
-    let up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), 0).r;
-    let down = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), 0).r;
+    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), i32(active_layer), 0).r;
+    let left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), i32(active_layer), 0).r;
+    let up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), i32(active_layer), 0).r;
+    let down = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), i32(active_layer), 0).r;
     
     var dx = right - left;
     var dy = up - down;
@@ -1692,10 +1732,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let gradient = sqrt(dx * dx + dy * dy) * 0.5;
     
     // Compute chirality (curl) for spiral detection
-    let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), 0).r;
-    let tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), 0).r;
-    let br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), 0).r;
-    let bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), 0).r;
+    let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
+    let tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
+    let br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
+    let bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
     
     var curl = (tr - tl - br + bl) * 0.25;
     if (curl > 3.14159) { curl -= 6.28318; }
@@ -1707,34 +1747,34 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let height = sin(theta) * 2.0;
     let t_height = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
     
-    let layer = i32(params.colormap);
+    let layer_choice = i32(params.colormap);
     let palette = i32(params.colormap_palette);
     var col3: vec3<f32>;
 
-    if (layer == 0) {
+    if (layer_choice == 0) {
         // Phase
         col3 = sample_palette_2d(t_height, palette);
-    } else if (layer == 1) {
+    } else if (layer_choice == 1) {
         // Velocity (gradient magnitude)
         let vel = clamp(gradient * 2.0, 0.0, 1.0);
         col3 = sample_palette_2d(vel, palette);
-    } else if (layer == 2) {
+    } else if (layer_choice == 2) {
         // Curvature proxy
         let curv = clamp(gradient, 0.0, 1.0);
         col3 = sample_palette_2d(curv, palette);
-    } else if (layer == 3) {
+    } else if (layer_choice == 3) {
         // Order parameter
         col3 = sample_palette_2d(order_val, palette);
-    } else if (layer == 4) {
+    } else if (layer_choice == 4) {
         // Chirality / curl
         let chi = clamp(curl * 5.0, -1.0, 1.0);
         let val = 0.5 + 0.5 * chi;
         col3 = sample_palette_2d(val, palette);
-    } else if (layer == 5) {
+    } else if (layer_choice == 5) {
         // Phase + gradient brightness
         let brightness = 0.3 + 0.7 * clamp(gradient * 3.0, 0.0, 1.0);
         col3 = sample_palette_2d(t_height, palette) * brightness;
-    } else if (layer == 6) {
+    } else if (layer_choice == 6) {
         // Image texture modulated by phase (matches 3D)
         let texColor = presampled_tex_color;
         let phaseMod = 0.5 + 0.5 * sin(theta);
