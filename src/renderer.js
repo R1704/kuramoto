@@ -7,6 +7,54 @@ export class Renderer {
         this.canvas = canvas;
         this.gridSize = gridSize;
         this.meshMode = 'mesh'; // 'mesh' or 'instanced'
+        this.renderLayerStride = 256;
+        this.renderLayerBuf = null;
+        this.layerBindGroups = [];
+        this.layerBindGroupSim = null;
+        this.layerBindGroupCount = 0;
+
+        this.bindGroupLayout = device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
+                {
+                    binding: 3,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'read-only-storage' },
+                },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: { type: 'filtering' },
+                },
+                {
+                    binding: 5,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'float', viewDimension: '2d' },
+                },
+                {
+                    binding: 6,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
+            ],
+        });
+        this.pipelineLayout = device.createPipelineLayout({
+            bindGroupLayouts: [this.bindGroupLayout],
+        });
         
         this.cameraBuf = device.createBuffer({
             size: 64,
@@ -40,6 +88,7 @@ export class Renderer {
 
         this.initPipeline();
         this.init2DPipeline();
+        this.initBlendPipeline();
         this.bindGroup = null; // Cache bind group
         this.bindGroup2D = null; // Cache 2D bind group
         this.lastThetaTexture = null;
@@ -58,7 +107,7 @@ export class Renderer {
     initPipeline() {
         const module = this.device.createShaderModule({ code: RENDER_SHADER });
         this.pipeline = this.device.createRenderPipeline({
-            layout: 'auto',
+            layout: this.pipelineLayout,
             vertex: {
                 module,
                 entryPoint: 'vs_main',
@@ -71,6 +120,63 @@ export class Renderer {
             primitive: { topology: 'triangle-list', cullMode: 'none' },
             depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' },
         });
+    }
+
+    initBlendPipeline() {
+        const module = this.device.createShaderModule({ code: RENDER_SHADER });
+        this.pipelineBlend = this.device.createRenderPipeline({
+            layout: this.pipelineLayout,
+            vertex: {
+                module,
+                entryPoint: 'vs_main',
+                buffers: [{
+                    arrayStride: 8,
+                    attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+                }],
+            },
+            fragment: {
+                module,
+                entryPoint: 'fs_main',
+                targets: [{
+                    format: this.format,
+                    blend: {
+                        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                    },
+                }],
+            },
+            primitive: { topology: 'triangle-list', cullMode: 'none' },
+            depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' },
+        });
+    }
+
+    ensureLayerBindGroups(sim, layerCount) {
+        if (this.layerBindGroupSim !== sim || this.layerBindGroupCount !== layerCount) {
+            if (this.renderLayerBuf) {
+                this.renderLayerBuf.destroy();
+            }
+            this.renderLayerBuf = this.device.createBuffer({
+                size: this.renderLayerStride * layerCount,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            this.layerBindGroups = [];
+            for (let layer = 0; layer < layerCount; layer++) {
+                this.layerBindGroups.push(this.device.createBindGroup({
+                    layout: this.bindGroupLayout,
+                    entries: [
+                        { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
+                        { binding: 1, resource: { buffer: sim.paramsBuf } },
+                        { binding: 2, resource: { buffer: this.cameraBuf } },
+                        { binding: 3, resource: { buffer: sim.orderBuf } },
+                        { binding: 4, resource: this.externalSampler },
+                        { binding: 5, resource: this.externalTexture.createView() },
+                        { binding: 6, resource: { buffer: this.renderLayerBuf, offset: layer * this.renderLayerStride, size: 16 } },
+                    ],
+                }));
+            }
+            this.layerBindGroupSim = sim;
+            this.layerBindGroupCount = layerCount;
+        }
     }
     
     init2DPipeline() {
@@ -105,6 +211,13 @@ export class Renderer {
         this.bindGroups2D = null; // Clear 2D bind group cache
         this.lastSim = null;
         this.lastThetaTexture = null;
+        this.layerBindGroups = [];
+        this.layerBindGroupSim = null;
+        this.layerBindGroupCount = 0;
+        if (this.renderLayerBuf) {
+            this.renderLayerBuf.destroy();
+            this.renderLayerBuf = null;
+        }
     }
 
     draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d', renderAllLayers = false, activeLayer = 0) {
@@ -114,72 +227,71 @@ export class Renderer {
             return;
         }
         
-        const drawOne = (layerIdx) => {
-            // Update camera uniform
+        const setupCommon = () => {
             this.device.queue.writeBuffer(this.cameraBuf, 0, viewProjMatrix);
-            // Ensure mesh flag in params matches current draw mode (mesh_mode is float index 68)
             const meshFlag = this.meshMode === 'mesh' ? 1.0 : 0.0;
             this.device.queue.writeBuffer(sim.paramsBuf, 68 * 4, new Float32Array([meshFlag]));
-            // Update active layer (index 79)
-            this.device.queue.writeBuffer(sim.paramsBuf, 79 * 4, new Float32Array([layerIdx]));
+        };
 
-            // Create bind group only if it doesn't exist or textures changed
-            if (!this.bindGroup || this.lastSim !== sim || this.lastThetaTexture !== sim.thetaTexture) {
-                this.bindGroup = this.device.createBindGroup({
-                    layout: this.pipeline.getBindGroupLayout(0),
-                    entries: [
-                        { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
-                        { binding: 1, resource: { buffer: sim.paramsBuf } },
-                        { binding: 2, resource: { buffer: this.cameraBuf } },
-                        { binding: 3, resource: { buffer: sim.orderBuf } },
-                        { binding: 4, resource: this.externalSampler },
-                        { binding: 5, resource: this.externalTexture.createView() },
-                    ],
-                });
-                this.lastSim = sim;
-                this.lastThetaTexture = sim.thetaTexture;
-            }
+        const beginPass = () => commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.context.getCurrentTexture().createView(),
+                clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+                loadOp: 'clear',
+                storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+                view: this.depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
+        });
 
-            const pass = commandEncoder.beginRenderPass({
-                colorAttachments: [{
-                    view: this.context.getCurrentTexture().createView(),
-                    clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
-                    loadOp: 'clear',
-                    storeOp: 'store',
-                }],
-                depthStencilAttachment: {
-                    view: this.depthTexture.createView(),
-                    depthClearValue: 1.0,
-                    depthLoadOp: 'clear',
-                    depthStoreOp: 'store',
-                },
-            });
-            pass.setPipeline(this.pipeline);
-            pass.setBindGroup(0, this.bindGroup);
+        const drawLayer = (pass, layerIdx) => {
             if (this.meshMode === 'mesh' && this.vertexBuffer && this.indexBuffer) {
                 pass.setVertexBuffer(0, this.vertexBuffer);
                 pass.setIndexBuffer(this.indexBuffer, 'uint32');
                 pass.drawIndexed(this.indexCount, 1, 0, 0, 0);
             } else {
-                // Instanced quad path - ensure quad buffer exists
                 if (!this.quadVertexBuffer) {
                     this.initQuadBuffer();
                 }
                 const instanceCount = sim.layerSize ?? N;
                 pass.setVertexBuffer(0, this.quadVertexBuffer);
-                pass.draw(6, instanceCount); // 6 verts per quad, one layer of instances
+                pass.draw(6, instanceCount);
             }
-            pass.end();
         };
+
+        setupCommon();
+        const totalLayers = Math.max(1, sim.layers || 1);
+        this.ensureLayerBindGroups(sim, totalLayers);
+        const renderAll = renderAllLayers && viewMode === '3d';
+        const alpha = renderAll ? Math.min(0.6, Math.max(0.15, 0.8 / totalLayers)) : 1.0;
+        const strideFloats = this.renderLayerStride / 4;
+        const layerData = new Float32Array(strideFloats * totalLayers);
+        for (let layer = 0; layer < totalLayers; layer++) {
+            const base = layer * strideFloats;
+            layerData[base] = layer;
+            layerData[base + 1] = alpha;
+        }
+        this.device.queue.writeBuffer(this.renderLayerBuf, 0, layerData);
+
+        const pass = beginPass();
+        const pipeline = renderAll ? this.pipelineBlend : this.pipeline;
+        pass.setPipeline(pipeline);
 
         if (renderAllLayers && viewMode === '3d') {
             for (let layer = 0; layer < (sim.layers || 1); layer++) {
-                drawOne(layer);
+                pass.setBindGroup(0, this.layerBindGroups[layer]);
+                drawLayer(pass, layer);
             }
         } else {
             const layerIdx = Math.min(Math.max(0, activeLayer ?? 0), (sim.layers || 1) - 1);
-            drawOne(layerIdx);
+            pass.setBindGroup(0, this.layerBindGroups[layerIdx]);
+            drawLayer(pass, layerIdx);
         }
+        pass.end();
     }
     
     draw2D(commandEncoder, sim) {

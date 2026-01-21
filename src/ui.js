@@ -611,6 +611,8 @@ export class UIManager {
         const gridSizeSlider = document.getElementById('grid-size-slider');
         const gridSizeValue = document.getElementById('grid-size-value');
         const applyGridBtn = document.getElementById('apply-grid-btn');
+        const layerCountInput = document.getElementById('layer-count-input');
+        const applyLayerCountBtn = document.getElementById('apply-layer-count-btn');
         
         // Helper to align grid size to nearest multiple of 64
         const alignGridSize = (size) => {
@@ -661,6 +663,19 @@ export class UIManager {
                 
                 if (this.cb.onResizeGrid) {
                     this.cb.onResizeGrid(aligned);
+                }
+            };
+        }
+
+        if (applyLayerCountBtn && layerCountInput) {
+            applyLayerCountBtn.onclick = () => {
+                const requested = parseInt(layerCountInput.value);
+                const clamped = Math.max(1, Math.min(8, requested));
+                if (clamped !== requested) {
+                    layerCountInput.value = clamped;
+                }
+                if (this.cb.onLayerCountChange) {
+                    this.cb.onLayerCountChange(clamped);
                 }
             };
         }
@@ -921,6 +936,8 @@ export class UIManager {
         const layerCount = Math.max(1, this.state.layerCount ?? 1);
         const lcVal = document.getElementById('layer-count-value');
         if (lcVal) lcVal.textContent = layerCount;
+        const layerCountInput = document.getElementById('layer-count-input');
+        if (layerCountInput) layerCountInput.value = layerCount;
         const activeLayerInput = document.getElementById('active-layer-input');
         const activeLayerVal = document.getElementById('active-layer-value');
         if (activeLayerInput) {

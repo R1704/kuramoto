@@ -120,6 +120,7 @@ const STATE = {
 let lastExternalCanvas = null;
 let drawPending = false;
 let gridResizeInProgress = false;
+let drawSim = null;
 
 // Show error message in the canvas area
 function showError(message) {
@@ -226,7 +227,7 @@ async function init() {
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
 
-    const sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
+    let sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
     STATE.layerCount = sim.layers;
     STATE.activeLayer = Math.min(STATE.activeLayer || 0, STATE.layerCount - 1);
     const renderer = new Renderer(device, format, canvas, STATE.gridSize);
@@ -374,7 +375,31 @@ async function init() {
 
     // Initial State
     resetSimulation(sim);
-    initDrawing(canvas, sim);
+    drawSim = sim;
+    initDrawing(canvas);
+
+    const rebuildLayerCount = (newCount) => {
+        const clamped = Math.max(1, Math.min(8, Math.floor(newCount)));
+        if (clamped === STATE.layerCount) {
+            return;
+        }
+        STATE.layerCount = clamped;
+        STATE.activeLayer = Math.min(Math.max(0, STATE.activeLayer ?? 0), STATE.layerCount - 1);
+        if (sim && sim.destroy) {
+            sim.destroy();
+        }
+        sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
+        drawSim = sim;
+        sim.updateFullParams(STATE);
+        renderer.invalidateBindGroup();
+        stats.resize(STATE.gridSize * STATE.gridSize * STATE.layerCount);
+        lyapunovCalc.resize(STATE.gridSize * STATE.gridSize * STATE.layerCount);
+        reservoir.resize(STATE.gridSize);
+        regenerateTopology();
+        resetSimulation(sim);
+        if (ui?.updateDisplay) ui.updateDisplay();
+        updateURLFromState(STATE, true);
+    };
 
     ui = new UIManager(STATE, {
         onParamChange: () => { 
@@ -471,6 +496,9 @@ async function init() {
             renderer.invalidateBindGroup(); // Buffers changed, need new bind group
             regenerateTopology();
             drawKernel(STATE);
+        },
+        onLayerCountChange: (newCount) => {
+            rebuildLayerCount(newCount);
         },
         onStartKScan: () => {
             if (stats.isScanning) return;
@@ -1774,7 +1802,7 @@ function renderLocalHistogram(canvas, bins) {
 }
 
 // ================= DRAW / ERASE OVERLAY =================
-    function initDrawing(canvas, sim) {
+    function initDrawing(canvas) {
         if (!canvas) return;
         let isDrawing = false;
         const radius = 3;
@@ -1791,7 +1819,8 @@ function renderLocalHistogram(canvas, bins) {
         const gx = Math.floor(nx * STATE.gridSize);
         const gy = Math.floor(ny * STATE.gridSize);
 
-        sim.readTheta().then(theta => {
+        if (!drawSim) { drawPending = false; return; }
+        drawSim.readTheta().then(theta => {
             if (!theta) { drawPending = false; return; }
             const TWO_PI = 6.28318530718;
             for (let dy = -radius; dy <= radius; dy++) {
@@ -1806,7 +1835,7 @@ function renderLocalHistogram(canvas, bins) {
                     }
                 }
             }
-            sim.writeTheta(theta);
+            drawSim.writeTheta(theta);
         }).finally(() => { drawPending = false; });
     };
 

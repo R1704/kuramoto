@@ -673,7 +673,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         let t_down = loadThetaGlobal(i32(global_c), i32(global_r), i32(layer) + 1, i32(cols), i32(rows));
         inter_sum = inter_sum + params.layer_coupling_down * sin(t_down - t);
     }
-    dtheta = dtheta + inter_sum;
+    let dtheta_base = dtheta;
     
     // Add noise perturbation
     if (params.noise_strength > 0.001) {
@@ -727,9 +727,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         + params.scale_ring * (norm_x * norm_x + norm_y * norm_y) * 4.0;
     let K_scaled = params.K0 * clamp(scale_mod, 0.1, 5.0);
     // Adjust dtheta by new K (approximate): rescale by ratio of K_scaled / K0
-    let dtheta_scaled = dtheta * (K_scaled / params.K0);
+    let dtheta_scaled = dtheta_base * (K_scaled / params.K0);
 
-    var dyn = omega_eff + dtheta_scaled * orient + dtheta_input + flow;
+    var dyn = omega_eff + dtheta_scaled * orient + inter_sum + dtheta_input + flow;
     dyn = dyn * (1.0 - params.leak);
     var newTheta = t + dyn * params.dt;
     
@@ -770,6 +770,7 @@ struct Params {
 @group(0) @binding(3) var<storage, read> order: array<f32>;
 @group(0) @binding(4) var textureSampler: sampler;
 @group(0) @binding(5) var externalTexture: texture_2d<f32>;
+@group(0) @binding(6) var<uniform> render_layer: vec4<f32>;
 
 // Helper to load theta from texture
 fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
@@ -815,7 +816,7 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
     let rows = params.rows;
     let use_mesh = params.mesh_mode > 0.5;
     let total_layers = max(1u, u32(params.layer_count));
-    let active_layer = min(u32(params.active_layer + 0.5), total_layers - 1u);
+    let active_layer = min(u32(render_layer.x + 0.5), total_layers - 1u);
     let layer_stride = u32(cols) * u32(rows);
 
     // Grid coordinates (float)
@@ -974,7 +975,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let cols = i32(params.cols);
     let rows = i32(params.rows);
     let total_layers = max(1u, u32(params.layer_count));
-    let active_layer = min(u32(params.active_layer + 0.5), total_layers - 1u);
+    let active_layer = min(u32(render_layer.x + 0.5), total_layers - 1u);
     let layer_stride = u32(cols) * u32(rows);
     let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
@@ -1033,7 +1034,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         color = color * brightness;
     }
 
-    return vec4<f32>(color, 1.0);
+    var layer_alpha = render_layer.y;
+    if (layer_alpha <= 0.0) {
+        layer_alpha = 1.0;
+    }
+    return vec4<f32>(color, layer_alpha);
 }
 `;
 

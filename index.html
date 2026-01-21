@@ -790,7 +790,12 @@
                                 <span>Layer Count</span>
                                 <span class="control-value" id="layer-count-value">1</span>
                             </div>
-                            <div style="font-size: 10px; color: #888;">Set at load time; adjust state/URL before init.</div>
+                            <div class="control-row" style="margin-top: 6px;">
+                                <span style="font-size: 11px; color: #888;">Layers</span>
+                                <input type="number" id="layer-count-input" min="1" max="8" step="1" value="1">
+                            </div>
+                            <button id="apply-layer-count-btn" class="small-btn" style="margin-top: 8px;">Apply Layer Count</button>
+                            <div style="font-size: 10px; color: #888; margin-top: 6px;">Rebuilds simulation buffers.</div>
                         </div>
                         <div class="control-row">
                             <div class="control-label">
@@ -824,7 +829,7 @@
                                 <span>Layer Z Offset</span>
                                 <span class="control-value" id="layer-z-offset-value">0.15</span>
                             </div>
-                            <input type="range" id="layer-z-offset-slider" min="0" max="1" step="0.01" value="0.15">
+                            <input type="range" id="layer-z-offset-slider" min="0" max="10" step="0.01" value="0.15">
                         </div>
                     </div>
 

@@ -825,6 +825,41 @@ export class Simulation {
         return newTheta;
     }
 
+    destroy() {
+        for (const tex of this.thetaTextures) {
+            tex.destroy();
+        }
+        if (this.thetaStagingBuf) {
+            this.thetaStagingBuf.destroy();
+        }
+        if (this.thetaReadbackBuf) {
+            this.thetaReadbackBuf.destroy();
+            this.thetaReadbackBuf = null;
+        }
+        if (this.omegaBuf) this.omegaBuf.destroy();
+        if (this.orderBuf) this.orderBuf.destroy();
+        if (this.paramsBuf) this.paramsBuf.destroy();
+        if (this.globalOrderBuf) this.globalOrderBuf.destroy();
+        if (this.globalOrderAtomicBuf) this.globalOrderAtomicBuf.destroy();
+        if (this.globalOrderReadbackBuf) this.globalOrderReadbackBuf.destroy();
+        if (this.localStatsAtomicBuf) this.localStatsAtomicBuf.destroy();
+        if (this.localHistAtomicBuf) this.localHistAtomicBuf.destroy();
+        if (this.localStatsBuf) this.localStatsBuf.destroy();
+        if (this.localStatsReadbackBuf) this.localStatsReadbackBuf.destroy();
+        if (this.gridSizeUniformBuf) this.gridSizeUniformBuf.destroy();
+        if (this.nUniformBuf) this.nUniformBuf.destroy();
+        for (const buf of this.delayBuffers) {
+            buf.destroy();
+        }
+        this.delayBuffers = [];
+        if (this.inputWeightsBuf) this.inputWeightsBuf.destroy();
+        if (this.inputSignalBuf) this.inputSignalBuf.destroy();
+        if (this.graphNeighborsBuf) this.graphNeighborsBuf.destroy();
+        if (this.graphWeightsBuf) this.graphWeightsBuf.destroy();
+        if (this.graphCountsBuf) this.graphCountsBuf.destroy();
+        this.bindGroupCache.clear();
+    }
+
     // Resize the simulation grid
     resize(newGridSize) {
         // Destroy old textures and buffers
