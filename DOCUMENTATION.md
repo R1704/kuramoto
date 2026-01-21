@@ -2619,8 +2619,8 @@ src/reservoir.js
 
 ---
 
-**Document Version:** 2.2  
-**Last Updated:** December 2025  
+**Document Version:** 2.3  
+**Last Updated:** January 2026  
 **Phase Status:** Phase 2 Complete + Reservoir Computing Phase 1  
 **Next Milestone:** RC Phase 2 (Multiple inputs, closed-loop control)
 ```
@@ -2630,6 +2630,9 @@ src/reservoir.js
 - **Graph topology mode**: replace grid neighbors with variable-degree graphs (WS/BA); add visual edge overlay so connectivity is intelligible on the grid.
 - **Kernel influence probe**: hover sampling to visualize kernel weights around the cursor; clarifies spatial coupling footprints.
 - **Layer coupling**: stacked 2D layers with vertical coupling terms (ℓ-1 and ℓ+1) for multi-layer dynamics.
+- **Layered reservoir**: treat layers as sub-reservoirs with distinct scalars (K0, noise, ω); optional cross-layer readouts.
+- **Neural Kuramoto**: interpret coupling weights as learnable edges (CTRNN analog) with Hebbian or task-driven updates.
+- **Spiking proxy**: treat phase crossings as spike events to compare against SNN-style readouts.
 - **Graph spectral analysis**: optional Laplacian eigenspectrum on small grids to report synchronizability and spectral gap.
 - **Particle Kuramoto**: dynamic oscillator positions with distance-based coupling; requires spatial hashing or k-NN.
 - **Higher-dimensional oscillators**: vector states on S^n with geodesic coupling and new rendering modes.

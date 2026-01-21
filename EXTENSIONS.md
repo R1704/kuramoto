@@ -115,6 +115,7 @@ These items map onto the roadmap tiers below; the highest leverage is coupling R
 - **Noise & Temperature Control**: White/colored noise modes, spatial correlation kernels, burst events; “temperature” slider mapped to noise schedule.  
 - **Phase Space Visualization** *(shipped)*: Unit-circle scatter (toggle in visualizer or press `P`); subsamples θ with GPU-friendly throttling; uses RC readbacks when available.  
 - **Frequency Adaptation**: Slow ω update `dω/dt = ε(ω̄_neighbors - ω_i)`; damping; optional heterogeneity floor/ceiling.
+- **Layered Reservoir Mode**: Treat layers as sub-reservoirs; per-layer scalars (K0, noise, ω) with shared rule; optional cross-layer readouts.
 
 ### T3 — Structural Extensions (weeks)
 - **Hebbian / Plastic Coupling**: Weight buffer; two-stage compute (phase update, weight update); decay + clipping; edge heatmap; toggle for symmetric/asymmetric learning.  
@@ -122,11 +123,13 @@ These items map onto the roadmap tiers below; the highest leverage is coupling R
 - **n-D Unit Vectors (Sⁿ)**: Vec3/vec4 buffers; geodesic coupling; renormalization; stereographic or HSV color mapping; start with S².  
 - **True 3D Grid**: 3D indexing, workgroup tiling, optional slice rendering; careful memory budgeting.  
 - **Chimera Detection**: Thresholded local R, connected components, chimera index; overlay mask; export stats.  
+- **Neural Kuramoto Network**: Learnable coupling weights on graph edges; phase-based CTRNN analog; integrates with RC readouts.
 
 ### T4 — Research / Analysis
 - **Graph Spectral Analysis**: Laplacian eigenvalues for synchronizability; compute on CPU for small grids or downsampled graphs.  
 - **Particle Kuramoto**: Dynamic oscillator positions with spatial hashing or kNN for distance coupling; new render path.  
 - **Frequency Spectrum (FFT)**: WebGPU FFT of θ̇ or θ; windowing options; peak picking; integrates with order-history plots.
+- **Spiking Proxy Readouts**: Interpret phase crossings as spike events; compare to SNN dynamics and coding schemes.
 
 ---
 
