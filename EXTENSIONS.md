@@ -70,19 +70,25 @@ These items map onto the roadmap tiers below; the highest leverage is coupling R
 | 3 | T1 (Quick) | 🎯 Targeted Perturbation | Easy | 2-4 hrs | Medium | Click/drag pulses for stability and teaching. |
 | 4 | T1 (Quick) | 🌊 External Forcing | Easy | 3-5 hrs | Medium | Global periodic drive; exposes entrainment. |
 | 5 | T1 (Quick) | 🎬 Recording / GIF Export | Medium | 6-10 hrs | High | Shareable demos; uses MediaRecorder/gif.js. |
-| 6 | T1 (Quick) | 📊 Real-time Statistics Panel | Medium | 4-8 hrs | High | Consolidate R, χ, gradients, histograms. |
-| 7 | T2 (Core) | 🔗 Graph Topologies | Hard | 2-3 wks | High | Small-world/scale-free neighbor buffers; new phenomena. |
-| 8 | T2 (Core) | 🌡️ Noise & Temperature Control | Medium | 3-5 hrs | Medium | Colored/spatial noise; temp-like schedule. |
-| 9 | T2 (Core) | 🗺️ Phase Space Visualization | Medium | 4-8 hrs | Medium | ✅ Implemented: unit-circle scatter with toggle (`P` key) and throttled sampling. |
-| 10 | T2 (Core) | 📈 Frequency Adaptation | Medium | 1 wk | Medium | Slow ω dynamics; tests self-organization. |
-| 11 | T3 (Structural) | 🧠 Hebbian / Plastic Coupling | Hard | 2-3 wks | High | Adaptive weights; two-pass updates and viz. |
-| 12 | T3 (Structural) | 🏗️ Hierarchical Layers | Hard | 3-4 wks | High | Multi-layer coupling (feed-forward/feedback). |
-| 13 | T3 (Structural) | 🔮 n-D Unit Vectors (Sⁿ) | V.Hard | 4-6 wks | High | Vector states on spheres; geodesic coupling. |
-| 14 | T3 (Structural) | 🧊 True 3D Grid | V.Hard | 3-4 wks | Medium | 3D lattice simulation and volume/slice rendering. |
-| 15 | T3 (Structural) | 🌀 Chimera Detection | Hard | 1-2 wks | Medium | Automatic sync/async segmentation and reporting. |
-| 16 | T4 (Research) | 📊 Frequency Spectrum (FFT) | Hard | 1 wk | Medium | WebGPU FFT of phase/velocity; chaos diagnostics. |
+| 6 | T1 (Quick) | 🧲 Kernel Influence Probe | Easy | 2-4 hrs | High | Hover probe showing kernel weights and neighbor influence. |
+| 7 | T1 (Quick) | 🕸️ Graph Edge Overlay | Easy | 2-4 hrs | High | Hover/selection overlay to reveal graph links on the grid. |
+| 8 | T1 (Quick) | 📊 Real-time Statistics Panel | Medium | 4-8 hrs | High | Consolidate R, χ, gradients, histograms. |
+| 9 | T2 (Core) | 🔗 Graph Topologies | Hard | 2-3 wks | High | Small-world/scale-free neighbor buffers; new phenomena. |
+| 10 | T2 (Core) | 🌡️ Noise & Temperature Control | Medium | 3-5 hrs | Medium | Colored/spatial noise; temp-like schedule. |
+| 11 | T2 (Core) | 🗺️ Phase Space Visualization | Medium | 4-8 hrs | Medium | ✅ Implemented: unit-circle scatter with toggle (`P` key) and throttled sampling. |
+| 12 | T2 (Core) | 📈 Frequency Adaptation | Medium | 1 wk | Medium | Slow ω dynamics; tests self-organization. |
+| 13 | T3 (Structural) | 🧠 Hebbian / Plastic Coupling | Hard | 2-3 wks | High | Adaptive weights; two-pass updates and viz. |
+| 14 | T3 (Structural) | 🏗️ Hierarchical Layers | Hard | 3-4 wks | High | Multi-layer coupling (feed-forward/feedback). |
+| 15 | T3 (Structural) | 🔮 n-D Unit Vectors (Sⁿ) | V.Hard | 4-6 wks | High | Vector states on spheres; geodesic coupling. |
+| 16 | T3 (Structural) | 🧊 True 3D Grid | V.Hard | 3-4 wks | Medium | 3D lattice simulation and volume/slice rendering. |
+| 17 | T3 (Structural) | 🌀 Chimera Detection | Hard | 1-2 wks | Medium | Automatic sync/async segmentation and reporting. |
+| 18 | T4 (Research) | 📈 Graph Spectral Analysis | Hard | 1-2 wks | Medium | Laplacian eigenspectrum for synchronizability on small grids. |
+| 19 | T4 (Research) | 🛰️ Particle Kuramoto | V.Hard | 3-5 wks | Medium | Mobile oscillators with distance-based coupling. |
+| 20 | T4 (Research) | 📊 Frequency Spectrum (FFT) | Hard | 1 wk | Medium | WebGPU FFT of phase/velocity; chaos diagnostics. |
 
 ### Immediate Next Steps (Consolidated, prioritized)
+- **Kernel influence probe**: hover on the grid to visualize the active kernel weights around the cursor.  
+- **Graph edge overlay**: in topology mode, show edges for the hovered oscillator so graph connectivity is visible on the grid.  
 - **Stability pass on surface modes** (mesh vs instanced): regression-test resize/zoom/draw parity in 2D/3D; add a tiny visual marker showing mode in the UI.  
 - **RC vs Criticality presets**: ship a preset that runs K-sweep + NRMSE overlay per task (sine/NARMA/memory) so users can see performance vs K without manual setup.  
 - **Spatiotemporal benchmark polish**: make the moving-dot task visually obvious (dot overlay + target trail) and log its NRMSE separately from scalar tasks.  
@@ -101,6 +107,8 @@ These items map onto the roadmap tiers below; the highest leverage is coupling R
 - **External Forcing**: Add forcing term (freq_mod or additive torque) with amplitude/frequency controls; include preset.  
 - **Recording / GIF Export**: MediaRecorder for WebM; gif.js fallback; optional downscale/framerate controls.  
 - **Real-time Statistics Panel**: Aggregated stats rendered from GPU buffers; histograms of local R; gradient magnitude summary.
+- **Kernel Influence Probe**: Hover sampling of kernel weights around cursor; draw in overlay canvas; show kernel radius.  
+- **Graph Edge Overlay**: Show sampled edges from hovered oscillator (topology mode only).  
 
 ### T2 — Core Dynamics (multi-day)
 - **Graph Topologies**: Fixed-max-degree neighbor buffer; generators for Watts–Strogatz and Barabási–Albert; edge visualization; perf profiling.  
@@ -116,6 +124,8 @@ These items map onto the roadmap tiers below; the highest leverage is coupling R
 - **Chimera Detection**: Thresholded local R, connected components, chimera index; overlay mask; export stats.  
 
 ### T4 — Research / Analysis
+- **Graph Spectral Analysis**: Laplacian eigenvalues for synchronizability; compute on CPU for small grids or downsampled graphs.  
+- **Particle Kuramoto**: Dynamic oscillator positions with spatial hashing or kNN for distance coupling; new render path.  
 - **Frequency Spectrum (FFT)**: WebGPU FFT of θ̇ or θ; windowing options; peak picking; integrates with order-history plots.
 
 ---

@@ -119,6 +119,7 @@ const STATE = {
 // Store the last external input canvas for pattern initialization
 let lastExternalCanvas = null;
 let drawPending = false;
+let gridResizeInProgress = false;
 
 // Show error message in the canvas area
 function showError(message) {
@@ -430,6 +431,10 @@ async function init() {
             }
         },
         onResizeGrid: async (newSize) => {
+            if (gridResizeInProgress) {
+                return;
+            }
+            gridResizeInProgress = true;
             const oldSize = STATE.gridSize;
             STATE.gridSize = newSize;
             
@@ -453,6 +458,8 @@ async function init() {
                 console.warn('State-preserving resize failed, falling back to reset:', e);
                 sim.resize(newSize);
                 resetSimulation(sim);
+            } finally {
+                gridResizeInProgress = false;
             }
             
             // Rebuild rendering buffers to match new grid
@@ -577,50 +584,58 @@ async function init() {
     
     // Initialize plots after DOM is ready
     setTimeout(() => {
-        R_plot = new TimeSeriesPlot('R-plot', {
-            yMin: 0, yMax: 1,
-            color: '#4CAF50',
-            fillColor: 'rgba(76, 175, 80, 0.2)',
-            label: 'R(t)'
-        });
-        
-        chi_plot = new TimeSeriesPlot('chi-plot', {
-            yMin: 0, yMax: 'auto',
-            autoScale: true,
-            color: '#FF9800',
-            fillColor: 'rgba(255, 152, 0, 0.2)',
-            label: 'χ(t)',
-            showYAxis: true  // Show Y axis with values
-        });
-        
-        phaseDiagramPlot = new PhaseDiagramPlot('phase-diagram');
-        
-        // Initialize RC plot
-        rcPlot = new TimeSeriesPlot('rc-plot', {
-            yMin: -1.5, yMax: 1.5,
-            color: '#2196F3',
-            fillColor: 'rgba(33, 150, 243, 0.2)',
-            label: 'Prediction'
-        });
+        const initPlots = () => {
+            R_plot = new TimeSeriesPlot('R-plot', {
+                yMin: 0, yMax: 1,
+                color: '#4CAF50',
+                fillColor: 'rgba(76, 175, 80, 0.2)',
+                label: 'R(t)'
+            });
+            
+            chi_plot = new TimeSeriesPlot('chi-plot', {
+                yMin: 0, yMax: 'auto',
+                autoScale: true,
+                color: '#FF9800',
+                fillColor: 'rgba(255, 152, 0, 0.2)',
+                label: 'χ(t)',
+                showYAxis: true  // Show Y axis with values
+            });
+            
+            phaseDiagramPlot = new PhaseDiagramPlot('phase-diagram');
+            
+            // Initialize RC plot
+            rcPlot = new TimeSeriesPlot('rc-plot', {
+                yMin: -1.5, yMax: 1.5,
+                color: '#2196F3',
+                fillColor: 'rgba(33, 150, 243, 0.2)',
+                label: 'Prediction'
+            });
 
-        phaseSpacePlot = new PhaseSpacePlot('phase-space-canvas', {
-            maxPoints: 2000,
-            pointSize: 1.6,
-            ringColor: '#2c2c3d',
-            axisColor: '#1e1e2e',
-            pointColor: 'rgba(74, 158, 255, 0.9)',
-            bg: '#0f0f1a'
-        });
+            phaseSpacePlot = new PhaseSpacePlot('phase-space-canvas', {
+                maxPoints: 2000,
+                pointSize: 1.6,
+                ringColor: '#2c2c3d',
+                axisColor: '#1e1e2e',
+                pointColor: 'rgba(74, 158, 255, 0.9)',
+                bg: '#0f0f1a'
+            });
 
-        rcKsweepPlot = new TimeSeriesPlot('rc-ksweep-plot', {
-            yMin: 0, yMax: 2,
-            autoScale: true,
-            color: '#FF9800',
-            fillColor: 'rgba(255,152,0,0.2)',
-            showGrid: true,
-            showYAxis: true,
-            label: 'NRMSE'
-        });
+            rcKsweepPlot = new TimeSeriesPlot('rc-ksweep-plot', {
+                yMin: 0, yMax: 2,
+                autoScale: true,
+                color: '#FF9800',
+                fillColor: 'rgba(255,152,0,0.2)',
+                showGrid: true,
+                showYAxis: true,
+                label: 'NRMSE'
+            });
+        };
+
+        initPlots();
+
+        window.addEventListener('resize', () => {
+            initPlots();
+        }, { passive: true });
         
         // Initialize LLE controls
         initLLEControls();

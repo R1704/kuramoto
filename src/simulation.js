@@ -804,9 +804,16 @@ export class Simulation {
      */
     async resizePreservingState(newGridSize) {
         const oldSize = this.gridSize;
+
+        while (this.thetaReadPending) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+        }
         
         // Read current theta
         const oldTheta = await this.readTheta();
+        if (!oldTheta || oldTheta.length === 0) {
+            throw new Error('Theta readback unavailable for resize');
+        }
         
         // Interpolate to new size
         const newTheta = Simulation.interpolateThetaLayers(oldTheta, oldSize, newGridSize, this.layers);

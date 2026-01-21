@@ -182,17 +182,6 @@ export class UIManager {
         bind('orient-bubble-slider', 'orientBubble');
         bind('orient-linear-slider', 'orientLinear');
         
-        // Phase space toggle
-        const phaseToggle = document.getElementById('phase-space-toggle');
-        if (phaseToggle) {
-            phaseToggle.addEventListener('change', () => {
-                this.state.phaseSpaceEnabled = phaseToggle.checked;
-                if (this.cb.onPhaseSpaceToggle) {
-                    this.cb.onPhaseSpaceToggle(phaseToggle.checked);
-                }
-                this.updateDisplay();
-            });
-        }
 
         const activeLayerInput = document.getElementById('active-layer-input');
         if (activeLayerInput) {
@@ -483,6 +472,12 @@ export class UIManager {
         
         bind('data-layer-select', 'colormap', 'int', 'change');
         bind('palette-select', 'colormapPalette', 'int', 'change');
+
+        this.state.phaseSpaceEnabled = true;
+        this.state.showStatistics = true;
+        if (this.cb.onParamChange) {
+            this.cb.onParamChange();
+        }
         // Surface mode (3D)
         const surfaceSelect = document.getElementById('surface-mode-select');
         if (surfaceSelect) {
@@ -497,18 +492,6 @@ export class UIManager {
         }
         bind('omega-amplitude-slider', 'omegaAmplitude');
         
-        // Statistics enable/disable
-        const statsEnabledCheck = document.getElementById('stats-enabled');
-        if (statsEnabledCheck) {
-            statsEnabledCheck.addEventListener('change', () => {
-                this.state.showStatistics = statsEnabledCheck.checked;
-                // Show/hide stats content
-                const statsContent = document.getElementById('stats-content');
-                if (statsContent) {
-                    statsContent.style.opacity = this.state.showStatistics ? '1' : '0.3';
-                }
-            });
-        }
         
         // Smoothing mode select
         const smoothingSelect = document.getElementById('smoothing-mode-select');
@@ -625,6 +608,7 @@ export class UIManager {
         // WebGPU requires bytesPerRow (grid_size * 4 bytes) to be 256-byte aligned
         // So grid_size must be multiple of 64 (64 * 4 = 256)
         const gridSizeInput = document.getElementById('grid-size-input');
+        const gridSizeSlider = document.getElementById('grid-size-slider');
         const gridSizeValue = document.getElementById('grid-size-value');
         const applyGridBtn = document.getElementById('apply-grid-btn');
         
@@ -639,13 +623,28 @@ export class UIManager {
             gridSizeInput.oninput = () => {
                 const requested = parseInt(gridSizeInput.value);
                 const aligned = alignGridSize(requested);
-                
-                // Update display with aligned value
+
                 gridSizeValue.textContent = aligned;
-                
-                // Update input value if it got adjusted
+                if (gridSizeSlider) {
+                    gridSizeSlider.value = aligned;
+                }
                 if (aligned !== requested) {
                     gridSizeInput.value = aligned;
+                }
+            };
+        }
+
+        if (gridSizeSlider && gridSizeValue) {
+            gridSizeSlider.oninput = () => {
+                const requested = parseInt(gridSizeSlider.value);
+                const aligned = alignGridSize(requested);
+
+                gridSizeValue.textContent = aligned;
+                if (gridSizeInput) {
+                    gridSizeInput.value = aligned;
+                }
+                if (aligned !== requested) {
+                    gridSizeSlider.value = aligned;
                 }
             };
         }
@@ -820,15 +819,6 @@ export class UIManager {
             else if (e.key === 'v' || e.key === 'V') {
                 this.state.viewMode = this.state.viewMode === 0 ? 1 : 0;
                 this.cb.onParamChange();
-                this.updateDisplay();
-                   import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
-            }
-            // Toggle phase space plot
-            else if (e.key === 'p' || e.key === 'P') {
-                this.state.phaseSpaceEnabled = !this.state.phaseSpaceEnabled;
-                if (this.cb.onPhaseSpaceToggle) {
-                    this.cb.onPhaseSpaceToggle(this.state.phaseSpaceEnabled);
-                }
                 this.updateDisplay();
                    import('./urlstate.js').then(m => m.updateURLFromState(this.state, true)).catch(()=>{});
             }
@@ -1212,7 +1202,9 @@ export class UIManager {
         if (delayControl) delayControl.style.display = this.state.ruleMode === 5 ? 'flex' : 'none';
         
         const kernelSection = document.getElementById('kernel-section');
-        if (kernelSection) kernelSection.style.display = this.state.ruleMode === 4 ? 'block' : 'none';
+        if (kernelSection) kernelSection.style.display = this.state.ruleMode === 4 ? 'flex' : 'none';
+        const kernelVisuals = document.getElementById('kernel-visuals');
+        if (kernelVisuals) kernelVisuals.style.display = this.state.ruleMode === 4 ? 'flex' : 'none';
         
         // Update global coupling indicator and range control
         const globalInd = document.getElementById('global-indicator');
@@ -1243,17 +1235,8 @@ export class UIManager {
         const pauseBtn = document.getElementById('pause-btn');
         if (pauseBtn) pauseBtn.textContent = this.state.paused ? 'Resume' : 'Pause';
         
-        // Update statistics enabled checkbox
-        const statsEnabledCheck = document.getElementById('stats-enabled');
-        if (statsEnabledCheck) statsEnabledCheck.checked = this.state.showStatistics;
-        const statsContent = document.getElementById('stats-content');
-        if (statsContent) statsContent.style.opacity = this.state.showStatistics ? '1' : '0.3';
-        
-        // Phase space toggle and visibility
-        const phaseToggle = document.getElementById('phase-space-toggle');
-        if (phaseToggle) phaseToggle.checked = this.state.phaseSpaceEnabled !== false;
         const phaseSection = document.getElementById('phase-space-section');
-        if (phaseSection) phaseSection.style.display = this.state.phaseSpaceEnabled ? 'block' : 'none';
+        if (phaseSection) phaseSection.style.display = 'block';
         
         // Update smoothing mode select
         const smoothingSelect = document.getElementById('smoothing-mode-select');
@@ -1273,11 +1256,13 @@ export class UIManager {
                 view3dBtn.classList.remove('active');
             }
         }
-        
+
         // Update grid size display
         const gridSizeInput = document.getElementById('grid-size-input');
+        const gridSizeSlider = document.getElementById('grid-size-slider');
         const gridSizeValue = document.getElementById('grid-size-value');
         if (gridSizeInput) gridSizeInput.value = this.state.gridSize;
+        if (gridSizeSlider) gridSizeSlider.value = this.state.gridSize;
         if (gridSizeValue) gridSizeValue.textContent = this.state.gridSize;
         
         // Show/hide visualizer panel based on whether kernel is being used
@@ -1291,7 +1276,8 @@ export class UIManager {
         if (this.state.ruleMode === 4 && this.cb.onDrawKernel) {
             this.cb.onDrawKernel();
         }
-        
+
+
         // Show/hide external input controls
         const externalInputControls = document.getElementById('external-input-controls');
         if (externalInputControls) {
@@ -1306,6 +1292,21 @@ export class UIManager {
         const rcFeatureBudgetVal = document.getElementById('rc-feature-budget-val');
         if (rcFeatureBudget) rcFeatureBudget.value = this.state.rcMaxFeatures;
         if (rcFeatureBudgetVal) rcFeatureBudgetVal.textContent = this.state.rcMaxFeatures;
+
+        const rcEnabled = document.getElementById('rc-enabled');
+        if (rcEnabled) rcEnabled.checked = !!this.state.rcEnabled;
+        const rcContent = document.getElementById('rc-content');
+        if (rcContent) rcContent.style.opacity = this.state.rcEnabled ? '1' : '0.5';
+        const rcTaskSelect = document.getElementById('rc-task-select');
+        if (rcTaskSelect) rcTaskSelect.value = this.state.rcTask || 'sine';
+        const rcInputRegion = document.getElementById('rc-input-region');
+        if (rcInputRegion) rcInputRegion.value = this.state.rcInputRegion || 'center';
+        const rcOutputRegion = document.getElementById('rc-output-region');
+        if (rcOutputRegion) rcOutputRegion.value = this.state.rcOutputRegion || 'random';
+        const rcInputStrength = document.getElementById('rc-input-strength');
+        if (rcInputStrength) rcInputStrength.value = this.state.rcInputStrength;
+        const rcInputStrengthVal = document.getElementById('rc-input-strength-val');
+        if (rcInputStrengthVal) rcInputStrengthVal.textContent = this.state.rcInputStrength.toFixed(1);
 
         // Interaction sliders
         const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };

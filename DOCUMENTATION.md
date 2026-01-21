@@ -2624,3 +2624,12 @@ src/reservoir.js
 **Phase Status:** Phase 2 Complete + Reservoir Computing Phase 1  
 **Next Milestone:** RC Phase 2 (Multiple inputs, closed-loop control)
 ```
+
+## Planned Extensions & Design Notes
+
+- **Graph topology mode**: replace grid neighbors with variable-degree graphs (WS/BA); add visual edge overlay so connectivity is intelligible on the grid.
+- **Kernel influence probe**: hover sampling to visualize kernel weights around the cursor; clarifies spatial coupling footprints.
+- **Layer coupling**: stacked 2D layers with vertical coupling terms (ℓ-1 and ℓ+1) for multi-layer dynamics.
+- **Graph spectral analysis**: optional Laplacian eigenspectrum on small grids to report synchronizability and spectral gap.
+- **Particle Kuramoto**: dynamic oscillator positions with distance-based coupling; requires spatial hashing or k-NN.
+- **Higher-dimensional oscillators**: vector states on S^n with geodesic coupling and new rendering modes.
