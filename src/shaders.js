@@ -21,7 +21,7 @@ struct Params {
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
-    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
 
 struct LayerParams {
@@ -76,6 +76,14 @@ struct LayerParams {
     orient_swirl: f32,
     orient_bubble: f32,
     orient_linear: f32,
+    // Inter-layer coupling (per-layer)
+    layer_coupling_up: f32,
+    layer_coupling_down: f32,
+    // Padding to 56 floats (224 bytes, multiple of 16)
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
 }
 
 // Textures for theta state (array layers = hierarchical levels)
@@ -743,26 +751,26 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     // Inter-layer coupling (same-cell or kernel-based)
     var inter_sum = 0.0;
     let use_kernel = params.layer_kernel_enabled > 0.5;
-    if (layer > 0u && abs(params.layer_coupling_up) > 0.0001) {
+    if (layer > 0u && abs(lp.layer_coupling_up) > 0.0001) {
         let src_layer = layer - 1u;
         if (use_kernel) {
             let src_lp = layer_params[min(src_layer, 7u)];
             let ksum = kernelCouplingLayer(global_c, global_r, cols, rows, src_layer, t, src_lp);
-            inter_sum = inter_sum + params.layer_coupling_up * ksum;
+            inter_sum = inter_sum + lp.layer_coupling_up * ksum;
         } else {
             let t_up = loadThetaGlobal(i32(global_c), i32(global_r), i32(src_layer), i32(cols), i32(rows));
-            inter_sum = inter_sum + params.layer_coupling_up * sin(t_up - t);
+            inter_sum = inter_sum + lp.layer_coupling_up * sin(t_up - t);
         }
     }
-    if (layer + 1u < u32(params.layer_count) && abs(params.layer_coupling_down) > 0.0001) {
+    if (layer + 1u < u32(params.layer_count) && abs(lp.layer_coupling_down) > 0.0001) {
         let src_layer = layer + 1u;
         if (use_kernel) {
             let src_lp = layer_params[min(src_layer, 7u)];
             let ksum = kernelCouplingLayer(global_c, global_r, cols, rows, src_layer, t, src_lp);
-            inter_sum = inter_sum + params.layer_coupling_down * ksum;
+            inter_sum = inter_sum + lp.layer_coupling_down * ksum;
         } else {
             let t_down = loadThetaGlobal(i32(global_c), i32(global_r), i32(src_layer), i32(cols), i32(rows));
-            inter_sum = inter_sum + params.layer_coupling_down * sin(t_down - t);
+            inter_sum = inter_sum + lp.layer_coupling_down * sin(t_down - t);
         }
     }
     let dtheta_base = dtheta;
@@ -855,7 +863,7 @@ struct Params {
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
-    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
@@ -1259,7 +1267,7 @@ struct Params {
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
-    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 2>;
@@ -1431,7 +1439,7 @@ struct Params {
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
-    layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
 
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;

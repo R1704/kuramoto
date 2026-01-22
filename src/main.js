@@ -164,6 +164,9 @@ const makeLayerParamsFromState = (state) => ({
     orientSwirl: state.orientSwirl,
     orientBubble: state.orientBubble,
     orientLinear: state.orientLinear,
+    // Inter-layer coupling (per-layer)
+    layerCouplingUp: state.layerCouplingUp ?? 0.0,
+    layerCouplingDown: state.layerCouplingDown ?? 0.0,
 });
 
 const applyLayerParamsToState = (idx) => {
@@ -216,6 +219,9 @@ const applyLayerParamsToState = (idx) => {
     STATE.orientSwirl = lp.orientSwirl ?? 0.0;
     STATE.orientBubble = lp.orientBubble ?? 0.0;
     STATE.orientLinear = lp.orientLinear ?? 0.0;
+    // Inter-layer coupling (per-layer)
+    STATE.layerCouplingUp = lp.layerCouplingUp ?? 0.0;
+    STATE.layerCouplingDown = lp.layerCouplingDown ?? 0.0;
 };
 
 const syncStateToLayerParams = (indices) => {

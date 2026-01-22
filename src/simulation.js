@@ -128,10 +128,10 @@ export class Simulation {
         });
 
         this.layerParamsBuf = this.device.createBuffer({
-            size: 52 * 4 * 8,
+            size: 56 * 4 * 8,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
-        this.device.queue.writeBuffer(this.layerParamsBuf, 0, new Float32Array(52 * 8).fill(0));
+        this.device.queue.writeBuffer(this.layerParamsBuf, 0, new Float32Array(56 * 8).fill(0));
         
         // ============= RESERVOIR COMPUTING BUFFERS =============
         // Input weights: how strongly each oscillator receives input signal
@@ -262,7 +262,7 @@ export class Simulation {
 
     writeLayerParams(layers) {
         const count = Math.max(1, this.layers || 1);
-        const stride = 52;
+        const stride = 56;  // Must match WGSL struct size (56 floats = 224 bytes, 16-byte aligned)
         const data = new Float32Array(stride * 8);
         for (let i = 0; i < Math.min(8, count); i++) {
             const lp = Array.isArray(layers) ? layers[i] : null;
@@ -318,9 +318,13 @@ export class Simulation {
             data[base + 47] = lp?.orientSwirl ?? 0.0;
             data[base + 48] = lp?.orientBubble ?? 0.0;
             data[base + 49] = lp?.orientLinear ?? 0.0;
-            // Padding to 52 (for 16-byte alignment: 52*4 = 208, divisible by 16)
-            data[base + 50] = 0;
-            data[base + 51] = 0;
+            data[base + 50] = lp?.layerCouplingUp ?? 0.0;
+            data[base + 51] = lp?.layerCouplingDown ?? 0.0;
+            // Padding to 56 floats (224 bytes, 16-byte aligned for WGSL array)
+            data[base + 52] = 0;
+            data[base + 53] = 0;
+            data[base + 54] = 0;
+            data[base + 55] = 0;
         }
         this.device.queue.writeBuffer(this.layerParamsBuf, 0, data);
     }
@@ -440,8 +444,8 @@ export class Simulation {
             (p.surfaceMode === 'mesh' ? 1.0 : 0.0), 0, 0, 0,
             // 72-75 topology mode/meta
             topoMode, this.maxGraphDegree, p.topologyAvgDegree ?? 0, 0,
-            // 76-79 layer meta
-            layerCount, p.layerCouplingUp ?? 0, p.layerCouplingDown ?? 0, activeLayer
+            // 76-79 layer meta (coupling removed - now per-layer)
+            layerCount, 0, 0, activeLayer
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
     }
