@@ -12,6 +12,7 @@ export class Renderer {
         this.layerBindGroups = [];
         this.layerBindGroupSim = null;
         this.layerBindGroupCount = 0;
+        this.layerBindGroupTexture = null;
 
         this.bindGroupLayout = device.createBindGroupLayout({
             entries: [
@@ -151,7 +152,7 @@ export class Renderer {
     }
 
     ensureLayerBindGroups(sim, layerCount) {
-        if (this.layerBindGroupSim !== sim || this.layerBindGroupCount !== layerCount) {
+        if (this.layerBindGroupSim !== sim || this.layerBindGroupCount !== layerCount || this.layerBindGroupTexture !== sim.thetaTexture) {
             if (this.renderLayerBuf) {
                 this.renderLayerBuf.destroy();
             }
@@ -176,6 +177,7 @@ export class Renderer {
             }
             this.layerBindGroupSim = sim;
             this.layerBindGroupCount = layerCount;
+            this.layerBindGroupTexture = sim.thetaTexture;
         }
     }
     
@@ -214,13 +216,14 @@ export class Renderer {
         this.layerBindGroups = [];
         this.layerBindGroupSim = null;
         this.layerBindGroupCount = 0;
+        this.layerBindGroupTexture = null;
         if (this.renderLayerBuf) {
             this.renderLayerBuf.destroy();
             this.renderLayerBuf = null;
         }
     }
 
-    draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d', renderAllLayers = false, activeLayer = 0) {
+    draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d', renderAllLayers = false, activeLayer = 0, selectedLayers = null) {
         // Use fast 2D renderer when in 2D mode (if available)
         if (viewMode === '2d' && this.pipeline2D) {
             this.draw2D(commandEncoder, sim);
@@ -268,12 +271,22 @@ export class Renderer {
         this.ensureLayerBindGroups(sim, totalLayers);
         const renderAll = renderAllLayers && viewMode === '3d';
         const alpha = renderAll ? Math.min(0.6, Math.max(0.15, 0.8 / totalLayers)) : 1.0;
+        const selected = Array.isArray(selectedLayers) && selectedLayers.length > 0
+            ? new Set(selectedLayers)
+            : null;
         const strideFloats = this.renderLayerStride / 4;
         const layerData = new Float32Array(strideFloats * totalLayers);
         for (let layer = 0; layer < totalLayers; layer++) {
             const base = layer * strideFloats;
             layerData[base] = layer;
-            layerData[base + 1] = alpha;
+            let layerAlpha = alpha;
+            if (renderAll && selected && !selected.has(layer)) {
+                layerAlpha = alpha * 0.35;
+            }
+            if (renderAll && layer === activeLayer) {
+                layerAlpha = Math.min(1.0, alpha * 1.4);
+            }
+            layerData[base + 1] = layerAlpha;
         }
         this.device.queue.writeBuffer(this.renderLayerBuf, 0, layerData);
 

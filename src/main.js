@@ -47,8 +47,10 @@ const STATE = {
     activeLayer: 0, // Which layer to visualize
     layerCouplingUp: 0.0, // coupling from lower layer to this layer
     layerCouplingDown: 0.0, // coupling from upper layer to this layer
+    layerKernelEnabled: false,
     renderAllLayers: false,
     layerZOffset: 0.15,
+    selectedLayers: [0],
     smoothingMode: 0, // 0=nearest (none), 1=bilinear, 2=bicubic, 3=gaussian
     showStatistics: true, // Enable/disable statistics computation and display
     leak: 0.0, // simple leak/damping on dynamics (0 = none)
@@ -114,6 +116,153 @@ const STATE = {
 
     // Visualization toggles
     phaseSpaceEnabled: true
+};
+
+
+const makeLayerParamsFromState = (state) => ({
+    ruleMode: state.ruleMode,
+    K0: state.K0,
+    range: state.range,
+    harmonicA: state.harmonicA,
+    harmonicB: state.harmonicB,
+    delaySteps: state.delaySteps,
+    sigma: state.sigma,
+    sigma2: state.sigma2,
+    beta: state.beta,
+    noiseStrength: state.noiseStrength,
+    leak: state.leak,
+    kernelShape: state.kernelShape,
+    kernelOrientation: state.kernelOrientation,
+    kernelAsymmetricOrientation: state.kernelAsymmetricOrientation,
+    kernelAspect: state.kernelAspect,
+    kernelScale2Weight: state.kernelScale2Weight,
+    kernelScale3Weight: state.kernelScale3Weight,
+    kernelAsymmetry: state.kernelAsymmetry,
+    kernelRings: state.kernelRings,
+    kernelRingWidths: [...state.kernelRingWidths],
+    kernelRingWeights: [...state.kernelRingWeights],
+    kernelCompositionEnabled: state.kernelCompositionEnabled,
+    kernelSecondary: state.kernelSecondary,
+    kernelMixRatio: state.kernelMixRatio,
+    kernelSpatialFreqMag: state.kernelSpatialFreqMag,
+    kernelSpatialFreqAngle: state.kernelSpatialFreqAngle,
+    kernelGaborPhase: state.kernelGaborPhase,
+    // Interaction modifiers (per-layer)
+    scaleBase: state.scaleBase,
+    scaleRadial: state.scaleRadial,
+    scaleRandom: state.scaleRandom,
+    scaleRing: state.scaleRing,
+    flowRadial: state.flowRadial,
+    flowRotate: state.flowRotate,
+    flowSwirl: state.flowSwirl,
+    flowBubble: state.flowBubble,
+    flowRing: state.flowRing,
+    flowVortex: state.flowVortex,
+    flowVertical: state.flowVertical,
+    orientRadial: state.orientRadial,
+    orientCircles: state.orientCircles,
+    orientSwirl: state.orientSwirl,
+    orientBubble: state.orientBubble,
+    orientLinear: state.orientLinear,
+});
+
+const applyLayerParamsToState = (idx) => {
+    const lp = STATE.layerParams?.[idx];
+    if (!lp) {
+        console.warn(`applyLayerParamsToState: No params for layer ${idx}`);
+        return;
+    }
+    STATE.ruleMode = lp.ruleMode;
+    STATE.K0 = lp.K0;
+    STATE.range = lp.range;
+    STATE.harmonicA = lp.harmonicA;
+    STATE.harmonicB = lp.harmonicB;
+    STATE.delaySteps = lp.delaySteps;
+    STATE.sigma = lp.sigma;
+    STATE.sigma2 = lp.sigma2;
+    STATE.beta = lp.beta;
+    STATE.noiseStrength = lp.noiseStrength;
+    STATE.leak = lp.leak;
+    STATE.kernelShape = lp.kernelShape;
+    STATE.kernelOrientation = lp.kernelOrientation;
+    STATE.kernelAsymmetricOrientation = lp.kernelAsymmetricOrientation;
+    STATE.kernelAspect = lp.kernelAspect;
+    STATE.kernelScale2Weight = lp.kernelScale2Weight;
+    STATE.kernelScale3Weight = lp.kernelScale3Weight;
+    STATE.kernelAsymmetry = lp.kernelAsymmetry;
+    STATE.kernelRings = lp.kernelRings;
+    STATE.kernelRingWidths = [...lp.kernelRingWidths];
+    STATE.kernelRingWeights = [...lp.kernelRingWeights];
+    STATE.kernelCompositionEnabled = lp.kernelCompositionEnabled;
+    STATE.kernelSecondary = lp.kernelSecondary;
+    STATE.kernelMixRatio = lp.kernelMixRatio;
+    STATE.kernelSpatialFreqMag = lp.kernelSpatialFreqMag;
+    STATE.kernelSpatialFreqAngle = lp.kernelSpatialFreqAngle;
+    STATE.kernelGaborPhase = lp.kernelGaborPhase;
+    // Interaction modifiers (per-layer)
+    STATE.scaleBase = lp.scaleBase ?? 1.0;
+    STATE.scaleRadial = lp.scaleRadial ?? 0.0;
+    STATE.scaleRandom = lp.scaleRandom ?? 0.0;
+    STATE.scaleRing = lp.scaleRing ?? 0.0;
+    STATE.flowRadial = lp.flowRadial ?? 0.0;
+    STATE.flowRotate = lp.flowRotate ?? 0.0;
+    STATE.flowSwirl = lp.flowSwirl ?? 0.0;
+    STATE.flowBubble = lp.flowBubble ?? 0.0;
+    STATE.flowRing = lp.flowRing ?? 0.0;
+    STATE.flowVortex = lp.flowVortex ?? 0.0;
+    STATE.flowVertical = lp.flowVertical ?? 0.0;
+    STATE.orientRadial = lp.orientRadial ?? 0.0;
+    STATE.orientCircles = lp.orientCircles ?? 0.0;
+    STATE.orientSwirl = lp.orientSwirl ?? 0.0;
+    STATE.orientBubble = lp.orientBubble ?? 0.0;
+    STATE.orientLinear = lp.orientLinear ?? 0.0;
+};
+
+const syncStateToLayerParams = (indices) => {
+    const targets = Array.isArray(indices) ? indices : [indices];
+    const lp = makeLayerParamsFromState(STATE);
+    targets.forEach(idx => {
+        if (idx == null) return;
+        STATE.layerParams[idx] = {
+            ...lp,
+            kernelRingWidths: [...lp.kernelRingWidths],
+            kernelRingWeights: [...lp.kernelRingWeights],
+        };
+    });
+};
+
+const ensureLayerParams = (count) => {
+    const target = Math.max(1, count);
+    if (!Array.isArray(STATE.layerParams) || STATE.layerParams.length === 0) {
+        STATE.layerParams = [makeLayerParamsFromState(STATE)];
+    }
+    if (STATE.layerParams.length < target) {
+        const template = STATE.layerParams[STATE.layerParams.length - 1] || makeLayerParamsFromState(STATE);
+        while (STATE.layerParams.length < target) {
+            STATE.layerParams.push({
+                ...template,
+                kernelRingWidths: [...template.kernelRingWidths],
+                kernelRingWeights: [...template.kernelRingWeights],
+            });
+        }
+    } else if (STATE.layerParams.length > target) {
+        STATE.layerParams = STATE.layerParams.slice(0, target);
+    }
+};
+
+const normalizeSelectedLayers = (count) => {
+    const maxIdx = Math.max(0, count - 1);
+    let selected = Array.isArray(STATE.selectedLayers) ? STATE.selectedLayers : [];
+    selected = selected
+        .map(idx => Math.min(maxIdx, Math.max(0, Math.floor(idx))))
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+    if (selected.length === 0) {
+        selected = [Math.min(maxIdx, Math.max(0, STATE.activeLayer ?? 0))];
+    }
+    if (!selected.includes(STATE.activeLayer ?? 0)) {
+        selected.push(Math.min(maxIdx, Math.max(0, STATE.activeLayer ?? 0)));
+    }
+    STATE.selectedLayers = selected.sort((a, b) => a - b);
 };
 
 // Store the last external input canvas for pattern initialization
@@ -227,9 +376,12 @@ async function init() {
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
 
+    ensureLayerParams(STATE.layerCount);
     let sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
     STATE.layerCount = sim.layers;
     STATE.activeLayer = Math.min(STATE.activeLayer || 0, STATE.layerCount - 1);
+    normalizeSelectedLayers(STATE.layerCount);
+    applyLayerParamsToState(STATE.activeLayer);
     const renderer = new Renderer(device, format, canvas, STATE.gridSize);
     renderer.setMeshMode(STATE.surfaceMode);
     renderer.setContext(context);
@@ -377,20 +529,26 @@ async function init() {
     resetSimulation(sim);
     drawSim = sim;
     initDrawing(canvas);
+    sim.writeLayerParams(STATE.layerParams);
 
-    const rebuildLayerCount = (newCount) => {
+    const rebuildLayerCount = async (newCount) => {
         const clamped = Math.max(1, Math.min(8, Math.floor(newCount)));
         if (clamped === STATE.layerCount) {
             return;
         }
         STATE.layerCount = clamped;
+        ensureLayerParams(STATE.layerCount);
         STATE.activeLayer = Math.min(Math.max(0, STATE.activeLayer ?? 0), STATE.layerCount - 1);
+        normalizeSelectedLayers(STATE.layerCount);
         if (sim && sim.destroy) {
+            await sim.waitForIdle();
             sim.destroy();
         }
         sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
         drawSim = sim;
+        applyLayerParamsToState(STATE.activeLayer ?? 0);
         sim.updateFullParams(STATE);
+        sim.writeLayerParams(STATE.layerParams);
         renderer.invalidateBindGroup();
         stats.resize(STATE.gridSize * STATE.gridSize * STATE.layerCount);
         lyapunovCalc.resize(STATE.gridSize * STATE.gridSize * STATE.layerCount);
@@ -407,6 +565,9 @@ async function init() {
                 overlayDirty = true;
                 lastViewMode = STATE.viewMode;
             }
+            normalizeSelectedLayers(STATE.layerCount);
+            syncStateToLayerParams(STATE.selectedLayers);
+            sim.writeLayerParams(STATE.layerParams);
             sim.updateFullParams(STATE);
             drawKernel(STATE); 
             // Reflect new parameter state into URL
@@ -420,6 +581,34 @@ async function init() {
             STATE.topologySeed = (STATE.topologySeed || 1) + 1;
             regenerateTopology();
             updateURLFromState(STATE, true);
+        },
+        onApplyInit: async () => {
+            normalizeSelectedLayers(STATE.layerCount);
+            const targets = STATE.selectedLayers;
+            const thetaPattern = document.getElementById('theta-pattern-select')?.value || STATE.thetaPattern || 'random';
+            const omegaPattern = document.getElementById('omega-pattern-select')?.value || STATE.omegaPattern || 'random';
+            const omegaAmp = parseFloat(document.getElementById('omega-amplitude-slider')?.value || STATE.omegaAmplitude || 0.4);
+            
+            // For partial layer init, we need current state as base
+            // For all layers, we can start fresh
+            const allLayersSelected = targets.length >= STATE.layerCount;
+            
+            let thetaBase = null;
+            let omegaBase = null;
+            
+            if (!allLayersSelected) {
+                // Try to get current theta from GPU (with retry)
+                for (let attempt = 0; attempt < 3 && !thetaBase; attempt++) {
+                    thetaBase = await sim.readTheta();
+                    if (!thetaBase) await new Promise(r => setTimeout(r, 16)); // Wait a frame
+                }
+                // Fallback to CPU-side copy if GPU read fails
+                thetaBase = thetaBase || sim.thetaData || new Float32Array(sim.N);
+                omegaBase = sim.getOmega() || new Float32Array(sim.N);
+            }
+            
+            applyThetaPattern(sim, thetaPattern, targets, thetaBase);
+            applyOmegaPattern(sim, omegaPattern, omegaAmp, targets, omegaBase);
         },
         onOverlayToggle: (enabled) => {
             STATE.graphOverlayEnabled = enabled;
@@ -440,7 +629,11 @@ async function init() {
         },
     onReset: () => { resetSimulation(sim); updateURLFromState(STATE, true); },
     onRandomize: () => { randomizeTheta(sim); updateURLFromState(STATE, true); },
-    onPreset: (name) => { loadPreset(name, sim, ui); updateURLFromState(STATE, true); },
+        onPreset: (name) => {
+            void loadPreset(name, sim, ui).then(() => {
+                updateURLFromState(STATE, true);
+            });
+        },
         onPatternChange: (key) => {
             if(key === 'thetaPattern') applyThetaPattern(sim, STATE.thetaPattern);
             if(key === 'omegaPattern') applyOmegaPattern(sim, STATE.omegaPattern, STATE.omegaAmplitude);
@@ -498,7 +691,25 @@ async function init() {
             drawKernel(STATE);
         },
         onLayerCountChange: (newCount) => {
-            rebuildLayerCount(newCount);
+            void rebuildLayerCount(newCount);
+        },
+        onLayerSelect: (layerIdx, selected, prevSelected, prevActive) => {
+            // Use passed previous selection (UI already updated STATE before calling us)
+            const prev = Array.isArray(prevSelected) && prevSelected.length > 0
+                ? prevSelected
+                : [prevActive ?? STATE.activeLayer ?? 0];
+            syncStateToLayerParams(prev);
+            STATE.activeLayer = layerIdx;
+            STATE.selectedLayers = Array.isArray(selected) && selected.length > 0
+                ? selected
+                : [layerIdx];
+            normalizeSelectedLayers(STATE.layerCount);
+            applyLayerParamsToState(layerIdx);
+            sim.writeLayerParams(STATE.layerParams);
+            sim.updateFullParams(STATE);
+            drawKernel(STATE);
+            if (ui?.updateDisplay) ui.updateDisplay();
+            updateURLFromState(STATE, true);
         },
         onStartKScan: () => {
             if (stats.isScanning) return;
@@ -1412,7 +1623,7 @@ async function init() {
             
             const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
             const viewModeStr = STATE.viewMode === 0 ? '3d' : '2d';
-            renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr, STATE.renderAllLayers, STATE.activeLayer);
+            renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr, STATE.renderAllLayers, STATE.activeLayer, STATE.selectedLayers);
             
             device.queue.submit([encoder.finish()]);
 
@@ -1552,19 +1763,25 @@ function resetSimulation(sim) {
     applyOmegaPattern(sim, omegaPattern, omegaAmp);
 }
 
-function applyThetaPattern(sim, pattern) {
+function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null) {
     const N = sim.N;
     const GRID = sim.gridSize;
     const layers = sim.layers || 1;
     const layerSize = GRID * GRID;
-    const theta = new Float32Array(N);
+    const theta = thetaBase ? new Float32Array(thetaBase) : new Float32Array(N);
     const TWO_PI = 6.28318;
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
 
     if (pattern === 'random') {
-        for(let i=0; i<N; i++) theta[i] = Math.random() * TWO_PI;
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) theta[offset + i] = Math.random() * TWO_PI;
+        });
     } else if (pattern === 'gradient') {
         const k = TWO_PI / (GRID * 1.414);
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for(let r=0; r<GRID; r++) {
                 for(let c=0; c<GRID; c++) {
@@ -1574,7 +1791,7 @@ function applyThetaPattern(sim, pattern) {
         }
     } else if (pattern === 'spiral') {
         const cx = GRID/2, cy = GRID/2;
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for(let r=0; r<GRID; r++) {
                 for(let c=0; c<GRID; c++) {
@@ -1583,7 +1800,7 @@ function applyThetaPattern(sim, pattern) {
             }
         }
     } else if (pattern === 'checkerboard') {
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for(let r=0; r<GRID; r++) {
                 for(let c=0; c<GRID; c++) {
@@ -1591,30 +1808,41 @@ function applyThetaPattern(sim, pattern) {
                 }
             }
         }
+    } else if (pattern === 'target') {
+        const cx = GRID / 2;
+        const cy = GRID / 2;
+        for (const layer of targets) {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const dx = c - cx;
+                    const dy = r - cy;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    theta[offset + r * GRID + c] = (dist / GRID) * TWO_PI * 4.0;
+                }
+            }
+        }
     } else if (pattern === 'synchronized') {
-        theta.fill(0);
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            theta.fill(0, offset, offset + layerSize);
+        });
     } else if (pattern === 'image' && lastExternalCanvas) {
-        // Initialize theta from image brightness/hue
         const ctx = lastExternalCanvas.getContext('2d');
         const imageData = ctx.getImageData(0, 0, lastExternalCanvas.width, lastExternalCanvas.height);
         const pixels = imageData.data;
         
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for (let i = 0; i < layerSize; i++) {
                 const row = Math.floor(i / GRID);
                 const col = i % GRID;
-                
-                // Map grid position to image position (flip Y)
                 const imgX = Math.floor(col * lastExternalCanvas.width / GRID);
                 const imgY = Math.floor((GRID - 1 - row) * lastExternalCanvas.height / GRID);
                 const pixelIndex = (imgY * lastExternalCanvas.width + imgX) * 4;
-                
                 const r = pixels[pixelIndex] / 255;
                 const g = pixels[pixelIndex + 1] / 255;
                 const b = pixels[pixelIndex + 2] / 255;
-                
-                // Map brightness to phase
                 const brightness = (r + g + b) / 3;
                 theta[offset + i] = brightness * TWO_PI;
             }
@@ -1623,23 +1851,32 @@ function applyThetaPattern(sim, pattern) {
     sim.writeTheta(theta);
 }
 
-function applyOmegaPattern(sim, pattern, amp) {
+function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = null) {
     const N = sim.N;
     const GRID = sim.gridSize;
     const layers = sim.layers || 1;
     const layerSize = GRID * GRID;
-    const omega = new Float32Array(N);
+    const omega = omegaBase ? new Float32Array(omegaBase) : new Float32Array(N);
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
 
     if (pattern === 'random') {
-        for(let i=0; i<N; i++) {
-            const u1 = Math.random(), u2 = Math.random();
-            const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-            omega[i] = z * amp;
-        }
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for(let i=0; i<layerSize; i++) {
+                const u1 = Math.random(), u2 = Math.random();
+                const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                omega[offset + i] = z * amp;
+            }
+        });
     } else if (pattern === 'uniform') {
-        omega.fill(amp);
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            omega.fill(amp, offset, offset + layerSize);
+        });
     } else if (pattern === 'gradient') {
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for(let r=0; r<GRID; r++) {
                 for(let c=0; c<GRID; c++) {
@@ -1648,7 +1885,7 @@ function applyOmegaPattern(sim, pattern, amp) {
             }
         }
     } else if (pattern === 'checkerboard') {
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for(let r=0; r<GRID; r++) {
                 for(let c=0; c<GRID; c++) {
@@ -1658,7 +1895,7 @@ function applyOmegaPattern(sim, pattern, amp) {
         }
     } else if (pattern === 'center_fast') {
         const cx = GRID/2, cy = GRID/2, sigma = GRID/4;
-        for (let layer = 0; layer < layers; layer++) {
+        for (const layer of targets) {
             const offset = layer * layerSize;
             for(let r=0; r<GRID; r++) {
                 for(let c=0; c<GRID; c++) {
@@ -1678,13 +1915,65 @@ function randomizeTheta(sim) {
     sim.writeTheta(theta);
 }
 
-function loadPreset(name, sim, ui) {
+async function loadPreset(name, sim, ui) {
     console.log("Loading preset:", name);
     
     if (Presets[name]) {
+        normalizeSelectedLayers(STATE.layerCount);
+        const targets = STATE.selectedLayers;
+        const applyAll = targets.length >= STATE.layerCount;
+        
+        // IMPORTANT: Read current state BEFORE calling the preset
+        // Presets overwrite sim.thetaData via writeTheta()
+        let baseTheta = null;
+        let baseOmega = null;
+        if (!applyAll) {
+            baseTheta = sim.thetaData ? new Float32Array(sim.thetaData) : await sim.readTheta();
+            baseOmega = sim.getOmega() ? new Float32Array(sim.getOmega()) : null;
+        }
+        
+        // Run the preset (this writes to sim.thetaData for all layers, but presets
+        // typically only fill layer 0 with meaningful data, leaving others zero)
         Presets[name](STATE, sim);
+        
+        // Sync STATE params to selected layers
+        syncStateToLayerParams(targets);
+        sim.writeLayerParams(STATE.layerParams);
+        
+        // If partial selection, merge: keep non-target layers from base, use preset for targets
+        if (!applyAll && baseTheta) {
+            const presetTheta = sim.thetaData ? new Float32Array(sim.thetaData) : null;
+            if (presetTheta) {
+                const layerSize = sim.gridSize * sim.gridSize;
+                // Start with the preserved base (all layers)
+                const combined = new Float32Array(baseTheta);
+                // Only overwrite target layers with preset data from layer 0
+                // (since most presets only set layer 0)
+                targets.forEach(layerIdx => {
+                    const targetOffset = layerIdx * layerSize;
+                    // Copy from layer 0 of preset to target layer
+                    combined.set(presetTheta.subarray(0, layerSize), targetOffset);
+                });
+                sim.writeTheta(combined);
+            }
+        }
+        if (!applyAll && baseOmega) {
+            const presetOmega = sim.getOmega();
+            if (presetOmega) {
+                const layerSize = sim.gridSize * sim.gridSize;
+                const combinedOmega = new Float32Array(baseOmega);
+                targets.forEach(layerIdx => {
+                    const targetOffset = layerIdx * layerSize;
+                    // Copy from layer 0 of preset to target layer
+                    combinedOmega.set(presetOmega.subarray(0, layerSize), targetOffset);
+                });
+                sim.writeOmega(combinedOmega);
+                sim.storeOmega(combinedOmega);
+            }
+        }
+        
         ui.updateDisplay();
-        sim.updateFullParams(STATE); // Update all params after preset
+        sim.updateFullParams(STATE);
         drawKernel(STATE);
     } else {
         console.warn("Preset not found:", name);
@@ -1823,16 +2112,22 @@ function renderLocalHistogram(canvas, bins) {
         drawSim.readTheta().then(theta => {
             if (!theta) { drawPending = false; return; }
             const TWO_PI = 6.28318530718;
+            const layerSize = STATE.gridSize * STATE.gridSize;
+            normalizeSelectedLayers(STATE.layerCount);
+            const targets = STATE.selectedLayers;
             for (let dy = -radius; dy <= radius; dy++) {
                 for (let dx = -radius; dx <= radius; dx++) {
                     const x = (gx + dx + STATE.gridSize) % STATE.gridSize;
                     const y = (gy + dy + STATE.gridSize) % STATE.gridSize;
-                    const idx = y * STATE.gridSize + x;
-                    if (mode === 'erase') {
-                        theta[idx] = 0;
-                    } else {
-                        theta[idx] = Math.random() * TWO_PI;
-                    }
+                    const base = y * STATE.gridSize + x;
+                    targets.forEach(layerIdx => {
+                        const idx = layerIdx * layerSize + base;
+                        if (mode === 'erase') {
+                            theta[idx] = 0;
+                        } else {
+                            theta[idx] = Math.random() * TWO_PI;
+                        }
+                    });
                 }
             }
             drawSim.writeTheta(theta);

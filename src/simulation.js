@@ -126,6 +126,12 @@ export class Simulation {
             size: this.N * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
+
+        this.layerParamsBuf = this.device.createBuffer({
+            size: 52 * 4 * 8,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        this.device.queue.writeBuffer(this.layerParamsBuf, 0, new Float32Array(52 * 8).fill(0));
         
         // ============= RESERVOIR COMPUTING BUFFERS =============
         // Input weights: how strongly each oscillator receives input signal
@@ -247,10 +253,76 @@ export class Simulation {
                     { binding: 9, resource: { buffer: this.graphNeighborsBuf } },
                     { binding: 10, resource: { buffer: this.graphWeightsBuf } },
                     { binding: 11, resource: { buffer: this.graphCountsBuf } },
+                    { binding: 12, resource: { buffer: this.layerParamsBuf } },
                 ],
             }));
         }
         return this.bindGroupCache.get(cacheKey);
+    }
+
+    writeLayerParams(layers) {
+        const count = Math.max(1, this.layers || 1);
+        const stride = 52;
+        const data = new Float32Array(stride * 8);
+        for (let i = 0; i < Math.min(8, count); i++) {
+            const lp = Array.isArray(layers) ? layers[i] : null;
+            const base = i * stride;
+            data[base] = lp?.ruleMode ?? 0;
+            data[base + 1] = lp?.K0 ?? 1.0;
+            data[base + 2] = lp?.range ?? 2;
+            data[base + 3] = lp?.harmonicA ?? 0.4;
+            data[base + 4] = lp?.harmonicB ?? 0.0;
+            data[base + 5] = lp?.sigma ?? 1.2;
+            data[base + 6] = lp?.sigma2 ?? 1.2;
+            data[base + 7] = lp?.beta ?? 0.6;
+            data[base + 8] = lp?.noiseStrength ?? 0.0;
+            data[base + 9] = lp?.leak ?? 0.0;
+            data[base + 10] = lp?.kernelShape ?? 0;
+            data[base + 11] = lp?.kernelOrientation ?? 0.0;
+            data[base + 12] = lp?.kernelAspect ?? 1.0;
+            data[base + 13] = lp?.kernelScale2Weight ?? 0.0;
+            data[base + 14] = lp?.kernelScale3Weight ?? 0.0;
+            data[base + 15] = lp?.kernelAsymmetry ?? 0.0;
+            data[base + 16] = lp?.kernelRings ?? 3;
+            data[base + 17] = lp?.kernelRingWidths?.[0] ?? 0.2;
+            data[base + 18] = lp?.kernelRingWidths?.[1] ?? 0.4;
+            data[base + 19] = lp?.kernelRingWidths?.[2] ?? 0.6;
+            data[base + 20] = lp?.kernelRingWidths?.[3] ?? 0.8;
+            data[base + 21] = lp?.kernelRingWidths?.[4] ?? 1.0;
+            data[base + 22] = lp?.kernelRingWeights?.[0] ?? 1.0;
+            data[base + 23] = lp?.kernelRingWeights?.[1] ?? -0.6;
+            data[base + 24] = lp?.kernelRingWeights?.[2] ?? 0.8;
+            data[base + 25] = lp?.kernelRingWeights?.[3] ?? -0.4;
+            data[base + 26] = lp?.kernelRingWeights?.[4] ?? 0.5;
+            data[base + 27] = lp?.kernelCompositionEnabled ? 1.0 : 0.0;
+            data[base + 28] = lp?.kernelSecondary ?? 0;
+            data[base + 29] = lp?.kernelMixRatio ?? 0.5;
+            data[base + 30] = lp?.kernelAsymmetricOrientation ?? 0.0;
+            data[base + 31] = lp?.kernelSpatialFreqMag ?? 2.0;
+            data[base + 32] = lp?.kernelSpatialFreqAngle ?? 0.0;
+            data[base + 33] = lp?.kernelGaborPhase ?? 0.0;
+            // Interaction modifiers (per-layer)
+            data[base + 34] = lp?.scaleBase ?? 1.0;
+            data[base + 35] = lp?.scaleRadial ?? 0.0;
+            data[base + 36] = lp?.scaleRandom ?? 0.0;
+            data[base + 37] = lp?.scaleRing ?? 0.0;
+            data[base + 38] = lp?.flowRadial ?? 0.0;
+            data[base + 39] = lp?.flowRotate ?? 0.0;
+            data[base + 40] = lp?.flowSwirl ?? 0.0;
+            data[base + 41] = lp?.flowBubble ?? 0.0;
+            data[base + 42] = lp?.flowRing ?? 0.0;
+            data[base + 43] = lp?.flowVortex ?? 0.0;
+            data[base + 44] = lp?.flowVertical ?? 0.0;
+            data[base + 45] = lp?.orientRadial ?? 0.0;
+            data[base + 46] = lp?.orientCircles ?? 0.0;
+            data[base + 47] = lp?.orientSwirl ?? 0.0;
+            data[base + 48] = lp?.orientBubble ?? 0.0;
+            data[base + 49] = lp?.orientLinear ?? 0.0;
+            // Padding to 52 (for 16-byte alignment: 52*4 = 208, divisible by 16)
+            data[base + 50] = 0;
+            data[base + 51] = 0;
+        }
+        this.device.queue.writeBuffer(this.layerParamsBuf, 0, data);
     }
 
     writeTopology(topology) {
@@ -353,7 +425,7 @@ export class Simulation {
             // 46-49
             (p.smoothingMode ?? 0) > 0 ? 1.0 : 0.0, p.smoothingMode ?? 0, injMode, p.leak ?? 0.0,
             // 50-51 layer Z offset + pad
-            p.layerZOffset ?? 0.0, 0,
+            p.layerZOffset ?? 0.0, p.layerKernelEnabled ? 1.0 : 0.0,
             // 52-55 interaction scale
             p.scaleBase ?? 1.0, p.scaleRadial ?? 0.0, p.scaleRandom ?? 0.0, p.scaleRing ?? 0.0,
             // 56-59 flow
@@ -467,6 +539,7 @@ export class Simulation {
 
     // Helper to write data directly to theta textures
     writeTheta(data) {
+        this.thetaData = new Float32Array(data);
         const layout = { bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize };
         const size = [this.gridSize, this.gridSize, this.layers];
         for (const tex of this.thetaTextures) {
@@ -485,6 +558,7 @@ export class Simulation {
     }
     
     writeOmega(data) {
+        this.omegaData = new Float32Array(data);
         this.device.queue.writeBuffer(this.omegaBuf, 0, data);
     }
     
@@ -825,6 +899,16 @@ export class Simulation {
         return newTheta;
     }
 
+    async waitForIdle(maxMs = 200) {
+        const start = performance.now();
+        while (this.thetaReadPending || this.mappingInProgress) {
+            if (performance.now() - start > maxMs) {
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 5));
+        }
+    }
+
     destroy() {
         for (const tex of this.thetaTextures) {
             tex.destroy();
@@ -857,6 +941,7 @@ export class Simulation {
         if (this.graphNeighborsBuf) this.graphNeighborsBuf.destroy();
         if (this.graphWeightsBuf) this.graphWeightsBuf.destroy();
         if (this.graphCountsBuf) this.graphCountsBuf.destroy();
+        if (this.layerParamsBuf) this.layerParamsBuf.destroy();
         this.bindGroupCache.clear();
     }
 

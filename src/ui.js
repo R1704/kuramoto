@@ -88,6 +88,15 @@ export class UIManager {
         bind('layer-coupling-down-slider', 'layerCouplingDown');
         bind('layer-z-offset-slider', 'layerZOffset');
 
+        const layerKernelToggle = document.getElementById('layer-kernel-toggle');
+        if (layerKernelToggle) {
+            layerKernelToggle.addEventListener('change', () => {
+                this.state.layerKernelEnabled = layerKernelToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+
         // Topology controls
         const topologySelect = document.getElementById('topology-select');
         if (topologySelect) {
@@ -190,10 +199,21 @@ export class UIManager {
                 let val = parseInt(activeLayerInput.value);
                 if (isNaN(val)) val = 0;
                 val = Math.min(maxLayer, Math.max(0, val));
-                this.state.activeLayer = val;
                 activeLayerInput.value = val;
-                this.cb.onParamChange();
-                this.updateDisplay();
+                if (this.cb.onLayerSelect) {
+                    // Capture previous state before modifying
+                    const prevActive = this.state.activeLayer ?? 0;
+                    const prevSelected = Array.isArray(this.state.selectedLayers) 
+                        ? [...this.state.selectedLayers] 
+                        : [prevActive];
+                    this.state.activeLayer = val;
+                    this.state.selectedLayers = [val];
+                    this.cb.onLayerSelect(val, [val], prevSelected, prevActive);
+                } else {
+                    this.state.activeLayer = val;
+                    this.cb.onParamChange();
+                    this.updateDisplay();
+                }
             });
         }
         const renderAllToggle = document.getElementById('render-all-layers-toggle');
@@ -585,6 +605,13 @@ export class UIManager {
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.onclick = () => this.cb.onPreset(btn.dataset.preset);
         });
+
+        const applyInitBtn = document.getElementById('apply-init-btn');
+        if (applyInitBtn) {
+            applyInitBtn.onclick = () => {
+                if (this.cb.onApplyInit) this.cb.onApplyInit();
+            };
+        }
         
         // View mode toggle
         const view3dBtn = document.getElementById('view-3d-btn');
@@ -938,8 +965,14 @@ export class UIManager {
         if (lcVal) lcVal.textContent = layerCount;
         const layerCountInput = document.getElementById('layer-count-input');
         if (layerCountInput) layerCountInput.value = layerCount;
+        const layerKernelToggle = document.getElementById('layer-kernel-toggle');
+        if (layerKernelToggle) layerKernelToggle.checked = !!this.state.layerKernelEnabled;
+        this.updateLayerTabs();
         const activeLayerInput = document.getElementById('active-layer-input');
         const activeLayerVal = document.getElementById('active-layer-value');
+        if (!Array.isArray(this.state.selectedLayers) || this.state.selectedLayers.length === 0) {
+            this.state.selectedLayers = [this.state.activeLayer ?? 0];
+        }
         if (activeLayerInput) {
             activeLayerInput.max = Math.max(0, layerCount - 1);
             activeLayerInput.value = Math.min(layerCount - 1, Math.max(0, this.state.activeLayer ?? 0));
@@ -1219,9 +1252,10 @@ export class UIManager {
         if (delayControl) delayControl.style.display = this.state.ruleMode === 5 ? 'flex' : 'none';
         
         const kernelSection = document.getElementById('kernel-section');
-        if (kernelSection) kernelSection.style.display = this.state.ruleMode === 4 ? 'flex' : 'none';
+        const showKernel = this.state.ruleMode === 4 || this.state.layerKernelEnabled;
+        if (kernelSection) kernelSection.style.display = showKernel ? 'flex' : 'none';
         const kernelVisuals = document.getElementById('kernel-visuals');
-        if (kernelVisuals) kernelVisuals.style.display = this.state.ruleMode === 4 ? 'flex' : 'none';
+        if (kernelVisuals) kernelVisuals.style.display = showKernel ? 'flex' : 'none';
         
         // Update global coupling indicator and range control
         const globalInd = document.getElementById('global-indicator');
@@ -1343,6 +1377,67 @@ export class UIManager {
         setVal('orient-swirl-slider', this.state.orientSwirl);
         setVal('orient-bubble-slider', this.state.orientBubble);
         setVal('orient-linear-slider', this.state.orientLinear);
+    }
+
+    updateLayerTabs() {
+        const tabBar = document.getElementById('layer-tabs');
+        if (!tabBar) return;
+        const count = Math.max(1, this.state.layerCount ?? 1);
+        tabBar.style.display = count > 1 ? 'flex' : 'none';
+        tabBar.replaceChildren();
+        const selected = Array.isArray(this.state.selectedLayers) ? this.state.selectedLayers : [];
+        for (let i = 0; i < count; i++) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const isActive = i === (this.state.activeLayer ?? 0);
+            const isSelected = selected.includes(i);
+            btn.className = 'layer-tab-btn' + (isActive ? ' active' : '') + (isSelected ? ' selected' : '');
+            btn.textContent = `Layer ${i}`;
+            btn.addEventListener('click', (event) => {
+                const multi = event.metaKey || event.ctrlKey || event.shiftKey;
+                // Capture PREVIOUS selection before modifying state
+                const prevActive = this.state.activeLayer ?? 0;
+                const prevSelected = Array.isArray(this.state.selectedLayers) ? [...this.state.selectedLayers] : [prevActive];
+                
+                let nextSelected = Array.isArray(this.state.selectedLayers) ? [...this.state.selectedLayers] : [];
+                if (multi) {
+                    if (!nextSelected.includes(i)) {
+                        nextSelected.push(i);
+                    } else if (nextSelected.length > 1) {
+                        nextSelected = nextSelected.filter(idx => idx !== i);
+                    }
+                } else {
+                    nextSelected = [i];
+                }
+                nextSelected = nextSelected.filter((v, idx, arr) => arr.indexOf(v) === idx).sort((a, b) => a - b);
+                this.state.activeLayer = i;
+                this.state.selectedLayers = nextSelected;
+                const activeLayerInput = document.getElementById('active-layer-input');
+                const activeLayerVal = document.getElementById('active-layer-value');
+                if (activeLayerInput) activeLayerInput.value = i;
+                if (activeLayerVal) activeLayerVal.textContent = i;
+                if (this.cb.onLayerSelect) {
+                    // Pass previous selection so main.js can save params correctly
+                    this.cb.onLayerSelect(i, nextSelected, prevSelected, prevActive);
+                }
+            });
+            tabBar.appendChild(btn);
+        }
+        const note = document.getElementById('layer-tab-note');
+        if (note) {
+            const active = this.state.activeLayer ?? 0;
+            const selected = Array.isArray(this.state.selectedLayers) ? this.state.selectedLayers : [active];
+            const label = selected.length > 1
+                ? `Editing Layers ${selected.join(', ')}`
+                : `Editing Layer ${active}`;
+            note.textContent = label;
+        }
+        const debug = document.getElementById('layer-tab-debug');
+        if (debug) {
+            const active = this.state.activeLayer ?? 0;
+            const selected = Array.isArray(this.state.selectedLayers) ? this.state.selectedLayers : [active];
+            debug.textContent = `Active: ${active} | Selected: ${selected.join(', ')}`;
+        }
     }
     
     loadExternalImage(img) {

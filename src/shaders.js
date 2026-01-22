@@ -13,7 +13,7 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, layer_z_offset: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
     // Interaction modifiers
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
@@ -22,6 +22,60 @@ struct Params {
     mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
     layer_count: f32, layer_coupling_up: f32, layer_coupling_down: f32, active_layer: f32,
+}
+
+struct LayerParams {
+    rule_mode: f32,
+    K0: f32,
+    range: f32,
+    harmonic_a: f32,
+    harmonic_b: f32,
+    sigma: f32,
+    sigma2: f32,
+    beta: f32,
+    noise_strength: f32,
+    leak: f32,
+    kernel_shape: f32,
+    kernel_orientation: f32,
+    kernel_aspect: f32,
+    kernel_scale2_weight: f32,
+    kernel_scale3_weight: f32,
+    kernel_asymmetry: f32,
+    kernel_rings: f32,
+    ring_width_1: f32,
+    ring_width_2: f32,
+    ring_width_3: f32,
+    ring_width_4: f32,
+    ring_width_5: f32,
+    ring_weight_1: f32,
+    ring_weight_2: f32,
+    ring_weight_3: f32,
+    ring_weight_4: f32,
+    ring_weight_5: f32,
+    kernel_composition_enabled: f32,
+    kernel_secondary: f32,
+    kernel_mix_ratio: f32,
+    kernel_asymmetric_orientation: f32,
+    kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32,
+    kernel_gabor_phase: f32,
+    // Interaction modifiers (per-layer)
+    scale_base: f32,
+    scale_radial: f32,
+    scale_random: f32,
+    scale_ring: f32,
+    flow_radial: f32,
+    flow_rotate: f32,
+    flow_swirl: f32,
+    flow_bubble: f32,
+    flow_ring: f32,
+    flow_vortex: f32,
+    flow_vertical: f32,
+    orient_radial: f32,
+    orient_circles: f32,
+    orient_swirl: f32,
+    orient_bubble: f32,
+    orient_linear: f32,
 }
 
 // Textures for theta state (array layers = hierarchical levels)
@@ -37,6 +91,7 @@ struct Params {
 @group(0) @binding(9) var<storage, read> graph_neighbors: array<u32>;
 @group(0) @binding(10) var<storage, read> graph_weights: array<f32>;
 @group(0) @binding(11) var<storage, read> graph_counts: array<u32>;
+@group(0) @binding(12) var<uniform> layer_params: array<LayerParams, 8>;
 
 // ============================================================================
 // SHARED MEMORY TILE for fast neighbor access
@@ -116,9 +171,9 @@ fn hash(n: u32) -> f32 {
     return f32(x) / 4294967296.0;
 }
 
-fn noise(i: u32) -> f32 {
+fn noise(i: u32, strength: f32) -> f32 {
     let seed = u32(params.time * 1000.0) + i * 12345u;
-    return (hash(seed) - 0.5) * params.noise_strength * 2.0;
+    return (hash(seed) - 0.5) * strength * 2.0;
 }
 
 // Load theta using linear index (graph mode helper)
@@ -259,9 +314,9 @@ fn spatialCoupling(local_c: i32, local_r: i32, rng: i32, t: f32) -> vec2<f32> {
 }
 
 // Helper function to compute kernel weight for a specific shape
-fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
-    let s1 = params.sigma;
-    let s2 = params.sigma2;
+fn mexhat_weight_for_shape_scaled(dx: f32, dy: f32, shape: i32, scale: f32, lp: LayerParams) -> f32 {
+    let s1 = lp.sigma * scale;
+    let s2 = lp.sigma2 * scale;
     
     var dist_sq = 0.0;
     var base_weight = 0.0;
@@ -271,13 +326,13 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         dist_sq = dx * dx + dy * dy;
         let w1 = exp(-dist_sq / (2.0 * s1 * s1));
         let w2 = exp(-dist_sq / (2.0 * s2 * s2));
-        base_weight = w1 - params.beta * w2;
+        base_weight = w1 - lp.beta * w2;
     }
     
     // Shape 1: Anisotropic (elliptical) - rotate and scale
     else if (shape == 1) {
-        let angle = params.kernel_orientation;
-        let aspect = params.kernel_aspect;
+        let angle = lp.kernel_orientation;
+        let aspect = lp.kernel_aspect;
         
         // Rotate coordinates
         let cos_a = cos(angle);
@@ -289,7 +344,7 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         dist_sq = (dx_rot * dx_rot) + (dy_rot * dy_rot) / (aspect * aspect);
         let w1 = exp(-dist_sq / (2.0 * s1 * s1));
         let w2 = exp(-dist_sq / (2.0 * s2 * s2));
-        base_weight = w1 - params.beta * w2;
+        base_weight = w1 - lp.beta * w2;
     }
     
     // Shape 2: Multi-scale (sum of Gaussians at different scales)
@@ -299,27 +354,27 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         // Base scale
         let w1 = exp(-dist_sq / (2.0 * s1 * s1));
         let w2 = exp(-dist_sq / (2.0 * s2 * s2));
-        base_weight = w1 - params.beta * w2;
+        base_weight = w1 - lp.beta * w2;
         
         // Second scale at 2× size
         let s1_2 = s1 * 2.0;
         let s2_2 = s2 * 2.0;
         let w1_2 = exp(-dist_sq / (2.0 * s1_2 * s1_2));
         let w2_2 = exp(-dist_sq / (2.0 * s2_2 * s2_2));
-        base_weight = base_weight + params.kernel_scale2_weight * (w1_2 - params.beta * w2_2);
+        base_weight = base_weight + lp.kernel_scale2_weight * (w1_2 - lp.beta * w2_2);
         
         // Third scale at 3× size
         let s1_3 = s1 * 3.0;
         let s2_3 = s2 * 3.0;
         let w1_3 = exp(-dist_sq / (2.0 * s1_3 * s1_3));
         let w2_3 = exp(-dist_sq / (2.0 * s2_3 * s2_3));
-        base_weight = base_weight + params.kernel_scale3_weight * (w1_3 - params.beta * w2_3);
+        base_weight = base_weight + lp.kernel_scale3_weight * (w1_3 - lp.beta * w2_3);
     }
     
     // Shape 3: Asymmetric (different forward/backward coupling)
     else if (shape == 3) {
-        let angle = params.kernel_asymmetric_orientation;
-        let asymmetry = params.kernel_asymmetry; // -1 to 1
+        let angle = lp.kernel_asymmetric_orientation;
+        let asymmetry = lp.kernel_asymmetry; // -1 to 1
         
         // Compute angle from center to point
         // Negate dx to match visual X-axis (column indices increase left-to-right visually)
@@ -332,7 +387,7 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         dist_sq = dx * dx + dy * dy;
         let w1 = exp(-dist_sq / (2.0 * s1 * s1));
         let w2 = exp(-dist_sq / (2.0 * s2 * s2));
-        base_weight = directional_factor * (w1 - params.beta * w2);
+        base_weight = directional_factor * (w1 - lp.beta * w2);
     }
     
     // Shape 4: Step/Rectangular (constant within sigma, zero outside)
@@ -341,7 +396,7 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         if (dist < s1) {
             base_weight = 1.0;
         } else if (dist < s2) {
-            base_weight = -params.beta;
+            base_weight = -lp.beta;
         } else {
             base_weight = 0.0;
         }
@@ -351,44 +406,44 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
     else if (shape == 5) {
         let r = sqrt(dx * dx + dy * dy);
         let r_norm = r / s2; // normalize to [0, 1] range (sigma2 = max radius)
-        let num_rings = i32(params.kernel_rings);
+        let num_rings = i32(lp.kernel_rings);
         
         base_weight = 0.0; // outside all rings
         
         // Check each ring (unrolled for efficiency)
-        if (num_rings >= 1 && r_norm < params.ring_width_1) {
-            let ring_center = params.ring_width_1 * 0.5 * s2;
+        if (num_rings >= 1 && r_norm < lp.ring_width_1) {
+            let ring_center = lp.ring_width_1 * 0.5 * s2;
             let dist_from_center = abs(r - ring_center);
             let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
-            base_weight = params.ring_weight_1 * gaussian;
+            base_weight = lp.ring_weight_1 * gaussian;
         }
-        else if (num_rings >= 2 && r_norm < params.ring_width_2) {
-            let ring_inner = params.ring_width_1;
-            let ring_center = (ring_inner + params.ring_width_2) * 0.5 * s2;
+        else if (num_rings >= 2 && r_norm < lp.ring_width_2) {
+            let ring_inner = lp.ring_width_1;
+            let ring_center = (ring_inner + lp.ring_width_2) * 0.5 * s2;
             let dist_from_center = abs(r - ring_center);
             let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
-            base_weight = params.ring_weight_2 * gaussian;
+            base_weight = lp.ring_weight_2 * gaussian;
         }
-        else if (num_rings >= 3 && r_norm < params.ring_width_3) {
-            let ring_inner = params.ring_width_2;
-            let ring_center = (ring_inner + params.ring_width_3) * 0.5 * s2;
+        else if (num_rings >= 3 && r_norm < lp.ring_width_3) {
+            let ring_inner = lp.ring_width_2;
+            let ring_center = (ring_inner + lp.ring_width_3) * 0.5 * s2;
             let dist_from_center = abs(r - ring_center);
             let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
-            base_weight = params.ring_weight_3 * gaussian;
+            base_weight = lp.ring_weight_3 * gaussian;
         }
-        else if (num_rings >= 4 && r_norm < params.ring_width_4) {
-            let ring_inner = params.ring_width_3;
-            let ring_center = (ring_inner + params.ring_width_4) * 0.5 * s2;
+        else if (num_rings >= 4 && r_norm < lp.ring_width_4) {
+            let ring_inner = lp.ring_width_3;
+            let ring_center = (ring_inner + lp.ring_width_4) * 0.5 * s2;
             let dist_from_center = abs(r - ring_center);
             let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
-            base_weight = params.ring_weight_4 * gaussian;
+            base_weight = lp.ring_weight_4 * gaussian;
         }
-        else if (num_rings >= 5 && r_norm < params.ring_width_5) {
-            let ring_inner = params.ring_width_4;
-            let ring_center = (ring_inner + params.ring_width_5) * 0.5 * s2;
+        else if (num_rings >= 5 && r_norm < lp.ring_width_5) {
+            let ring_inner = lp.ring_width_4;
+            let ring_center = (ring_inner + lp.ring_width_5) * 0.5 * s2;
             let dist_from_center = abs(r - ring_center);
             let gaussian = exp(-dist_from_center * dist_from_center / (2.0 * s1 * s1));
-            base_weight = params.ring_weight_5 * gaussian;
+            base_weight = lp.ring_weight_5 * gaussian;
         }
     }
     
@@ -401,16 +456,16 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         let dist_sq = dx * dx + dy * dy;
         let w1 = exp(-dist_sq / (2.0 * s1 * s1)); // excitatory envelope
         let w2 = exp(-dist_sq / (2.0 * s2 * s2)); // inhibitory envelope
-        let envelope = w1 - params.beta * w2; // Mexican-hat envelope
+        let envelope = w1 - lp.beta * w2; // Mexican-hat envelope
         
         // Spatial frequency components
-        let k = params.kernel_spatial_freq_mag;
-        let theta = params.kernel_spatial_freq_angle;
+        let k = lp.kernel_spatial_freq_mag;
+        let theta = lp.kernel_spatial_freq_angle;
         let k_x = k * cos(theta);
         let k_y = k * sin(theta);
         
         // Sinusoidal carrier with phase offset
-        let phase = k_x * dx + k_y * dy + params.kernel_gabor_phase;
+        let phase = k_x * dx + k_y * dy + lp.kernel_gabor_phase;
         let carrier = cos(phase);
         
         base_weight = envelope * carrier;
@@ -421,33 +476,54 @@ fn mexhat_weight_for_shape(dx: f32, dy: f32, shape: i32) -> f32 {
         dist_sq = dx * dx + dy * dy;
         let w1 = exp(-dist_sq / (2.0 * s1 * s1));
         let w2 = exp(-dist_sq / (2.0 * s2 * s2));
-        base_weight = w1 - params.beta * w2;
+        base_weight = w1 - lp.beta * w2;
     }
     
     return base_weight;
 }
 
-fn mexhat_weight(dx: f32, dy: f32) -> f32 {
-    let primary_shape = i32(params.kernel_shape);
+fn mexhat_weight_scaled(dx: f32, dy: f32, scale: f32, lp: LayerParams) -> f32 {
+    let primary_shape = i32(lp.kernel_shape);
     
     // Check if composition is enabled
-    if (params.kernel_composition_enabled > 0.5) {
-        let secondary_shape = i32(params.kernel_secondary);
-        let mix_ratio = params.kernel_mix_ratio;
+    if (lp.kernel_composition_enabled > 0.5) {
+        let secondary_shape = i32(lp.kernel_secondary);
+        let mix_ratio = lp.kernel_mix_ratio;
         
         // Evaluate both kernels
-        let primary_weight = mexhat_weight_for_shape(dx, dy, primary_shape);
-        let secondary_weight = mexhat_weight_for_shape(dx, dy, secondary_shape);
+        let primary_weight = mexhat_weight_for_shape_scaled(dx, dy, primary_shape, scale, lp);
+        let secondary_weight = mexhat_weight_for_shape_scaled(dx, dy, secondary_shape, scale, lp);
         
         // Mix: 0 = all secondary, 1 = all primary
         return mix(secondary_weight, primary_weight, mix_ratio);
     } else {
         // Single kernel mode
-        return mexhat_weight_for_shape(dx, dy, primary_shape);
+        return mexhat_weight_for_shape_scaled(dx, dy, primary_shape, scale, lp);
     }
 }
 
-fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32) -> f32 {
+fn mexhat_weight(dx: f32, dy: f32, lp: LayerParams) -> f32 {
+    return mexhat_weight_scaled(dx, dy, 1.0, lp);
+}
+
+fn kernelCouplingLayer(global_c: u32, global_r: u32, cols: u32, rows: u32, source_layer: u32, t: f32, lp: LayerParams) -> f32 {
+    let rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 8.0));
+    var sum = 0.0; var wtotal = 0.0;
+    for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
+        for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
+            if (dr == 0 && dc == 0) { continue; }
+            let w = mexhat_weight_scaled(f32(dc), f32(dr), 1.0, lp);
+            if (abs(w) < 0.0001) { continue; }
+            let theta_j = loadThetaGlobal(i32(global_c) + dc, i32(global_r) + dr, i32(source_layer), i32(cols), i32(rows));
+            sum = sum + w * sin(theta_j - t);
+            wtotal = wtotal + abs(w);
+        }
+    }
+    if (wtotal < 0.0001) { return 0.0; }
+    return sum / wtotal;
+}
+
+fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -465,10 +541,10 @@ fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32,
         sum = res.x;
         cnt = res.y;
     }
-    return params.K0 * (sum / max(cnt, 1e-5));
+    return lp.K0 * (sum / max(cnt, 1e-5));
 }
 
-fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, ri: f32) -> f32 {
+fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, ri: f32, lp: LayerParams) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -486,11 +562,11 @@ fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         sum = res.x;
         cnt = res.y;
     }
-    let Ki = params.K0 * (1.0 - 0.8 * ri);
+    let Ki = lp.K0 * (1.0 - 0.8 * ri);
     return Ki * (sum / max(cnt, 1e-5));
 }
 
-fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32) -> f32 {
+fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -509,10 +585,10 @@ fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         cnt = res.y;
     }
     let lap = sum / max(cnt, 1e-5);
-    return params.K0 * min(1.0, abs(lap) * 2.0) * lap;
+    return lp.K0 * min(1.0, abs(lap) * 2.0) * lap;
 }
 
-fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32) -> f32 {
+fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
     var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -523,8 +599,8 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         
         // For harmonics, use fundamental with harmonic coefficients
         let Z_mag = sqrt(Z_cos * Z_cos + Z_sin * Z_sin);
-        s2 = s1 * params.harmonic_a * Z_mag;
-        s3 = s1 * params.harmonic_b * Z_mag;
+        s2 = s1 * lp.harmonic_a * Z_mag;
+        s3 = s1 * lp.harmonic_b * Z_mag;
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
         let res = graphHarmonics(i, t, cols, rows);
@@ -543,19 +619,19 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
             }
         }
     }
-    return params.K0 * ((s1 + params.harmonic_a * s2 + params.harmonic_b * s3) / max(cnt, 1e-5));
+    return lp.K0 * ((s1 + lp.harmonic_a * s2 + lp.harmonic_b * s3) / max(cnt, 1e-5));
 }
 
 // rule_kernel needs larger range - use shared memory when possible, fall back to global
-fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, layer: i32, t: f32, i: u32) -> f32 {
+fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, layer: i32, t: f32, i: u32, lp: LayerParams) -> f32 {
     if (params.topology_mode > 0.5) {
         let res = graphCoupling(i, t, u32(cols), u32(rows));
-        return params.K0 * (res.x / max(res.y, 1e-5));
+        return lp.K0 * (res.x / max(res.y, 1e-5));
     }
 
     var sum = 0.0; var wtotal = 0.0;
     
-    let rng_ext = i32(params.sigma2 * 3.0);
+    let rng_ext = i32(lp.sigma2 * 3.0);
     
     // If range fits in shared memory (halo = 8), use it
     if (rng_ext <= i32(HALO)) {
@@ -563,7 +639,7 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
             for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
                 let theta_j = loadThetaShared(local_c + dc, local_r + dr);
-                let w = mexhat_weight(f32(dc), f32(dr));
+                let w = mexhat_weight(f32(dc), f32(dr), lp);
                 sum = sum + w * sin(theta_j - t);
                 wtotal = wtotal + abs(w);
             }
@@ -574,7 +650,7 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
             for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
                 let theta_j = loadThetaGlobal(global_c + dc, global_r + dr, layer, cols, rows);
-                let w = mexhat_weight(f32(dc), f32(dr));
+                let w = mexhat_weight(f32(dc), f32(dr), lp);
                 sum = sum + w * sin(theta_j - t);
                 wtotal = wtotal + abs(w);
             }
@@ -582,12 +658,12 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
     }
     
     if (wtotal > 0.0) {
-        return params.K0 * (sum / wtotal);
+        return lp.K0 * (sum / wtotal);
     }
     return 0.0;
 }
 
-fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u32, rows: u32, rng: i32, t: f32, i: u32) -> f32 {
+fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u32, rows: u32, rng: i32, t: f32, i: u32, lp: LayerParams) -> f32 {
     // Delay mode uses storage buffer for delayed theta values, not shared memory
     var sum = 0.0; var cnt = 0.0;
     
@@ -595,7 +671,7 @@ fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u3
         let res = graphCouplingDelayed(i, t, cols, rows);
         sum = res.x;
         cnt = res.y;
-        return params.K0 * (sum / max(cnt, 1e-5));
+        return lp.K0 * (sum / max(cnt, 1e-5));
     }
     
     for (var dr = -rng; dr <= rng; dr = dr + 1) {
@@ -610,7 +686,7 @@ fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u3
             cnt = cnt + 1.0;
         }
     }
-    return params.K0 * (sum / max(cnt, 1e-5));
+    return lp.K0 * (sum / max(cnt, 1e-5));
 }
 
 @compute @workgroup_size(16, 16)
@@ -644,7 +720,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let layer_stride = cols * rows;
     let i = layer * layer_stride + global_r * cols + global_c;
     let t = loadThetaShared(local_c, local_r);  // Center value from shared memory
-    let rng = i32(params.range);
+    let lp = layer_params[min(layer, 7u)];
+    let rng = i32(lp.range);
     // Compute local order (graph vs spatial)
     var ri = 0.0;
     if (params.topology_mode > 0.5) {
@@ -655,29 +732,44 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     order[i] = ri;
     
     var dtheta = 0.0;
-    let mode = i32(params.rule_mode);
-    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t, i, cols, rows); }
-    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t, i, cols, rows, ri); }
-    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t, i, cols, rows); }
-    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t, i, cols, rows); }
-    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, i); }
-    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t, i); }
+    let mode = i32(lp.rule_mode);
+    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t, i, cols, rows, lp); }
+    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t, i, cols, rows, ri, lp); }
+    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t, i, cols, rows, lp); }
+    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t, i, cols, rows, lp); }
+    else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, i, lp); }
+    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t, i, lp); }
 
-    // Inter-layer coupling (simple nearest-layer feedforward/feedback)
+    // Inter-layer coupling (same-cell or kernel-based)
     var inter_sum = 0.0;
+    let use_kernel = params.layer_kernel_enabled > 0.5;
     if (layer > 0u && abs(params.layer_coupling_up) > 0.0001) {
-        let t_up = loadThetaGlobal(i32(global_c), i32(global_r), i32(layer) - 1, i32(cols), i32(rows));
-        inter_sum = inter_sum + params.layer_coupling_up * sin(t_up - t);
+        let src_layer = layer - 1u;
+        if (use_kernel) {
+            let src_lp = layer_params[min(src_layer, 7u)];
+            let ksum = kernelCouplingLayer(global_c, global_r, cols, rows, src_layer, t, src_lp);
+            inter_sum = inter_sum + params.layer_coupling_up * ksum;
+        } else {
+            let t_up = loadThetaGlobal(i32(global_c), i32(global_r), i32(src_layer), i32(cols), i32(rows));
+            inter_sum = inter_sum + params.layer_coupling_up * sin(t_up - t);
+        }
     }
     if (layer + 1u < u32(params.layer_count) && abs(params.layer_coupling_down) > 0.0001) {
-        let t_down = loadThetaGlobal(i32(global_c), i32(global_r), i32(layer) + 1, i32(cols), i32(rows));
-        inter_sum = inter_sum + params.layer_coupling_down * sin(t_down - t);
+        let src_layer = layer + 1u;
+        if (use_kernel) {
+            let src_lp = layer_params[min(src_layer, 7u)];
+            let ksum = kernelCouplingLayer(global_c, global_r, cols, rows, src_layer, t, src_lp);
+            inter_sum = inter_sum + params.layer_coupling_down * ksum;
+        } else {
+            let t_down = loadThetaGlobal(i32(global_c), i32(global_r), i32(src_layer), i32(cols), i32(rows));
+            inter_sum = inter_sum + params.layer_coupling_down * sin(t_down - t);
+        }
     }
     let dtheta_base = dtheta;
     
     // Add noise perturbation
-    if (params.noise_strength > 0.001) {
-        dtheta = dtheta + noise(i);
+    if (lp.noise_strength > 0.001) {
+        dtheta = dtheta + noise(i, lp.noise_strength);
     }
     
     // Reservoir computing input: selectable injection mode
@@ -698,39 +790,40 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     
     // Apply flow/orientation modulation (phase advection proxy)
     // Simple additive bias based on position normalized to [-0.5, 0.5]
+    // Now uses per-layer interaction params from lp
     let norm_x = (f32(global_c) / params.cols) - 0.5;
     let norm_y = (f32(global_r) / params.rows) - 0.5;
 
-    // Flow contributions
+    // Flow contributions (per-layer)
     let flow =
-        (params.flow_radial * norm_x +
-        params.flow_rotate * (-norm_y) +
-        params.flow_swirl * (norm_x * norm_y) +
-        params.flow_bubble * (norm_x * norm_x - norm_y * norm_y) +
-        params.flow_ring * (norm_x * norm_x + norm_y * norm_y) +
-        params.flow_vortex * (norm_x * -norm_y) +
-        params.flow_vertical * norm_y) * 2.0;
-    // Orientation modulation (acts as anisotropic scaling of dtheta)
+        (lp.flow_radial * norm_x +
+        lp.flow_rotate * (-norm_y) +
+        lp.flow_swirl * (norm_x * norm_y) +
+        lp.flow_bubble * (norm_x * norm_x - norm_y * norm_y) +
+        lp.flow_ring * (norm_x * norm_x + norm_y * norm_y) +
+        lp.flow_vortex * (norm_x * -norm_y) +
+        lp.flow_vertical * norm_y) * 2.0;
+    // Orientation modulation (per-layer, acts as anisotropic scaling of dtheta)
     var orient = 1.0 +
-        params.orient_radial * abs(norm_x) * 4.0 +
-        params.orient_circles * abs(norm_y) * 4.0 +
-        params.orient_swirl * (norm_x * norm_y) * 4.0 +
-        params.orient_bubble * (norm_x * norm_x - norm_y * norm_y) * 4.0 +
-        params.orient_linear * norm_y * 4.0;
+        lp.orient_radial * abs(norm_x) * 4.0 +
+        lp.orient_circles * abs(norm_y) * 4.0 +
+        lp.orient_swirl * (norm_x * norm_y) * 4.0 +
+        lp.orient_bubble * (norm_x * norm_x - norm_y * norm_y) * 4.0 +
+        lp.orient_linear * norm_y * 4.0;
     orient = clamp(orient, 0.05, 8.0);
 
-    // Scale modulation of K0 (effective) - clamp to avoid negative/huge values
+    // Scale modulation of K0 (per-layer) - clamp to avoid negative/huge values
     let rand = hash21(vec2<f32>(f32(global_c), f32(global_r))) - 0.5;
-    let scale_mod = params.scale_base
-        + params.scale_radial * (abs(norm_x) + abs(norm_y)) * 2.0
-        + params.scale_random * rand * 2.0
-        + params.scale_ring * (norm_x * norm_x + norm_y * norm_y) * 4.0;
-    let K_scaled = params.K0 * clamp(scale_mod, 0.1, 5.0);
+    let scale_mod = lp.scale_base
+        + lp.scale_radial * (abs(norm_x) + abs(norm_y)) * 2.0
+        + lp.scale_random * rand * 2.0
+        + lp.scale_ring * (norm_x * norm_x + norm_y * norm_y) * 4.0;
+    let K_scaled = lp.K0 * clamp(scale_mod, 0.1, 5.0);
     // Adjust dtheta by new K (approximate): rescale by ratio of K_scaled / K0
-    let dtheta_scaled = dtheta_base * (K_scaled / params.K0);
+    let dtheta_scaled = dtheta_base * (K_scaled / max(lp.K0, 1e-6));
 
     var dyn = omega_eff + dtheta_scaled * orient + inter_sum + dtheta_input + flow;
-    dyn = dyn * (1.0 - params.leak);
+    dyn = dyn * (1.0 - lp.leak);
     var newTheta = t + dyn * params.dt;
     
     let TWO_PI = 6.28318530718;
@@ -755,7 +848,7 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, layer_z_offset: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
@@ -856,7 +949,7 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
     let idx = active_layer * layer_stride + u32(r_i) * u32(cols) + u32(c_i);
     output.order_val = order[idx];
     output.gradient = compute_gradient(idx, u32(cols), u32(rows), active_layer);
-    output.texcoord = vec2<f32>(gx / cols, 1.0 - (gy / rows));
+    output.texcoord = vec2<f32>(gx / cols, gy / rows);
     return output;
 }
 
@@ -1159,7 +1252,7 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, layer_z_offset: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
@@ -1331,7 +1424,7 @@ struct Params {
     kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
     zoom: f32, pan_x: f32, pan_y: f32,
     smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
-    leak: f32, layer_z_offset: f32, pad2: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
     scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
