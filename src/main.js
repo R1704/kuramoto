@@ -408,6 +408,8 @@ async function init() {
     let reservoir = new ReservoirComputer(STATE.gridSize);
     let rcPlot = null;
     let rcKsweepPlot = null;
+    let rcReadPending = false;
+    let lastRCReadMs = 0;
     
     // Initialize plots (will be created when DOM is ready)
     let R_plot = null;
@@ -1599,13 +1601,17 @@ async function init() {
         if (STATE.gridSize >= 128) return 6;   // Every 6 frames
         return 8;  // Every 8 frames for small grids
     };
+    let lastStatsReadbackMs = 0;
+    const STATS_READBACK_MIN_MS = 40;
     // Phase-space sampling throttling
     let phaseSpaceCounter = 0;
     const PHASE_SAMPLE_INTERVAL = 10;
     let phaseSpacePending = false;
+    const RC_READ_MIN_MS = 40;
 
     function frame() {
         try {
+            const frameNow = performance.now();
             if (!STATE.paused) STATE.frameTime += STATE.dt * STATE.timeScale;
             
             // Update camera view mode
@@ -1642,82 +1648,78 @@ async function init() {
             // Full RC step (training/inference) only when active
             if (STATE.rcEnabled && !STATE.paused) {
                 if (STATE.rcTraining || STATE.rcInference) {
-                    // Full RC step with training/inference
-                    sim.readTheta().then(theta => {
-                        if (theta) {
-                            try {
-                                reservoir.step(theta);
-                                // For moving dot, update dynamic input weights on GPU
-                                if (reservoir.tasks && reservoir.tasks.taskType === 'moving_dot') {
-                                    sim.writeInputWeights(reservoir.getInputWeights());
+                    const nowMs = performance.now();
+                    if (!rcReadPending && (nowMs - lastRCReadMs) >= RC_READ_MIN_MS) {
+                        rcReadPending = true;
+                        sim.readTheta().then(theta => {
+                            if (theta) {
+                                try {
+                                    reservoir.step(theta);
+                                    if (reservoir.tasks && reservoir.tasks.taskType === 'moving_dot') {
+                                        sim.writeInputWeights(reservoir.getInputWeights());
+                                    }
+                                    sim.setInputSignal(reservoir.getInputSignal());
+                                    updateRCDisplay();
+                                    drawRCPlot();
+                                    renderPhaseSpace(theta);
+                                } catch (e) {
+                                    console.error('RC step error:', e);
                                 }
-                                // Write the new input signal to GPU for next simulation step
-                                sim.setInputSignal(reservoir.getInputSignal());
-                                updateRCDisplay();
-                                drawRCPlot();
-                                // Reuse theta sample for phase space plot
-                                renderPhaseSpace(theta);
-                            } catch (e) {
-                                console.error('RC step error:', e);
                             }
-                        }
-                    }).catch(e => {
-                        console.error('RC readTheta error:', e);
-                    });
+                        }).catch(e => {
+                            console.error('RC readTheta error:', e);
+                        }).finally(() => {
+                            rcReadPending = false;
+                            lastRCReadMs = performance.now();
+                        });
+                    }
                 } else {
-                    // Just inject input for visualization (no training)
-                    // Generate a simple oscillating signal so user can see dynamics
                     const demoSignal = Math.sin(performance.now() * 0.002) * STATE.rcInputStrength;
                     sim.setInputSignal(demoSignal);
                 }
             }
 
-        // RC K sweep bookkeeping
-        if (rcSweep.active && STATE.rcTraining && !STATE.paused) {
-            rcSweep.steps++;
-            if (rcSweep.steps >= rcSweep.stepsPerK) {
-                const nrmse = reservoir.getNRMSE();
-                rcSweep.results.push({ K: STATE.K0, nrmse: isFinite(nrmse) ? nrmse : Infinity });
-                rcSweep.idx++;
-                beginSweepK();
+            // RC K sweep bookkeeping
+            if (rcSweep.active && STATE.rcTraining && !STATE.paused) {
+                rcSweep.steps++;
+                if (rcSweep.steps >= rcSweep.stepsPerK) {
+                    const nrmse = reservoir.getNRMSE();
+                    rcSweep.results.push({ K: STATE.K0, nrmse: isFinite(nrmse) ? nrmse : Infinity });
+                    rcSweep.idx++;
+                    beginSweepK();
+                }
             }
-        }
         
         // Process readback and update statistics (async) - only if statistics enabled
         if (STATE.showStatistics) {
-            sim.processReadback().then(result => {
-                if (result && !STATE.paused) {
-                    // Pass both global order and local stats to statistics tracker
-                    stats.update(result.cos, result.sin, result.localStats);
-                }
-                
-                // Update K-scanner if running (even when paused, for scan progress)
-                if (kScanner && kScanner.phase !== 'done' && kScanner.phase !== 'idle') {
-                    // Use the scanner's step method with the existing scanner state
-                    const scanner = stats.createKScanner(sim, STATE);
-                    kScanner = scanner.step(kScanner);
-                    
-                    // Update progress UI
-                    const progress = document.getElementById('kscan-progress');
-                    if (progress) {
-                        progress.textContent = `${Math.round(stats.scanProgress * 100)}%`;
+            const canReadback = sim.readbackPending && (frameNow - lastStatsReadbackMs >= STATS_READBACK_MIN_MS);
+            if (canReadback) {
+                sim.processReadback().then(result => {
+                    if (result && !STATE.paused) {
+                        stats.update(result.cos, result.sin, result.localStats);
+                        lastStatsReadbackMs = frameNow;
                     }
                     
-                    if (kScanner.phase === 'done') {
-                        document.getElementById('kscan-btn')?.classList.remove('active');
+                    if (kScanner && kScanner.phase !== 'done' && kScanner.phase !== 'idle') {
+                        const scanner = stats.createKScanner(sim, STATE);
+                        kScanner = scanner.step(kScanner);
                         const progress = document.getElementById('kscan-progress');
-                        if (progress) progress.textContent = 'Done!';
-                        
-                        // Update K slider display
-                        ui.updateDisplay();
+                        if (progress) {
+                            progress.textContent = `${Math.round(stats.scanProgress * 100)}%`;
+                        }
+                        if (kScanner.phase === 'done') {
+                            document.getElementById('kscan-btn')?.classList.remove('active');
+                            const progress = document.getElementById('kscan-progress');
+                            if (progress) progress.textContent = 'Done!';
+                            ui.updateDisplay();
+                        }
                     }
-                }
-                
-                // Step Lyapunov calculation if running
-                if (lyapunovCalc.isRunning && shouldComputeStats) {
-                    stepLLE();
-                }
-            });
+                    
+                    if (lyapunovCalc.isRunning && shouldComputeStats) {
+                        stepLLE();
+                    }
+                });
+            }
             
             updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
         }

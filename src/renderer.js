@@ -12,7 +12,8 @@ export class Renderer {
         this.layerBindGroups = [];
         this.layerBindGroupSim = null;
         this.layerBindGroupCount = 0;
-        this.layerBindGroupTexture = null;
+        this.layerBindGroupCache = new Map();
+        this.layerDataScratch = null;
 
         this.bindGroupLayout = device.createBindGroupLayout({
             entries: [
@@ -152,7 +153,7 @@ export class Renderer {
     }
 
     ensureLayerBindGroups(sim, layerCount) {
-        if (this.layerBindGroupSim !== sim || this.layerBindGroupCount !== layerCount || this.layerBindGroupTexture !== sim.thetaTexture) {
+        if (!this.renderLayerBuf || this.layerBindGroupCount !== layerCount) {
             if (this.renderLayerBuf) {
                 this.renderLayerBuf.destroy();
             }
@@ -160,9 +161,14 @@ export class Renderer {
                 size: this.renderLayerStride * layerCount,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
-            this.layerBindGroups = [];
+            this.layerBindGroupCount = layerCount;
+            this.layerBindGroupCache.clear();
+        }
+
+        if (!this.layerBindGroupCache.has(sim.thetaTexture)) {
+            const groups = [];
             for (let layer = 0; layer < layerCount; layer++) {
-                this.layerBindGroups.push(this.device.createBindGroup({
+                groups.push(this.device.createBindGroup({
                     layout: this.bindGroupLayout,
                     entries: [
                         { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
@@ -175,10 +181,10 @@ export class Renderer {
                     ],
                 }));
             }
-            this.layerBindGroupSim = sim;
-            this.layerBindGroupCount = layerCount;
-            this.layerBindGroupTexture = sim.thetaTexture;
+            this.layerBindGroupCache.set(sim.thetaTexture, groups);
         }
+
+        this.layerBindGroups = this.layerBindGroupCache.get(sim.thetaTexture);
     }
     
     init2DPipeline() {
@@ -216,11 +222,7 @@ export class Renderer {
         this.layerBindGroups = [];
         this.layerBindGroupSim = null;
         this.layerBindGroupCount = 0;
-        this.layerBindGroupTexture = null;
-        if (this.renderLayerBuf) {
-            this.renderLayerBuf.destroy();
-            this.renderLayerBuf = null;
-        }
+        this.layerBindGroupCache.clear();
     }
 
     draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d', renderAllLayers = false, activeLayer = 0, selectedLayers = null) {
@@ -275,7 +277,10 @@ export class Renderer {
             ? new Set(selectedLayers)
             : null;
         const strideFloats = this.renderLayerStride / 4;
-        const layerData = new Float32Array(strideFloats * totalLayers);
+        if (!this.layerDataScratch || this.layerDataScratch.length < strideFloats * totalLayers) {
+            this.layerDataScratch = new Float32Array(strideFloats * totalLayers);
+        }
+        const layerData = this.layerDataScratch;
         for (let layer = 0; layer < totalLayers; layer++) {
             const base = layer * strideFloats;
             layerData[base] = layer;
@@ -443,5 +448,17 @@ export class Renderer {
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
         this.device.queue.writeBuffer(this.quadVertexBuffer, 0, verts);
+    }
+
+    destroy() {
+        if (this.renderLayerBuf) this.renderLayerBuf.destroy();
+        if (this.cameraBuf) this.cameraBuf.destroy();
+        if (this.depthTexture) this.depthTexture.destroy();
+        if (this.externalTexture) this.externalTexture.destroy();
+        if (this.vertexBuffer) this.vertexBuffer.destroy();
+        if (this.indexBuffer) this.indexBuffer.destroy();
+        if (this.quadVertexBuffer) this.quadVertexBuffer.destroy();
+        this.layerBindGroupCache.clear();
+        this.layerBindGroups = [];
     }
 }
