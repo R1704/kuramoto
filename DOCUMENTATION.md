@@ -2567,6 +2567,10 @@ When `layerCount > 1`, Reservoir Computing operates on the **active layer** by d
 - Features are extracted from the active layer’s θ field.
 - Input injection weights are applied to the active layer only.
 
+### Surface mode indicator
+
+In 3D view, the canvas shows a small indicator (`3D • Mesh` / `3D • Instanced`) to make it obvious which surface renderer is active.
+
 #### Periodic Boundary Consideration
 
 The simulation uses **periodic (toroidal) boundary conditions** — the left edge wraps around to the right edge. This means "left input, right readout" actually places them adjacent!
