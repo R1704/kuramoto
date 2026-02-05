@@ -2761,6 +2761,12 @@
         });
     </script>
     
-    <script type="module" src="./src/main.js"></script>
+    <script type="module">
+        // Cache-bust module loads on localhost for rapid iteration.
+        // GitHub Pages (and other hosts) retain normal module caching.
+        const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1';
+        const suffix = isLocal ? `?t=${Date.now()}` : '';
+        import(`./src/main.js${suffix}`);
+    </script>
 </body>
 </html>

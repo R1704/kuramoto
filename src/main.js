@@ -727,32 +727,49 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onExperimentRun: () => {
-            if (!STATE.showStatistics) return;
-            if (experimentRunner && experimentRunner.isRunning()) return;
-            if (STATE.rcTraining || STATE.rcInference) {
-                alert('Stop RC training/inference before running a rollout');
-                return;
+            const statusEl = document.getElementById('exp-status');
+            if (statusEl) statusEl.textContent = 'starting...';
+
+            try {
+                if (!STATE.showStatistics) {
+                    if (statusEl) statusEl.textContent = 'enable Compute to run';
+                    return;
+                }
+                if (!experimentRunner) {
+                    if (statusEl) statusEl.textContent = 'runner not initialized';
+                    return;
+                }
+                if (experimentRunner.isRunning()) return;
+                if (STATE.rcTraining || STATE.rcInference) {
+                    if (statusEl) statusEl.textContent = 'stop RC to run';
+                    alert('Stop RC training/inference before running a rollout');
+                    return;
+                }
+
+                if (STATE.expResetAtStart) {
+                    resetSimulation(sim);
+                }
+                stats.reset();
+
+                experimentLastExport = null;
+                experimentPrevPaused = STATE.paused;
+                STATE.paused = false;
+
+                const snapshot = JSON.parse(JSON.stringify(STATE));
+                const protocol = {
+                    resetAtStart: !!STATE.expResetAtStart,
+                    warmupSteps: STATE.expWarmupSteps,
+                    measureSteps: STATE.expMeasureSteps,
+                    stepsPerFrame: STATE.expStepsPerFrame,
+                    readbackEvery: STATE.expReadbackEvery,
+                };
+
+                const ok = experimentRunner.start(protocol, snapshot);
+                if (!ok && statusEl) statusEl.textContent = 'failed to start';
+            } catch (e) {
+                console.error('Experiment run failed:', e);
+                if (statusEl) statusEl.textContent = 'error (see console)';
             }
-
-            if (STATE.expResetAtStart) {
-                resetSimulation(sim);
-            }
-            stats.reset();
-
-            experimentLastExport = null;
-            experimentPrevPaused = STATE.paused;
-            STATE.paused = false;
-
-            const snapshot = JSON.parse(JSON.stringify(STATE));
-            const protocol = {
-                resetAtStart: !!STATE.expResetAtStart,
-                warmupSteps: STATE.expWarmupSteps,
-                measureSteps: STATE.expMeasureSteps,
-                stepsPerFrame: STATE.expStepsPerFrame,
-                readbackEvery: STATE.expReadbackEvery,
-            };
-
-            experimentRunner.start(protocol, snapshot);
         },
         onExperimentCancel: () => {
             if (experimentRunner) experimentRunner.cancel();
