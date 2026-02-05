@@ -2207,7 +2207,7 @@ Height: y = 2sin(θᵢ) in 3D, y = small_offset in 2D
 
 ## Future Extensions (Proposed)
 
-See `EXTENSIONS.md` for detailed proposals:
+See `ROADMAP.md` for prioritized proposals:
 
 1. **Graph Topologies**: Move beyond grids to arbitrary networks
 2. **Multi-Layer Coupling**: Stack multiple grids with cross-layer coupling

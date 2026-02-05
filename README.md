@@ -53,6 +53,10 @@ npx serve
 # Open http://localhost:8000
 ```
 
+## 🧭 Roadmap (Research)
+
+The single canonical, strategically prioritized roadmap lives in `ROADMAP.md`.
+
 ### First Steps
 
 1. **Open** `index.html` in your browser
@@ -466,7 +470,7 @@ kuramoto/
 │   ├── kernel.js          # Spatial kernel visualization (1D/2D)
 │   └── common.js          # Camera & math utilities
 ├── DOCUMENTATION.md        # Comprehensive mathematical documentation
-├── EXTENSIONS.md          # Future extensions (graphs, layers, etc.)
+├── ROADMAP.md             # Research roadmap (canonical)
 └── README.md              # This file
 ```
 
@@ -620,7 +624,7 @@ Currently, data export is manual (future feature). To capture states:
 
 ## 🚧 Future Extensions
 
-See `EXTENSIONS.md` for detailed proposals:
+See `ROADMAP.md` for detailed proposals:
 
 1. **Arbitrary Graph Topologies**: Move beyond grids (small-world, scale-free)
 2. **Hierarchical Layers**: Multi-layer architecture (feed-forward/feedback)
@@ -651,7 +655,7 @@ Contributions welcome! Areas of interest:
 - **New coupling rules**: Implement novel interaction mechanisms
 - **Performance**: Optimize shader code, reduce memory bandwidth
 - **UI/UX**: Improve controls, add visualizations
-- **Features**: Implement extensions from `EXTENSIONS.md`
+- **Features**: Implement items from `ROADMAP.md`
 - **Documentation**: Improve explanations, add tutorials
 
 ### Development Setup

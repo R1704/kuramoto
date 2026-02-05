@@ -107,7 +107,7 @@ any sizable change. Prefer concise, verifiable guidance over speculation.
 
 ## Math / Model Consistency Checker
 Use after any change to equations, buffers, or shader parameters.
-- Verify equations in docs match implementation (e.g., README, RESERVOIR.MD)
+- Verify equations in docs match implementation (e.g., README, DOCUMENTATION.md)
 - Confirm parameter ranges in UI match shader expectations
 - Check uniform indexing and buffer layout alignment (JS <-> WGSL)
 - Verify normalization factors (N, gridSize, range) remain consistent
@@ -130,7 +130,7 @@ Use after any change to equations, buffers, or shader parameters.
 
 ## Documentation Update Policy
 - Update `README.md` for user-facing behavior changes
-- Update `DOCUMENTATION.md`, `RESERVOIR.MD`, or `EXTENSIONS.md` for model changes
+- Update `DOCUMENTATION.md` and/or `ROADMAP.md` for model changes
 - Keep code comments minimal; prefer docs for conceptual explanations
 - Add short release notes in docs for major changes
 

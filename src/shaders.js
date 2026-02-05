@@ -1305,27 +1305,39 @@ export const LOCAL_ORDER_STATS_SHADER = `
 
 var<workgroup> shared_sums: array<vec4<f32>, 256>;
 
-// Compute phase gradient magnitude at a point
-fn phase_gradient(idx: u32, cols: u32, rows: u32) -> f32 {
-    let col = idx % cols;
-    let row = idx / cols;
-    
-    // Get neighbor phases with periodic boundaries
-    let left_col = (col + cols - 1u) % cols;
-    let right_col = (col + 1u) % cols;
-    let up_row = (row + rows - 1u) % rows;
-    let down_row = (row + 1u) % rows;
-    
-    let t_center = theta[idx];
-    let t_left = theta[row * cols + left_col];
-    let t_right = theta[row * cols + right_col];
-    let t_up = theta[up_row * cols + col];
-    let t_down = theta[down_row * cols + col];
-    
-    // Compute phase differences (handle wrap-around)
+// Compute phase gradient magnitude at a point.
+// NOTE: In multi-layer mode, theta is flattened as [layer][row][col].
+// We compute gradients within each layer (never across layer boundaries).
+fn phase_gradient(global_idx: u32, grid: u32) -> f32 {
+    let layer_size = grid * grid;
+    let layer = global_idx / layer_size;
+    let local = global_idx - layer * layer_size;
+    let col = local % grid;
+    let row = local / grid;
+    let base = layer * layer_size;
+
+    // Periodic boundaries (within layer)
+    let left_col = (col + grid - 1u) % grid;
+    let right_col = (col + 1u) % grid;
+    let up_row = (row + grid - 1u) % grid;
+    let down_row = (row + 1u) % grid;
+
+    let idx_center = base + row * grid + col;
+    let idx_left = base + row * grid + left_col;
+    let idx_right = base + row * grid + right_col;
+    let idx_up = base + up_row * grid + col;
+    let idx_down = base + down_row * grid + col;
+
+    let t_center = theta[idx_center];
+    let t_left = theta[idx_left];
+    let t_right = theta[idx_right];
+    let t_up = theta[idx_up];
+    let t_down = theta[idx_down];
+
+    // Compute phase differences (wrap-safe via sin)
     let dx = sin(t_right - t_center) + sin(t_center - t_left);
     let dy = sin(t_down - t_center) + sin(t_center - t_up);
-    
+
     return sqrt(dx * dx + dy * dy) * 0.5;
 }
 
@@ -1336,7 +1348,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
     let global_id = gid.x;
     let N = arrayLength(&local_order);
     let cols = grid_size;
-    let rows = N / cols;
     
     // Each thread processes one oscillator
     var sums = vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -1344,7 +1355,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
         let r = local_order[global_id];
         sums.x = r;                                    // Local R
         sums.y = select(0.0, 1.0, r > 0.7);           // Sync count (R > 0.7)
-        sums.z = phase_gradient(global_id, cols, rows); // Gradient magnitude
+        sums.z = phase_gradient(global_id, cols); // Gradient magnitude
         sums.w = r * r;                               // R^2 for variance
 
         // Histogram bin
