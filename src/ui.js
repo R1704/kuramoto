@@ -571,6 +571,35 @@ export class UIManager {
             });
         }
 
+        const expWarmup = document.getElementById('exp-warmup-input');
+        const expMeasure = document.getElementById('exp-measure-input');
+        const expSPF = document.getElementById('exp-stepsperframe-input');
+        const expReadback = document.getElementById('exp-readback-input');
+        const expReset = document.getElementById('exp-reset-toggle');
+        const expRunBtn = document.getElementById('exp-run-btn');
+        const expCancelBtn = document.getElementById('exp-cancel-btn');
+        const expExportBtn = document.getElementById('exp-export-btn');
+
+        const onExpConfig = () => {
+            this.state.expWarmupSteps = parseInt(expWarmup?.value || this.state.expWarmupSteps || 0);
+            this.state.expMeasureSteps = parseInt(expMeasure?.value || this.state.expMeasureSteps || 1);
+            this.state.expStepsPerFrame = parseInt(expSPF?.value || this.state.expStepsPerFrame || 1);
+            this.state.expReadbackEvery = parseInt(expReadback?.value || this.state.expReadbackEvery || 1);
+            this.state.expResetAtStart = !!expReset?.checked;
+            if (this.cb.onExperimentConfigChange) {
+                this.cb.onExperimentConfigChange();
+            }
+        };
+
+        if (expWarmup) expWarmup.addEventListener('change', () => { onExpConfig(); this.updateDisplay(); });
+        if (expMeasure) expMeasure.addEventListener('change', () => { onExpConfig(); this.updateDisplay(); });
+        if (expSPF) expSPF.addEventListener('change', () => { onExpConfig(); this.updateDisplay(); });
+        if (expReadback) expReadback.addEventListener('change', () => { onExpConfig(); this.updateDisplay(); });
+        if (expReset) expReset.addEventListener('change', () => { onExpConfig(); this.updateDisplay(); });
+        if (expRunBtn) expRunBtn.addEventListener('click', () => { if (this.cb.onExperimentRun) this.cb.onExperimentRun(); });
+        if (expCancelBtn) expCancelBtn.addEventListener('click', () => { if (this.cb.onExperimentCancel) this.cb.onExperimentCancel(); });
+        if (expExportBtn) expExportBtn.addEventListener('click', () => { if (this.cb.onExperimentExport) this.cb.onExperimentExport(); });
+
         // External input controls (image/video)
         this.externalInputCanvas = document.getElementById('image-preview');
         this.externalInputCtx = this.externalInputCanvas ? this.externalInputCanvas.getContext('2d') : null;
@@ -1071,6 +1100,17 @@ export class UIManager {
         if (seedInput) seedInput.value = this.state.seed ?? 1;
         const seedVal = document.getElementById('seed-value');
         if (seedVal) seedVal.textContent = this.state.seed ?? 1;
+
+        const expWarmup = document.getElementById('exp-warmup-input');
+        if (expWarmup) expWarmup.value = this.state.expWarmupSteps ?? 200;
+        const expMeasure = document.getElementById('exp-measure-input');
+        if (expMeasure) expMeasure.value = this.state.expMeasureSteps ?? 600;
+        const expSPF = document.getElementById('exp-stepsperframe-input');
+        if (expSPF) expSPF.value = this.state.expStepsPerFrame ?? 2;
+        const expReadback = document.getElementById('exp-readback-input');
+        if (expReadback) expReadback.value = this.state.expReadbackEvery ?? 4;
+        const expReset = document.getElementById('exp-reset-toggle');
+        if (expReset) expReset.checked = !!this.state.expResetAtStart;
 
         const statsToggle = document.getElementById('show-statistics-toggle');
         if (statsToggle) statsToggle.checked = !!this.state.showStatistics;

@@ -2419,6 +2419,52 @@
                     </div>
 
                     <div class="panel-card">
+                        <div class="section-title">Experiments</div>
+                        <div class="stats-grid">
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span>Warmup Steps</span>
+                                </div>
+                                <input type="number" id="exp-warmup-input" min="0" step="10" value="200">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span>Measure Steps</span>
+                                </div>
+                                <input type="number" id="exp-measure-input" min="1" step="10" value="600">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span>Steps / Frame</span>
+                                </div>
+                                <input type="number" id="exp-stepsperframe-input" min="1" step="1" value="2">
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <div class="control-label">
+                                    <span>Readback Every</span>
+                                </div>
+                                <input type="number" id="exp-readback-input" min="1" step="1" value="4">
+                                <div style="font-size: 9px; color: #666; margin-top: 4px;">Higher = faster; lower = more samples.</div>
+                            </div>
+                            <div class="control-group" style="margin: 0;">
+                                <label style="display:flex; align-items:center; gap:8px;">
+                                    <input type="checkbox" id="exp-reset-toggle" checked>
+                                    <span style="font-size: 12px;">Reset at start</span>
+                                </label>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <button id="exp-run-btn" class="small-btn" style="flex:1;">▶ Run Rollout</button>
+                                <button id="exp-cancel-btn" class="small-btn" style="flex:1;" disabled>⏹ Cancel</button>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <button id="exp-export-btn" class="tiny-btn" style="flex:1;" disabled>💾 Export JSON</button>
+                            </div>
+                            <div id="exp-status" style="font-size: 11px; color:#aaa;">idle</div>
+                            <div id="exp-progress" style="font-size: 10px; color:#777;"></div>
+                        </div>
+                    </div>
+
+                    <div class="panel-card">
                         <div class="section-title">Lyapunov Exponent</div>
                         <div class="viz-section">
                             <div class="viz-title">λ Lyapunov Exponent</div>

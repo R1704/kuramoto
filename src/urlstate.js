@@ -91,7 +91,14 @@ const DEFAULTS = {
     orientBubble: 0.0,
     orientLinear: 0.0,
     graphOverlayEnabled: false,
-    showStatistics: true
+    showStatistics: true,
+
+    // Experiments
+    expResetAtStart: true,
+    expWarmupSteps: 200,
+    expMeasureSteps: 600,
+    expStepsPerFrame: 2,
+    expReadbackEvery: 4
 };
 
 // Keys to include in the URL and their types
@@ -122,7 +129,10 @@ const SCHEMA = {
     scaleBase: 'float', scaleRadial: 'float', scaleRandom: 'float', scaleRing: 'float',
     flowRadial: 'float', flowRotate: 'float', flowSwirl: 'float', flowBubble: 'float', flowRing: 'float', flowVortex: 'float', flowVertical: 'float',
     orientRadial: 'float', orientCircles: 'float', orientSwirl: 'float', orientBubble: 'float', orientLinear: 'float',
-    graphOverlayEnabled: 'bool', showStatistics: 'bool'
+    graphOverlayEnabled: 'bool', showStatistics: 'bool',
+
+    // Experiments
+    expResetAtStart: 'bool', expWarmupSteps: 'int', expMeasureSteps: 'int', expStepsPerFrame: 'int', expReadbackEvery: 'int'
 };
 
 function encodeArray(arr) {

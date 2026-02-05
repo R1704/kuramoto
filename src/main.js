@@ -9,6 +9,7 @@ import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, Ly
 import { ReservoirComputer } from './reservoir.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
 import { makeRng, normalizeSeed, cryptoSeedFallback } from './rng.js';
+import { ExperimentRunner } from './experiments.js';
 
 const STATE = {
     seed: 1,
@@ -117,7 +118,14 @@ const STATE = {
     rcNRMSE: null, // Performance metric after training
 
     // Visualization toggles
-    phaseSpaceEnabled: true
+    phaseSpaceEnabled: true,
+
+    // Experiments
+    expResetAtStart: true,
+    expWarmupSteps: 200,
+    expMeasureSteps: 600,
+    expStepsPerFrame: 2,
+    expReadbackEvery: 4,
 };
 
 
@@ -475,6 +483,10 @@ async function init() {
     let phaseSpacePlot = null;
     let ui = null;
 
+    let experimentRunner = null;
+    let experimentLastExport = null;
+    let experimentPrevPaused = null;
+
     const regenerateTopology = () => {
         const maxDegree = STATE.topologyMaxDegree || MAX_GRAPH_DEGREE;
         STATE.topologySeed = Math.max(1, Math.floor(STATE.topologySeed || 1));
@@ -611,6 +623,9 @@ async function init() {
         }
         sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
         drawSim = sim;
+        if (experimentRunner) {
+            experimentRunner.setSimulation(sim, stats);
+        }
         applyLayerParamsToState(STATE.activeLayer ?? 0);
         sim.updateFullParams(STATE);
         sim.writeLayerParams(STATE.layerParams);
@@ -626,6 +641,7 @@ async function init() {
 
     ui = new UIManager(STATE, {
         onParamChange: () => { 
+            if (experimentRunner && experimentRunner.isRunning()) return;
             if (STATE.viewMode !== lastViewMode) {
                 overlayDirty = true;
                 lastViewMode = STATE.viewMode;
@@ -639,15 +655,18 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onTopologyChange: () => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
             regenerateTopology();
             updateURLFromState(STATE, true);
         },
         onTopologyRegenerate: () => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
             STATE.topologySeed = (STATE.topologySeed || 1) + 1;
             regenerateTopology();
             updateURLFromState(STATE, true);
         },
         onApplyInit: async () => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
             normalizeSelectedLayers(STATE.layerCount);
             const targets = STATE.selectedLayers;
             const thetaPattern = document.getElementById('theta-pattern-select')?.value || STATE.thetaPattern || 'random';
@@ -690,20 +709,65 @@ async function init() {
             STATE.phaseSpaceEnabled = enabled;
         },
         onSeedChange: (seed) => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
             STATE.seed = normalizeSeed(seed);
             reservoir.setSeed?.(STATE.seed);
             updateURLFromState(STATE, true);
         },
         onReseed: () => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
             STATE.seed = cryptoSeedFallback();
             reservoir.setSeed?.(STATE.seed);
             resetSimulation(sim);
             if (ui?.updateDisplay) ui.updateDisplay();
             updateURLFromState(STATE, true);
         },
+        onExperimentConfigChange: () => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
+            updateURLFromState(STATE, true);
+        },
+        onExperimentRun: () => {
+            if (!STATE.showStatistics) return;
+            if (experimentRunner && experimentRunner.isRunning()) return;
+            if (STATE.rcTraining || STATE.rcInference) {
+                alert('Stop RC training/inference before running a rollout');
+                return;
+            }
+
+            if (STATE.expResetAtStart) {
+                resetSimulation(sim);
+            }
+            stats.reset();
+
+            experimentLastExport = null;
+            experimentPrevPaused = STATE.paused;
+            STATE.paused = false;
+
+            const snapshot = JSON.parse(JSON.stringify(STATE));
+            const protocol = {
+                resetAtStart: !!STATE.expResetAtStart,
+                warmupSteps: STATE.expWarmupSteps,
+                measureSteps: STATE.expMeasureSteps,
+                stepsPerFrame: STATE.expStepsPerFrame,
+                readbackEvery: STATE.expReadbackEvery,
+            };
+
+            experimentRunner.start(protocol, snapshot);
+        },
+        onExperimentCancel: () => {
+            if (experimentRunner) experimentRunner.cancel();
+        },
+        onExperimentExport: () => {
+            if (!experimentLastExport) return;
+            const json = JSON.stringify(experimentLastExport, null, 2);
+            downloadJSON(json, `kuramoto_rollout_${experimentLastExport.configHash || 'run'}.json`);
+        },
         onToggleStatistics: (enabled) => {
             STATE.showStatistics = enabled;
             if (!enabled) {
+                if (experimentRunner && experimentRunner.isRunning()) {
+                    experimentRunner.cancel();
+                }
                 // Stop K-scan
                 if (stats.isScanning) {
                     stats.isScanning = false;
@@ -745,6 +809,8 @@ async function init() {
             setDisabled('lle-start-btn', !enabled || lyapunovCalc.isRunning);
             setDisabled('lle-stop-btn', !enabled || !lyapunovCalc.isRunning);
             setDisabled('fss-start-btn', !enabled || fssRunning);
+            setDisabled('exp-run-btn', !enabled);
+            setDisabled('exp-export-btn', !enabled || !experimentLastExport);
 
             updateURLFromState(STATE, true);
         },
@@ -775,6 +841,9 @@ async function init() {
             }
         },
         onResizeGrid: async (newSize) => {
+            if (experimentRunner && experimentRunner.isRunning()) {
+                experimentRunner.cancel();
+            }
             if (gridResizeInProgress) {
                 return;
             }
@@ -817,9 +886,13 @@ async function init() {
             drawKernel(STATE);
         },
         onLayerCountChange: (newCount) => {
+            if (experimentRunner && experimentRunner.isRunning()) {
+                experimentRunner.cancel();
+            }
             void rebuildLayerCount(newCount);
         },
         onLayerSelect: (layerIdx, selected, prevSelected, prevActive) => {
+            if (experimentRunner && experimentRunner.isRunning()) return;
             // Use passed previous selection (UI already updated STATE before calling us)
             const prev = Array.isArray(prevSelected) && prevSelected.length > 0
                 ? prevSelected
@@ -948,6 +1021,54 @@ async function init() {
             if (renderer.clearDrawOverlay) renderer.clearDrawOverlay();
         }
     });
+
+    const updateExperimentUI = (info) => {
+        const statusEl = document.getElementById('exp-status');
+        const progressEl = document.getElementById('exp-progress');
+        const runBtn = document.getElementById('exp-run-btn');
+        const cancelBtn = document.getElementById('exp-cancel-btn');
+        const exportBtn = document.getElementById('exp-export-btn');
+
+        if (statusEl) {
+            statusEl.textContent = info.running ? info.phase : (info.phase || 'idle');
+        }
+
+        if (progressEl) {
+            if (info.running) {
+                progressEl.textContent = `${info.stepIndex} / ${info.totalSteps} steps`;
+            } else if (info.summary) {
+                progressEl.textContent = `done | hash ${info.configHash} | samples ${info.summary.samples}`;
+            } else if (info.phase === 'canceled') {
+                progressEl.textContent = 'canceled';
+            } else {
+                progressEl.textContent = '';
+            }
+        }
+
+        if (runBtn) runBtn.disabled = info.running || !STATE.showStatistics;
+        if (cancelBtn) cancelBtn.disabled = !info.running;
+        if (exportBtn) exportBtn.disabled = !experimentLastExport;
+    };
+
+    experimentRunner = new ExperimentRunner({
+        device,
+        sim,
+        stats,
+        getState: () => STATE,
+        onUpdate: (info) => {
+            updateExperimentUI(info);
+            if (!info.running && (info.phase === 'done' || info.phase === 'canceled')) {
+                experimentLastExport = experimentRunner.exportJSON();
+                if (experimentPrevPaused !== null) {
+                    STATE.paused = experimentPrevPaused;
+                    experimentPrevPaused = null;
+                }
+                updateExperimentUI({ ...info, summary: experimentLastExport.summary });
+            }
+        },
+    });
+
+    updateExperimentUI({ running: false, phase: 'idle', stepIndex: 0, totalSteps: 0, configHash: null, summary: null });
     
     // Initialize plots after DOM is ready
     setTimeout(() => {
@@ -1774,17 +1895,26 @@ async function init() {
             sim.updateParams(STATE); // Only update dynamic params (dt, time)
             
             const encoder = device.createCommandEncoder();
+
+            let didComputeStats = false;
             
-            // Only compute statistics if enabled and throttled
-            statsFrameCounter++;
-            const shouldComputeStats = STATE.showStatistics && statsFrameCounter >= getStatsInterval();
-            if (shouldComputeStats) statsFrameCounter = 0;
-            
-            sim.step(encoder, STATE.delaySteps, STATE.globalCoupling, shouldComputeStats);
-            
-            // Request global order parameter readback for statistics (only if we computed stats)
-            if (shouldComputeStats) {
-                sim.requestGlobalOrderReadback(encoder);
+            const experimentActive = experimentRunner && experimentRunner.isRunning();
+
+            if (experimentActive) {
+                experimentRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
+            } else {
+                // Only compute statistics if enabled and throttled
+                statsFrameCounter++;
+                const shouldComputeStats = STATE.showStatistics && statsFrameCounter >= getStatsInterval();
+                if (shouldComputeStats) statsFrameCounter = 0;
+                didComputeStats = shouldComputeStats;
+                
+                sim.step(encoder, STATE.delaySteps, STATE.globalCoupling, shouldComputeStats);
+                
+                // Request global order parameter readback for statistics (only if we computed stats)
+                if (shouldComputeStats) {
+                    sim.requestGlobalOrderReadback(encoder);
+                }
             }
             
             const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
@@ -1845,10 +1975,14 @@ async function init() {
                 }
             }
         
-        // Process readback and update statistics (async) - only if statistics enabled
-        if (STATE.showStatistics) {
+        // Process readback and update statistics (async)
+        if (experimentActive) {
+            experimentRunner.afterSubmit();
+            updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
+        } else if (STATE.showStatistics) {
             const canReadback = sim.readbackPending && (frameNow - lastStatsReadbackMs >= STATS_READBACK_MIN_MS);
             if (canReadback) {
+                const didComputeStatsThisFrame = didComputeStats;
                 sim.processReadback().then(result => {
                     if (result && !STATE.paused) {
                         stats.update(result.cos, result.sin, result.localStats);
@@ -1870,7 +2004,7 @@ async function init() {
                         }
                     }
                     
-                    if (lyapunovCalc.isRunning && shouldComputeStats) {
+                    if (lyapunovCalc.isRunning && didComputeStatsThisFrame) {
                         stepLLE();
                     }
                 });
@@ -1907,6 +2041,18 @@ async function init() {
 // Helper to download CSV
 function downloadCSV(csv, filename) {
     const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function downloadJSON(json, filename) {
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
