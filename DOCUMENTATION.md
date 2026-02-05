@@ -1600,10 +1600,9 @@ The tangent-space method correctly tracks how perturbations would grow infinites
 
 Statistics computation can be disabled for improved performance:
 
-- **Checkbox**: Toggle in Statistics section header
-- **Keyboard**: No dedicated shortcut (use checkbox)
-- **Effect**: When disabled, skips all statistics calculations (R, χ, Lyapunov, K-scan)
-- **Visual**: Statistics panel dims when disabled
+- **Checkbox**: "Compute" toggle in the Analysis → Statistics header
+- **Effect**: When disabled, stops GPU statistics readbacks and freezes analysis outputs (R̄ plots, χ, histogram, phase diagram updates). It also disables K-scan, LLE, and FSS controls.
+- **Visual**: Analysis panels dim when disabled
 
 **When to disable:**
 - Maximum performance required
