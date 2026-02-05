@@ -46,6 +46,10 @@ This app is designed to support **reproducible research runs**.
 - The seed is stored in the URL so links can reproduce the same setup.
 - Interactive drawing/erasing is **not** currently logged, so it is not replayable from seed alone.
 
+#### Development caching note
+
+If you run locally (e.g. `python -m http.server`), the app cache-busts module loads on localhost to ensure you always get the latest code without hard refresh.
+
 ---
 
 ## Mathematical Foundation
