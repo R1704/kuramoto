@@ -787,6 +787,24 @@
         #canvas-container {
             position: relative;
         }
+
+        #render-mode-indicator {
+            position: absolute;
+            left: 12px;
+            top: 12px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(15, 15, 26, 0.72);
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            color: #cfcfe6;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 11px;
+            letter-spacing: 0.2px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            pointer-events: none;
+            z-index: 5;
+        }
         
         #graph-overlay {
             position: absolute;
@@ -804,6 +822,7 @@
         <div id="canvas-container">
             <canvas id="canvas" width="1000" height="800"></canvas>
             <canvas id="graph-overlay" width="1000" height="800"></canvas>
+            <div id="render-mode-indicator"></div>
         </div>
         
         <div id="control-panel">

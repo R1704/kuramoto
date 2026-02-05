@@ -430,7 +430,16 @@ export class Renderer {
     }
 
     setMeshMode(mode) {
-        this.meshMode = mode;
+        this.meshMode = (mode === 'instanced') ? 'instanced' : 'mesh';
+        if (this.meshMode === 'mesh') {
+            if (!this.vertexBuffer || !this.indexBuffer) {
+                this.rebuildMesh(this.gridSize);
+            }
+        } else {
+            if (!this.quadVertexBuffer) {
+                this.initQuadBuffer();
+            }
+        }
     }
 
     initQuadBuffer() {

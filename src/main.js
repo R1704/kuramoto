@@ -414,6 +414,20 @@ async function init() {
     const graphOverlayCtx = graphOverlay ? graphOverlay.getContext('2d') : null;
     let overlayDirty = true;
     let lastViewMode = STATE.viewMode;
+
+    const updateRenderModeIndicator = () => {
+        const el = document.getElementById('render-mode-indicator');
+        if (!el) return;
+        if (STATE.viewMode === 1) {
+            el.textContent = '2D';
+            el.style.opacity = '0.85';
+            return;
+        }
+        const mode = STATE.surfaceMode === 'instanced' ? 'Instanced' : 'Mesh';
+        el.textContent = `3D • ${mode}`;
+        el.style.opacity = '1';
+    };
+    updateRenderModeIndicator();
     
     // Initialize statistics tracking
     const stats = new StatisticsTracker(STATE.gridSize * STATE.gridSize * STATE.layerCount);
@@ -649,6 +663,7 @@ async function init() {
             if (STATE.viewMode !== lastViewMode) {
                 overlayDirty = true;
                 lastViewMode = STATE.viewMode;
+                updateRenderModeIndicator();
             }
             normalizeSelectedLayers(STATE.layerCount);
             syncStateToLayerParams(STATE.selectedLayers);
@@ -708,6 +723,8 @@ async function init() {
             STATE.surfaceMode = mode;
             renderer.setMeshMode(mode);
             sim.updateFullParams(STATE);
+            updateRenderModeIndicator();
+            updateURLFromState(STATE, true);
         },
         onPhaseSpaceToggle: (enabled) => {
             STATE.phaseSpaceEnabled = enabled;
