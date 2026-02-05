@@ -2487,6 +2487,20 @@ Where:
 
 The reservoir state is sampled from readout oscillators:
 
+---
+
+## Experiments (Rollouts)
+
+The Analysis tab includes a lightweight **Rollout runner** for reproducible A/B comparisons.
+
+- **Warmup Steps**: advances the simulation without recording (lets transients decay).
+- **Measure Steps**: advances the simulation while recording samples.
+- **Steps / Frame**: how many simulation steps to execute each rendered frame.
+- **Readback Every**: sample cadence for GPU readbacks (higher = faster, fewer samples).
+- **Reset at start**: reapply the current θ/ω init patterns before the rollout.
+
+Export produces a single JSON artifact containing the URL, a state snapshot, protocol, summary metrics, and downsampled timeseries.
+
 $$\mathbf{x}(t) = [\sin(\theta_{r_1}), \cos(\theta_{r_1}), \sin(\theta_{r_2}), \cos(\theta_{r_2}), ...]$$
 
 Using both sin and cos captures the full phase information (avoiding the wrap-around discontinuity).

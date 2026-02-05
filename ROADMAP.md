@@ -53,7 +53,7 @@ Acceptance:
 ### Phase 1 — Reproducible experiment harness
 Goal: fast iteration without manual eyeballing.
 - Seed discipline: a single `seed` controls all stochastic init/presets/RC task generation (stored in URL; UI reseed control).
-- Scenario runner: run for T steps, collect summary metrics, export JSON/CSV with config hash.
+- Scenario runner: rollout runner with JSON export (state snapshot + protocol + summary metrics + timeseries).
 - URL/state completeness: ensure all parameters used in experiments round-trip.
 - “Save/Load state”: serialize θ/ω/params with versioning; optional shareable link.
 - Targeted perturbations: reproducible pulse/erase actions (logged in the scenario runner) for stability/recovery experiments.
