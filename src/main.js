@@ -410,6 +410,54 @@ async function init() {
     let rcKsweepPlot = null;
     let rcReadPending = false;
     let lastRCReadMs = 0;
+    let rcWeightsFull = null;
+    let rcWeightsLastLayer = null;
+    let rcWeightsLayerSize = 0;
+
+    const getActiveLayerIndex = () => {
+        const layers = sim?.layers ?? STATE.layerCount ?? 1;
+        const idx = STATE.activeLayer ?? 0;
+        return Math.min(Math.max(0, idx), Math.max(0, layers - 1));
+    };
+
+    const getActiveLayerThetaForRC = (thetaFull) => {
+        if (!thetaFull) return thetaFull;
+        const layers = sim?.layers ?? 1;
+        if (layers <= 1) return thetaFull;
+        const layerSize = sim.gridSize * sim.gridSize;
+        const layer = getActiveLayerIndex();
+        const offset = layer * layerSize;
+        return thetaFull.subarray(offset, offset + layerSize);
+    };
+
+    const writeRCInputWeights = () => {
+        const layerSize = sim.gridSize * sim.gridSize;
+        const layer = getActiveLayerIndex();
+        const baseWeights = reservoir.getInputWeights();
+        if (!baseWeights || baseWeights.length !== layerSize) {
+            console.warn('RC input weights size mismatch', baseWeights?.length, 'expected', layerSize);
+            return;
+        }
+
+        if (!rcWeightsFull || rcWeightsFull.length !== sim.N || rcWeightsLayerSize !== layerSize) {
+            rcWeightsFull = new Float32Array(sim.N);
+            rcWeightsLastLayer = null;
+            rcWeightsLayerSize = layerSize;
+        }
+
+        if (rcWeightsLastLayer !== null && rcWeightsLastLayer !== layer) {
+            const prevOffset = rcWeightsLastLayer * layerSize;
+            rcWeightsFull.fill(0, prevOffset, prevOffset + layerSize);
+        }
+
+        const offset = layer * layerSize;
+        rcWeightsFull.set(baseWeights, offset);
+        rcWeightsLastLayer = layer;
+
+        sim.writeInputWeights(rcWeightsFull);
+    };
+
+    let rcActiveLayerSeen = getActiveLayerIndex();
     
     // Initialize plots (will be created when DOM is ready)
     let R_plot = null;
@@ -766,7 +814,7 @@ async function init() {
                 const nonZero = weights.filter(w => w > 0).length;
                 const maxWeight = Math.max(...weights);
                 console.log(`RC enabled: ${nonZero} input neurons, max weight=${maxWeight.toFixed(3)}, region=${STATE.rcInputRegion}`);
-                sim.writeInputWeights(weights);
+                writeRCInputWeights();
             } else {
                 // Clear input signal when disabling RC
                 sim.setInputSignal(0);
@@ -780,7 +828,7 @@ async function init() {
             reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
             reservoir.setTask(STATE.rcTask);
             // Write input weights to GPU
-            sim.writeInputWeights(reservoir.getInputWeights());
+            writeRCInputWeights();
             updateURLFromState(STATE, true);
         },
         onRCStartTraining: () => {
@@ -793,7 +841,7 @@ async function init() {
             reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
             reservoir.setTask(STATE.rcTask);
             // Write input weights to GPU
-            sim.writeInputWeights(reservoir.getInputWeights());
+            writeRCInputWeights();
             reservoir.startTraining();
             STATE.rcTraining = true;
             STATE.rcInference = false;
@@ -1224,7 +1272,7 @@ async function init() {
                     reservoir.setFeatureBudget(STATE.rcMaxFeatures);
                     reservoir.setHistoryLength(STATE.rcHistoryLength);
                     reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-                    sim.writeInputWeights(reservoir.getInputWeights());
+                    writeRCInputWeights();
                 } else {
                     sim.setInputSignal(0);
                 }
@@ -1258,7 +1306,7 @@ async function init() {
                 STATE.rcInputRegion = inputRegion.value;
                 if (STATE.rcEnabled) {
                     reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-                    sim.writeInputWeights(reservoir.getInputWeights());
+                    writeRCInputWeights();
                 }
             });
         }
@@ -1268,7 +1316,7 @@ async function init() {
                 STATE.rcOutputRegion = outputRegion.value;
                 if (STATE.rcEnabled) {
                     reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-                    sim.writeInputWeights(reservoir.getInputWeights());
+                    writeRCInputWeights();
                 }
             });
         }
@@ -1279,7 +1327,7 @@ async function init() {
                 if (inputStrengthVal) inputStrengthVal.textContent = STATE.rcInputStrength.toFixed(1);
                 if (STATE.rcEnabled) {
                     reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-                    sim.writeInputWeights(reservoir.getInputWeights());
+                    writeRCInputWeights();
                 }
             });
         }
@@ -1292,7 +1340,7 @@ async function init() {
                 }
                 reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
                 reservoir.setTask(STATE.rcTask);
-                sim.writeInputWeights(reservoir.getInputWeights());
+                writeRCInputWeights();
                 reservoir.startTraining();
                 STATE.rcTraining = true;
                 STATE.rcInference = false;
@@ -1574,7 +1622,7 @@ async function init() {
         reservoir.setFeatureBudget(STATE.rcMaxFeatures);
         reservoir.setHistoryLength(STATE.rcHistoryLength);
         reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-        sim.writeInputWeights(reservoir.getInputWeights());
+        writeRCInputWeights();
         reservoir.startTraining();
         STATE.rcTraining = true;
         STATE.rcInference = false;
@@ -1613,6 +1661,14 @@ async function init() {
         try {
             const frameNow = performance.now();
             if (!STATE.paused) STATE.frameTime += STATE.dt * STATE.timeScale;
+
+            if (STATE.rcEnabled) {
+                const layerNow = getActiveLayerIndex();
+                if (layerNow !== rcActiveLayerSeen) {
+                    rcActiveLayerSeen = layerNow;
+                    writeRCInputWeights();
+                }
+            }
             
             // Update camera view mode
             camera.viewMode = STATE.viewMode;
@@ -1654,9 +1710,10 @@ async function init() {
                         sim.readTheta().then(theta => {
                             if (theta) {
                                 try {
-                                    reservoir.step(theta);
+                                    const thetaLayer = getActiveLayerThetaForRC(theta);
+                                    reservoir.step(thetaLayer);
                                     if (reservoir.tasks && reservoir.tasks.taskType === 'moving_dot') {
-                                        sim.writeInputWeights(reservoir.getInputWeights());
+                                        writeRCInputWeights();
                                     }
                                     sim.setInputSignal(reservoir.getInputSignal());
                                     updateRCDisplay();

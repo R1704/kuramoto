@@ -572,7 +572,6 @@ export class Simulation {
      */
     writeInputWeights(weights) {
         this.device.queue.writeBuffer(this.inputWeightsBuf, 0, weights);
-        console.log('Input weights written, sum:', weights.reduce((a,b) => a+b, 0));
     }
     
     /**
@@ -581,10 +580,6 @@ export class Simulation {
      */
     setInputSignal(signal) {
         this.device.queue.writeBuffer(this.inputSignalBuf, 0, new Float32Array([signal]));
-        // Log periodically to avoid spam
-        if (Math.random() < 0.02) {
-            console.log('Input signal:', signal.toFixed(3));
-        }
     }
     
     /**
