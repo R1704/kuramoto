@@ -38,6 +38,14 @@ Introduced by **Yoshiki Kuramoto** in 1975, this deceptively simple model exhibi
 | **Chemistry** | Oscillating reactions, coupled chemical clocks |
 | **Physics** | Superconductors, laser arrays, plasma |
 
+### Reproducibility (Experiment Seed)
+
+This app is designed to support **reproducible research runs**.
+
+- `seed` controls stochastic components of initialization and experiments (random θ/ω patterns, randomness inside presets, RC task randomness, and LLE perturbation initialization).
+- The seed is stored in the URL so links can reproduce the same setup.
+- Interactive drawing/erasing is **not** currently logged, so it is not replayable from seed alone.
+
 ---
 
 ## Mathematical Foundation

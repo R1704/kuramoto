@@ -52,7 +52,7 @@ Acceptance:
 
 ### Phase 1 — Reproducible experiment harness
 Goal: fast iteration without manual eyeballing.
-- Seed discipline: a single `seed` controls all stochastic init/noise/topology sampling.
+- Seed discipline: a single `seed` controls all stochastic init/presets/RC task generation (stored in URL; UI reseed control).
 - Scenario runner: run for T steps, collect summary metrics, export JSON/CSV with config hash.
 - URL/state completeness: ensure all parameters used in experiments round-trip.
 - “Save/Load state”: serialize θ/ω/params with versioning; optional shareable link.
