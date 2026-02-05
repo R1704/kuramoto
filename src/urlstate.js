@@ -2,6 +2,7 @@
 // so the app can be shared via link and restored exactly.
 
 const DEFAULTS = {
+    seed: 1,
     dt: 0.03,
     timeScale: 1.0,
     paused: false,
@@ -96,6 +97,7 @@ const DEFAULTS = {
 // Keys to include in the URL and their types
 const SCHEMA = {
     // primitives
+    seed: 'int',
     dt: 'float', timeScale: 'float', paused: 'bool', K0: 'float', range: 'int', ruleMode: 'int',
     harmonicA: 'float', harmonicB: 'float', globalCoupling: 'bool',
     topologyMode: 'str', topologySeed: 'int', topologyWSK: 'int', topologyWSRewire: 'float', topologyBAM0: 'int', topologyBAM: 'int',

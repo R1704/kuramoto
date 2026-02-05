@@ -549,6 +549,28 @@ export class UIManager {
         bindSelect('theta-pattern-select', 'thetaPattern');
         bindSelect('omega-pattern-select', 'omegaPattern');
 
+        const seedInput = document.getElementById('seed-input');
+        if (seedInput) {
+            seedInput.addEventListener('change', () => {
+                const v = parseInt(seedInput.value);
+                this.state.seed = Number.isFinite(v) ? v : this.state.seed;
+                if (this.cb.onSeedChange) {
+                    this.cb.onSeedChange(this.state.seed);
+                } else if (this.cb.onParamChange) {
+                    this.cb.onParamChange();
+                }
+                this.updateDisplay();
+            });
+        }
+        const reseedBtn = document.getElementById('reseed-btn');
+        if (reseedBtn) {
+            reseedBtn.addEventListener('click', () => {
+                if (this.cb.onReseed) {
+                    this.cb.onReseed();
+                }
+            });
+        }
+
         // External input controls (image/video)
         this.externalInputCanvas = document.getElementById('image-preview');
         this.externalInputCtx = this.externalInputCanvas ? this.externalInputCanvas.getContext('2d') : null;
@@ -1044,6 +1066,11 @@ export class UIManager {
         }
         const overlayToggle = document.getElementById('graph-overlay-toggle');
         if (overlayToggle) overlayToggle.checked = !!this.state.graphOverlayEnabled;
+
+        const seedInput = document.getElementById('seed-input');
+        if (seedInput) seedInput.value = this.state.seed ?? 1;
+        const seedVal = document.getElementById('seed-value');
+        if (seedVal) seedVal.textContent = this.state.seed ?? 1;
 
         const statsToggle = document.getElementById('show-statistics-toggle');
         if (statsToggle) statsToggle.checked = !!this.state.showStatistics;

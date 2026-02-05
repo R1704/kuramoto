@@ -8,8 +8,10 @@ import { loadStateFromURL, updateURLFromState } from './urlstate.js';
 import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, LyapunovCalculator } from './statistics.js';
 import { ReservoirComputer } from './reservoir.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
+import { makeRng, normalizeSeed, cryptoSeedFallback } from './rng.js';
 
 const STATE = {
+    seed: 1,
     dt: 0.03,
     timeScale: 1.0,
     paused: false,
@@ -382,6 +384,12 @@ async function init() {
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
 
+    // Normalize/initialize seed for reproducible experiments
+    if (STATE.seed === undefined || STATE.seed === null) {
+        STATE.seed = cryptoSeedFallback();
+    }
+    STATE.seed = normalizeSeed(STATE.seed);
+
     ensureLayerParams(STATE.layerCount);
     let sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
     STATE.layerCount = sim.layers;
@@ -406,6 +414,7 @@ async function init() {
     
     // Initialize Reservoir Computer
     let reservoir = new ReservoirComputer(STATE.gridSize);
+    reservoir.setSeed?.(STATE.seed);
     let rcPlot = null;
     let rcKsweepPlot = null;
     let rcReadPending = false;
@@ -663,8 +672,10 @@ async function init() {
                 omegaBase = sim.getOmega() || new Float32Array(sim.N);
             }
             
-            applyThetaPattern(sim, thetaPattern, targets, thetaBase);
-            applyOmegaPattern(sim, omegaPattern, omegaAmp, targets, omegaBase);
+            const thetaRng = makeRng(STATE.seed, `theta:${thetaPattern}`);
+            const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
+            applyThetaPattern(sim, thetaPattern, targets, thetaBase, thetaRng);
+            applyOmegaPattern(sim, omegaPattern, omegaAmp, targets, omegaBase, omegaRng);
         },
         onOverlayToggle: (enabled) => {
             STATE.graphOverlayEnabled = enabled;
@@ -677,6 +688,18 @@ async function init() {
         },
         onPhaseSpaceToggle: (enabled) => {
             STATE.phaseSpaceEnabled = enabled;
+        },
+        onSeedChange: (seed) => {
+            STATE.seed = normalizeSeed(seed);
+            reservoir.setSeed?.(STATE.seed);
+            updateURLFromState(STATE, true);
+        },
+        onReseed: () => {
+            STATE.seed = cryptoSeedFallback();
+            reservoir.setSeed?.(STATE.seed);
+            resetSimulation(sim);
+            if (ui?.updateDisplay) ui.updateDisplay();
+            updateURLFromState(STATE, true);
         },
         onToggleStatistics: (enabled) => {
             STATE.showStatistics = enabled;
@@ -738,8 +761,8 @@ async function init() {
             });
         },
         onPatternChange: (key) => {
-            if(key === 'thetaPattern') applyThetaPattern(sim, STATE.thetaPattern);
-            if(key === 'omegaPattern') applyOmegaPattern(sim, STATE.omegaPattern, STATE.omegaAmplitude);
+            if(key === 'thetaPattern') applyThetaPattern(sim, STATE.thetaPattern, null, null, makeRng(STATE.seed, `theta:${STATE.thetaPattern}`));
+            if(key === 'omegaPattern') applyOmegaPattern(sim, STATE.omegaPattern, STATE.omegaAmplitude, null, null, makeRng(STATE.seed, `omega:${STATE.omegaPattern}`));
         },
         onExternalInput: (canvas) => {
             lastExternalCanvas = canvas;
@@ -748,7 +771,7 @@ async function init() {
             renderer.loadTextureFromCanvas(canvas);
             // If theta pattern is set to image, reinitialize it
             if (STATE.thetaPattern === 'image') {
-                applyThetaPattern(sim, 'image');
+                applyThetaPattern(sim, 'image', null, null, makeRng(STATE.seed, 'theta:image'));
             }
         },
         onResizeGrid: async (newSize) => {
@@ -1015,7 +1038,7 @@ async function init() {
                 
                 // Read current theta from GPU
                 const theta = await sim.readTheta();
-                lyapunovCalc.start(theta);
+                lyapunovCalc.start(theta, makeRng(STATE.seed, 'lle'));
                 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
@@ -1899,11 +1922,13 @@ function resetSimulation(sim) {
     const omegaPattern = document.getElementById('omega-pattern-select')?.value || 'random';
     const omegaAmp = parseFloat(document.getElementById('omega-amplitude-slider')?.value || 0.4);
 
-    applyThetaPattern(sim, thetaPattern);
-    applyOmegaPattern(sim, omegaPattern, omegaAmp);
+    const thetaRng = makeRng(STATE.seed, `theta:${thetaPattern}`);
+    const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
+    applyThetaPattern(sim, thetaPattern, null, null, thetaRng);
+    applyOmegaPattern(sim, omegaPattern, omegaAmp, null, null, omegaRng);
 }
 
-function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null) {
+function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null, rng = null) {
     const N = sim.N;
     const GRID = sim.gridSize;
     const layers = sim.layers || 1;
@@ -1915,9 +1940,10 @@ function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null) 
         : Array.from({ length: layers }, (_, i) => i);
 
     if (pattern === 'random') {
+        const rand = rng ? rng.float : Math.random;
         targets.forEach(layer => {
             const offset = layer * layerSize;
-            for (let i = 0; i < layerSize; i++) theta[offset + i] = Math.random() * TWO_PI;
+            for (let i = 0; i < layerSize; i++) theta[offset + i] = rand() * TWO_PI;
         });
     } else if (pattern === 'gradient') {
         const k = TWO_PI / (GRID * 1.414);
@@ -1991,7 +2017,7 @@ function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null) 
     sim.writeTheta(theta);
 }
 
-function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = null) {
+function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = null, rng = null) {
     const N = sim.N;
     const GRID = sim.gridSize;
     const layers = sim.layers || 1;
@@ -2002,12 +2028,17 @@ function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = n
         : Array.from({ length: layers }, (_, i) => i);
 
     if (pattern === 'random') {
+        const normal = rng ? rng.normal : null;
         targets.forEach(layer => {
             const offset = layer * layerSize;
             for(let i=0; i<layerSize; i++) {
-                const u1 = Math.random(), u2 = Math.random();
-                const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-                omega[offset + i] = z * amp;
+                if (normal) {
+                    omega[offset + i] = normal(0, amp);
+                } else {
+                    const u1 = Math.random(), u2 = Math.random();
+                    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                    omega[offset + i] = z * amp;
+                }
             }
         });
     } else if (pattern === 'uniform') {
@@ -2050,8 +2081,9 @@ function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = n
 }
 
 function randomizeTheta(sim) {
+    const rng = makeRng(STATE.seed, 'theta:randomize');
     const theta = new Float32Array(sim.N);
-    for(let i=0; i<sim.N; i++) theta[i] = Math.random() * 6.28;
+    for(let i=0; i<sim.N; i++) theta[i] = rng.float() * 6.28318;
     sim.writeTheta(theta);
 }
 
@@ -2074,7 +2106,8 @@ async function loadPreset(name, sim, ui) {
         
         // Run the preset (this writes to sim.thetaData for all layers, but presets
         // typically only fill layer 0 with meaningful data, leaving others zero)
-        Presets[name](STATE, sim);
+        const rng = makeRng(STATE.seed, `preset:${name}`);
+        Presets[name](STATE, sim, rng);
         
         // Sync STATE params to selected layers
         syncStateToLayerParams(targets);

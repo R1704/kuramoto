@@ -585,6 +585,8 @@ export class LyapunovCalculator {
         
         // Callbacks
         this.onUpdate = null;
+
+        this.rng = null;
     }
     
     /**
@@ -602,14 +604,16 @@ export class LyapunovCalculator {
      * Initialize the perturbation from current state
      * @param {Float32Array} theta - Current phase values
      */
-    start(theta) {
+    start(theta, rng = null) {
         this.prevTheta = new Float32Array(theta);
+        this.rng = rng;
         
         // Initialize random unit perturbation
         this.perturbation = new Float32Array(this.N);
         let norm = 0;
         for (let i = 0; i < this.N; i++) {
-            this.perturbation[i] = Math.random() - 0.5;
+            const r = this.rng ? this.rng.float() : Math.random();
+            this.perturbation[i] = r - 0.5;
             norm += this.perturbation[i] * this.perturbation[i];
         }
         norm = Math.sqrt(norm);
@@ -742,7 +746,8 @@ export class LyapunovCalculator {
             console.warn('LLE: Perturbation numerical issue, reinitializing');
             let newNorm = 0;
             for (let i = 0; i < this.N; i++) {
-                this.perturbation[i] = Math.random() - 0.5;
+                const r = this.rng ? this.rng.float() : Math.random();
+                this.perturbation[i] = r - 0.5;
                 newNorm += this.perturbation[i] * this.perturbation[i];
             }
             newNorm = Math.sqrt(newNorm);
@@ -1250,7 +1255,7 @@ export class PhaseSpacePlot {
         // Subsample
         const total = thetaArray.length;
         const step = Math.max(1, Math.floor(total / this.maxPoints));
-        const offset = Math.floor(Math.random() * step);
+        const offset = 0;
 
         ctx.fillStyle = this.pointColor;
         ctx.beginPath();

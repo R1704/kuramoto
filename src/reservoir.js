@@ -5,6 +5,8 @@
  * network as a reservoir computer for temporal pattern learning.
  */
 
+import { makeRng, normalizeSeed } from './rng.js';
+
 /**
  * Manages input/output weights and signal injection for reservoir computing
  */
@@ -31,6 +33,14 @@ export class ReservoirIO {
         
         // Number of readout oscillators
         this.numReadouts = 0;
+
+        this.seed = 1;
+        this.rng = makeRng(this.seed, 'rc:io');
+    }
+
+    setSeed(seed) {
+        this.seed = normalizeSeed(seed);
+        this.rng = makeRng(this.seed, 'rc:io');
     }
     
     /**
@@ -79,7 +89,7 @@ export class ReservoirIO {
                 for (let i = 0; i < this.N; i++) indices.push(i);
                 // Shuffle and take first numInputs
                 for (let i = indices.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
+                    const j = this.rng ? this.rng.int(0, i) : Math.floor(Math.random() * (i + 1));
                     [indices[i], indices[j]] = [indices[j], indices[i]];
                 }
                 for (let i = 0; i < numInputs; i++) {
@@ -691,6 +701,15 @@ export class RCTasks {
         this.movingDotHorizon = 5;
         this.movingDotWidth = 0.05;
         this.movingDotY = 0.5;
+
+        this.seed = 1;
+        this.rng = makeRng(this.seed, 'rc:tasks');
+    }
+
+    setSeed(seed) {
+        this.seed = normalizeSeed(seed);
+        this.rng = makeRng(this.seed, 'rc:tasks');
+        this.reset();
     }
     
     /**
@@ -699,6 +718,11 @@ export class RCTasks {
      */
     setTask(type) {
         this.taskType = type;
+        this.time = 0;
+        this.history = [];
+    }
+
+    reset() {
         this.time = 0;
         this.history = [];
     }
@@ -741,7 +765,7 @@ export class RCTasks {
      */
     narma10Task() {
         // Random input in [0, 0.5]
-        const u = Math.random() * 0.5;
+        const u = (this.rng ? this.rng.float() : Math.random()) * 0.5;
         
         // Initialize history if needed
         while (this.history.length < 11) {
@@ -829,6 +853,9 @@ export class ReservoirComputer {
         this.io = new ReservoirIO(gridSize);
         this.onlineLearner = new OnlineLearner();
         this.tasks = new RCTasks();
+
+        this.seed = 1;
+        this.setSeed(this.seed);
         
         this.isTraining = false;
         this.isInference = false;
@@ -854,6 +881,12 @@ export class ReservoirComputer {
         this.io.setOutputRegion(outputRegion, 0.1);
         this.io.clearHistory();
         console.log(`RC configured: input=${inputRegion}, output=${outputRegion}, readouts=${this.io.numReadouts}`);
+    }
+
+    setSeed(seed) {
+        this.seed = normalizeSeed(seed);
+        this.io.setSeed(this.seed);
+        this.tasks.setSeed(this.seed);
     }
 
     setFeatureBudget(maxFeatures) {

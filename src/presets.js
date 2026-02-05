@@ -13,7 +13,7 @@ export const Presets = {
         sim.writeOmega(omega);
     },
     
-    grains: (state, sim) => {
+    grains: (state, sim, rng = null) => {
         state.ruleMode = 1; // Coherence-Gated
         state.K0 = 0.8;
         state.range = 2;
@@ -22,25 +22,31 @@ export const Presets = {
         
         // Random theta (uniform)
         const theta = new Float32Array(sim.N);
+        const rand = rng ? rng.float : Math.random;
         for(let i=0; i<sim.N; i++) {
-            theta[i] = Math.random() * 2 * Math.PI;
+            theta[i] = rand() * 2 * Math.PI;
         }
         
         // Random omega (Gaussian distribution, Box-Muller transform)
         const omega = new Float32Array(sim.N);
         const amplitude = 0.4;
+        const normal = rng ? rng.normal : null;
         for(let i=0; i<sim.N; i++) {
-            const u1 = Math.random();
-            const u2 = Math.random();
-            const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-            omega[i] = z * amplitude;
+            if (normal) {
+                omega[i] = normal(0, amplitude);
+            } else {
+                const u1 = Math.random();
+                const u2 = Math.random();
+                const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                omega[i] = z * amplitude;
+            }
         }
         
         sim.writeTheta(theta);
         sim.writeOmega(omega);
     },
     
-    clusters: (state, sim) => {
+    clusters: (state, sim, rng = null) => {
         state.ruleMode = 3; // Harmonics
         state.K0 = 0.8;
         state.harmonicA = 0.5;
@@ -51,9 +57,10 @@ export const Presets = {
         // Random initialization
         const theta = new Float32Array(sim.N);
         const omega = new Float32Array(sim.N);
+        const rand = rng ? rng.float : Math.random;
         for(let i=0; i<sim.N; i++) {
-            theta[i] = Math.random() * 2 * Math.PI;
-            omega[i] = (Math.random() - 0.5) * 0.3;
+            theta[i] = rand() * 2 * Math.PI;
+            omega[i] = (rand() - 0.5) * 0.3;
         }
         
         sim.writeTheta(theta);
@@ -88,7 +95,7 @@ export const Presets = {
         sim.writeOmega(omega);
     },
     
-    chimera: (state, sim) => {
+    chimera: (state, sim, rng = null) => {
         state.ruleMode = 4;
         state.K0 = 1.2;
         state.sigma = 1.5;
@@ -101,6 +108,7 @@ export const Presets = {
         const omega = new Float32Array(sim.N);
         const GRID = sim.gridSize;
         
+        const rand = rng ? rng.float : Math.random;
         for (let r = 0; r < GRID; r++) {
             for (let c = 0; c < GRID; c++) {
                 const i = r * GRID + c;
@@ -108,8 +116,8 @@ export const Presets = {
                     theta[i] = 0;
                     omega[i] = 0.1;
                 } else {
-                    theta[i] = Math.random() * 2 * Math.PI;
-                    omega[i] = (Math.random() - 0.5) * 0.4;
+                    theta[i] = rand() * 2 * Math.PI;
+                    omega[i] = (rand() - 0.5) * 0.4;
                 }
             }
         }
@@ -328,7 +336,7 @@ export const Presets = {
         sim.writeOmega(omega);
     },
 
-    turbulence: (state, sim) => {
+    turbulence: (state, sim, rng = null) => {
         state.ruleMode = 2; // Curvature
         state.K0 = 0.6;
         state.range = 2;
@@ -340,11 +348,12 @@ export const Presets = {
         const GRID = sim.gridSize;
         
         // Random phases with spatial correlation
+        const rand = rng ? rng.float : Math.random;
         for (let r = 0; r < GRID; r++) {
             for (let c = 0; c < GRID; c++) {
                 const i = r * GRID + c;
-                theta[i] = Math.random() * 2 * Math.PI;
-                omega[i] = (Math.random() - 0.5) * 0.8;
+                theta[i] = rand() * 2 * Math.PI;
+                omega[i] = (rand() - 0.5) * 0.8;
             }
         }
         
@@ -373,7 +382,7 @@ export const Presets = {
         sim.writeOmega(omega);
     },
 
-    turbulence_simple: (state, sim) => {
+    turbulence_simple: (state, sim, rng = null) => {
         state.ruleMode = 2; // Curvature
         state.K0 = 0.6;
         state.range = 2;
@@ -386,7 +395,8 @@ export const Presets = {
         
         // Random phases with spatial correlation (simple smoothing)
         const raw = new Float32Array(sim.N);
-        for(let i=0; i<sim.N; i++) raw[i] = Math.random() * 2 * Math.PI;
+        const rand = rng ? rng.float : Math.random;
+        for(let i=0; i<sim.N; i++) raw[i] = rand() * 2 * Math.PI;
         
         for (let r = 0; r < GRID; r++) {
             for (let c = 0; c < GRID; c++) {
@@ -438,7 +448,7 @@ export const Presets = {
         sim.writeOmega(omega);
     },
 
-    delay_spirals: (state, sim) => {
+    delay_spirals: (state, sim, rng = null) => {
         state.ruleMode = 5; // Delay
         state.K0 = 1.0;
         state.range = 2;
@@ -448,8 +458,9 @@ export const Presets = {
         const theta = new Float32Array(sim.N);
         const omega = new Float32Array(sim.N);
         
+        const rand = rng ? rng.float : Math.random;
         for(let i=0; i<sim.N; i++) {
-            theta[i] = Math.random() * 0.1; // Small perturbation
+            theta[i] = rand() * 0.1; // Small perturbation
             omega[i] = 0.2;
         }
         
@@ -459,7 +470,7 @@ export const Presets = {
     
     // Reservoir Computing optimized preset
     // Creates traveling waves that carry information from left to right
-    reservoir: (state, sim) => {
+    reservoir: (state, sim, rng = null) => {
         state.ruleMode = 0; // Classic Kuramoto
         state.K0 = 0.8;     // Below full sync - sensitive to perturbations
         state.range = 4;     // Local coupling for wave propagation
@@ -473,13 +484,14 @@ export const Presets = {
         
         // Initialize with a gradient from left to right
         // This creates natural wave propagation direction
+        const rand = rng ? rng.float : Math.random;
         for (let r = 0; r < GRID; r++) {
             for (let c = 0; c < GRID; c++) {
                 const i = r * GRID + c;
                 // Phase gradient: waves travel left to right
                 theta[i] = (c / GRID) * Math.PI * 2;
                 // Slight frequency variation for richer dynamics
-                omega[i] = 0.1 + (Math.random() - 0.5) * 0.05;
+                omega[i] = 0.1 + (rand() - 0.5) * 0.05;
             }
         }
         
