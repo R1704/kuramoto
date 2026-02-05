@@ -726,59 +726,9 @@ async function init() {
             if (experimentRunner && experimentRunner.isRunning()) return;
             updateURLFromState(STATE, true);
         },
-        onExperimentRun: () => {
-            const statusEl = document.getElementById('exp-status');
-            if (statusEl) statusEl.textContent = 'starting...';
-
-            try {
-                if (!STATE.showStatistics) {
-                    if (statusEl) statusEl.textContent = 'enable Compute to run';
-                    return;
-                }
-                if (!experimentRunner) {
-                    if (statusEl) statusEl.textContent = 'runner not initialized';
-                    return;
-                }
-                if (experimentRunner.isRunning()) return;
-                if (STATE.rcTraining || STATE.rcInference) {
-                    if (statusEl) statusEl.textContent = 'stop RC to run';
-                    alert('Stop RC training/inference before running a rollout');
-                    return;
-                }
-
-                if (STATE.expResetAtStart) {
-                    resetSimulation(sim);
-                }
-                stats.reset();
-
-                experimentLastExport = null;
-                experimentPrevPaused = STATE.paused;
-                STATE.paused = false;
-
-                const snapshot = JSON.parse(JSON.stringify(STATE));
-                const protocol = {
-                    resetAtStart: !!STATE.expResetAtStart,
-                    warmupSteps: STATE.expWarmupSteps,
-                    measureSteps: STATE.expMeasureSteps,
-                    stepsPerFrame: STATE.expStepsPerFrame,
-                    readbackEvery: STATE.expReadbackEvery,
-                };
-
-                const ok = experimentRunner.start(protocol, snapshot);
-                if (!ok && statusEl) statusEl.textContent = 'failed to start';
-            } catch (e) {
-                console.error('Experiment run failed:', e);
-                if (statusEl) statusEl.textContent = 'error (see console)';
-            }
-        },
-        onExperimentCancel: () => {
-            if (experimentRunner) experimentRunner.cancel();
-        },
-        onExperimentExport: () => {
-            if (!experimentLastExport) return;
-            const json = JSON.stringify(experimentLastExport, null, 2);
-            downloadJSON(json, `kuramoto_rollout_${experimentLastExport.configHash || 'run'}.json`);
-        },
+        onExperimentRun: null,
+        onExperimentCancel: null,
+        onExperimentExport: null,
         onToggleStatistics: (enabled) => {
             STATE.showStatistics = enabled;
             if (!enabled) {
@@ -1086,6 +1036,83 @@ async function init() {
     });
 
     updateExperimentUI({ running: false, phase: 'idle', stepIndex: 0, totalSteps: 0, configHash: null, summary: null });
+
+    let lastRolloutClickMs = 0;
+    const runRollout = () => {
+        const now = performance.now();
+        if (now - lastRolloutClickMs < 100) return;
+        lastRolloutClickMs = now;
+
+        const statusEl = document.getElementById('exp-status');
+        if (statusEl) statusEl.textContent = 'starting...';
+
+        try {
+            if (!STATE.showStatistics) {
+                if (statusEl) statusEl.textContent = 'enable Compute to run';
+                return;
+            }
+            if (!experimentRunner) {
+                if (statusEl) statusEl.textContent = 'runner not initialized';
+                return;
+            }
+            if (experimentRunner.isRunning()) return;
+            if (STATE.rcTraining || STATE.rcInference) {
+                if (statusEl) statusEl.textContent = 'stop RC to run';
+                alert('Stop RC training/inference before running a rollout');
+                return;
+            }
+
+            if (STATE.expResetAtStart) {
+                resetSimulation(sim);
+            }
+            stats.reset();
+
+            experimentLastExport = null;
+            experimentPrevPaused = STATE.paused;
+            STATE.paused = false;
+
+            const snapshot = JSON.parse(JSON.stringify(STATE));
+            const protocol = {
+                resetAtStart: !!STATE.expResetAtStart,
+                warmupSteps: STATE.expWarmupSteps,
+                measureSteps: STATE.expMeasureSteps,
+                stepsPerFrame: STATE.expStepsPerFrame,
+                readbackEvery: STATE.expReadbackEvery,
+            };
+
+            const ok = experimentRunner.start(protocol, snapshot);
+            if (!ok && statusEl) statusEl.textContent = 'failed to start';
+        } catch (e) {
+            console.error('Experiment run failed:', e);
+            if (statusEl) statusEl.textContent = 'error (see console)';
+        }
+    };
+
+    const cancelRollout = () => {
+        if (experimentRunner) experimentRunner.cancel();
+    };
+
+    const exportRollout = () => {
+        if (!experimentLastExport) return;
+        const json = JSON.stringify(experimentLastExport, null, 2);
+        downloadJSON(json, `kuramoto_rollout_${experimentLastExport.configHash || 'run'}.json`);
+    };
+
+    // Bind rollout controls directly (in addition to UIManager) to avoid silent no-op
+    // if an upstream binding fails.
+    const expRunBtn = document.getElementById('exp-run-btn');
+    if (expRunBtn) expRunBtn.addEventListener('click', runRollout);
+    const expCancelBtn = document.getElementById('exp-cancel-btn');
+    if (expCancelBtn) expCancelBtn.addEventListener('click', cancelRollout);
+    const expExportBtn = document.getElementById('exp-export-btn');
+    if (expExportBtn) expExportBtn.addEventListener('click', exportRollout);
+
+    // Also attach callbacks so UIManager-controlled events (if any) share behavior.
+    if (ui && ui.cb) {
+        ui.cb.onExperimentRun = runRollout;
+        ui.cb.onExperimentCancel = cancelRollout;
+        ui.cb.onExperimentExport = exportRollout;
+    }
     
     // Initialize plots after DOM is ready
     setTimeout(() => {
