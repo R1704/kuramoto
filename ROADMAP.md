@@ -27,7 +27,7 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 ## Known issues / correctness risks (must address early)
 - **Multi-layer stats**: ensure layer-aware metrics stay intra-layer (e.g., phase gradient); avoid cross-layer indexing artifacts.
 - **Metric semantics drift**: ensure UI/plot/export naming is explicit (globalR vs localMeanR) and consistent.
-- **RC + layers mismatch**: reservoir feature extraction assumes theta length = gridSize^2, but sim theta is gridSize^2 * layerCount.
+- **RC + layers mismatch**: fixed by defining an explicit policy (default: active-layer features + injection).
 - **LLE scope**: Lyapunov estimator is heuristic and not aligned with every shader mode (kernels/topology/interlayer); treat as an indicator, not a proof.
 
 ## Roadmap (strategically prioritized)

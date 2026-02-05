@@ -2520,6 +2520,12 @@ Where:
 
 ### Input/Output Topology
 
+#### Multi-layer behavior
+
+When `layerCount > 1`, Reservoir Computing operates on the **active layer** by default:
+- Features are extracted from the active layer’s θ field.
+- Input injection weights are applied to the active layer only.
+
 #### Periodic Boundary Consideration
 
 The simulation uses **periodic (toroidal) boundary conditions** — the left edge wraps around to the right edge. This means "left input, right readout" actually places them adjacent!
