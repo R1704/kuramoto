@@ -2217,6 +2217,35 @@
                             Controls randomness in init, presets, and RC. Interactive drawing is not logged.
                         </div>
                     </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>State Snapshot</span>
+                            <span class="control-value" id="snapshot-status">—</span>
+                        </div>
+                        <label style="display:flex; align-items:center; gap:8px; font-size: 12px; color:#bbb;">
+                            <input type="checkbox" id="snapshot-theta-toggle" checked>
+                            <span>Include theta</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size: 12px; color:#bbb;">
+                            <input type="checkbox" id="snapshot-omega-toggle" checked>
+                            <span>Include omega</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size: 12px; color:#bbb;">
+                            <input type="checkbox" id="snapshot-active-layer-only-toggle">
+                            <span>Active layer only</span>
+                        </label>
+                        <div style="display:flex; gap:8px; margin-top: 8px;">
+                            <button id="snapshot-save-btn" class="small-btn" style="flex:1;">💾 Save</button>
+                            <label class="small-btn" style="flex:1; text-align:center; cursor:pointer;">
+                                📂 Load
+                                <input type="file" id="snapshot-load-input" accept="application/json" style="display:none;">
+                            </label>
+                        </div>
+                        <div style="font-size: 9px; color: #666; margin-top: 4px;">
+                            Saves theta/omega + params with versioning. Large grids can produce big files.
+                        </div>
+                    </div>
                      
                     <div class="button-group">
                         <button id="reset-btn">Reset</button>

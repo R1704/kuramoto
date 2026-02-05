@@ -10,6 +10,7 @@ import { ReservoirComputer } from './reservoir.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
 import { makeRng, normalizeSeed, cryptoSeedFallback } from './rng.js';
 import { ExperimentRunner } from './experiments.js';
+import { encodeFloat32ToBase64, decodeBase64ToFloat32, estimateBase64SizeBytes } from './stateio.js';
 
 const STATE = {
     seed: 1,
@@ -1113,6 +1114,213 @@ async function init() {
         ui.cb.onExperimentCancel = cancelRollout;
         ui.cb.onExperimentExport = exportRollout;
     }
+
+    // Snapshot save/load (theta/omega + params)
+    const snapshotStatusEl = document.getElementById('snapshot-status');
+    const setSnapshotStatus = (text) => {
+        if (snapshotStatusEl) snapshotStatusEl.textContent = text;
+    };
+
+    const resizeGridForSnapshot = async (newSize) => {
+        if (gridResizeInProgress) return;
+        gridResizeInProgress = true;
+        try {
+            sim.resize(newSize);
+            STATE.gridSize = newSize;
+            renderer.rebuildMesh(newSize);
+            stats.resize(newSize * newSize * STATE.layerCount);
+            lyapunovCalc.resize(newSize * newSize * STATE.layerCount);
+            reservoir.resize(newSize);
+            renderer.invalidateBindGroup();
+            regenerateTopology();
+            drawKernel(STATE);
+        } finally {
+            gridResizeInProgress = false;
+        }
+    };
+
+    const captureSnapshot = async () => {
+        if (experimentRunner && experimentRunner.isRunning()) {
+            setSnapshotStatus('cancel rollout first');
+            return;
+        }
+
+        const includeTheta = !!document.getElementById('snapshot-theta-toggle')?.checked;
+        const includeOmega = !!document.getElementById('snapshot-omega-toggle')?.checked;
+        const activeLayerOnly = !!document.getElementById('snapshot-active-layer-only-toggle')?.checked;
+        const layerSize = sim.gridSize * sim.gridSize;
+        const layers = sim.layers || 1;
+        const activeLayer = Math.min(Math.max(0, STATE.activeLayer ?? 0), Math.max(0, layers - 1));
+
+        setSnapshotStatus('reading...');
+
+        let theta = null;
+        let omega = null;
+
+        if (includeTheta) {
+            theta = await sim.readTheta();
+            if (!theta) {
+                setSnapshotStatus('theta read failed');
+                return;
+            }
+        }
+        if (includeOmega) {
+            omega = sim.getOmega();
+            if (!omega) {
+                // Not fatal: omega is optional and may not be stored.
+                omega = null;
+            }
+        }
+
+        if (activeLayerOnly && layers > 1) {
+            if (theta && theta.length === sim.N) {
+                theta = theta.subarray(activeLayer * layerSize, activeLayer * layerSize + layerSize);
+            }
+            if (omega && omega.length === sim.N) {
+                omega = omega.subarray(activeLayer * layerSize, activeLayer * layerSize + layerSize);
+            }
+        }
+
+        setSnapshotStatus('encoding...');
+        const snapshot = {
+            type: 'kuramoto_state_snapshot',
+            version: 1,
+            timestamp: new Date().toISOString(),
+            url: window.location.href,
+            meta: {
+                gridSize: sim.gridSize,
+                layerCount: layers,
+                activeLayer,
+                activeLayerOnly,
+            },
+            state: JSON.parse(JSON.stringify(STATE)),
+            buffers: {},
+        };
+
+        let approxBytes = 0;
+
+        if (theta) {
+            snapshot.buffers.theta = {
+                dtype: 'f32',
+                encoding: 'base64',
+                length: theta.length,
+                base64: encodeFloat32ToBase64(theta),
+            };
+            approxBytes += estimateBase64SizeBytes(theta.byteLength);
+        }
+
+        if (omega) {
+            snapshot.buffers.omega = {
+                dtype: 'f32',
+                encoding: 'base64',
+                length: omega.length,
+                base64: encodeFloat32ToBase64(omega),
+            };
+            approxBytes += estimateBase64SizeBytes(omega.byteLength);
+        }
+
+        const json = JSON.stringify(snapshot, null, 2);
+        const filename = `kuramoto_snapshot_${snapshot.timestamp.replace(/[:.]/g, '-')}.json`;
+        downloadJSON(json, filename);
+        setSnapshotStatus(`saved ~${formatBytes(approxBytes)}`);
+    };
+
+    const applySnapshot = async (snapshot) => {
+        if (!snapshot || snapshot.type !== 'kuramoto_state_snapshot') {
+            throw new Error('Not a kuramoto_state_snapshot');
+        }
+        if (snapshot.version !== 1) {
+            throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
+        }
+
+        if (experimentRunner && experimentRunner.isRunning()) {
+            experimentRunner.cancel();
+        }
+
+        const targetGrid = snapshot.meta?.gridSize ?? snapshot.state?.gridSize;
+        const targetLayers = snapshot.meta?.layerCount ?? snapshot.state?.layerCount;
+        if (!Number.isFinite(targetGrid) || !Number.isFinite(targetLayers)) {
+            throw new Error('Snapshot missing gridSize/layerCount');
+        }
+
+        if (targetLayers !== STATE.layerCount) {
+            await rebuildLayerCount(targetLayers);
+        }
+
+        if (targetGrid !== STATE.gridSize) {
+            await resizeGridForSnapshot(targetGrid);
+        }
+
+        Object.assign(STATE, snapshot.state || {});
+        STATE.seed = normalizeSeed(STATE.seed);
+        STATE.layerCount = Math.max(1, Math.min(8, Math.floor(STATE.layerCount || 1)));
+        STATE.activeLayer = Math.min(Math.max(0, Math.floor(STATE.activeLayer || 0)), STATE.layerCount - 1);
+
+        ensureLayerParams(STATE.layerCount);
+        normalizeSelectedLayers(STATE.layerCount);
+        applyLayerParamsToState(STATE.activeLayer);
+        syncStateToLayerParams(STATE.selectedLayers);
+        sim.writeLayerParams(STATE.layerParams);
+        sim.updateFullParams(STATE);
+
+        const layerSize = sim.gridSize * sim.gridSize;
+        const layers = sim.layers || 1;
+        const activeLayer = Math.min(Math.max(0, STATE.activeLayer ?? 0), Math.max(0, layers - 1));
+
+        if (snapshot.buffers?.theta?.base64) {
+            const thetaDecoded = decodeBase64ToFloat32(snapshot.buffers.theta.base64);
+            if (thetaDecoded.length === sim.N) {
+                sim.writeTheta(thetaDecoded);
+            } else if (thetaDecoded.length === layerSize && layers > 1) {
+                const full = new Float32Array(sim.N);
+                full.set(thetaDecoded, activeLayer * layerSize);
+                sim.writeTheta(full);
+            } else {
+                throw new Error(`Theta length mismatch: ${thetaDecoded.length} (expected ${sim.N} or ${layerSize})`);
+            }
+        }
+
+        if (snapshot.buffers?.omega?.base64) {
+            const omegaDecoded = decodeBase64ToFloat32(snapshot.buffers.omega.base64);
+            if (omegaDecoded.length === sim.N) {
+                sim.writeOmega(omegaDecoded);
+                sim.storeOmega(omegaDecoded);
+            } else if (omegaDecoded.length === layerSize && layers > 1) {
+                const full = new Float32Array(sim.N);
+                full.set(omegaDecoded, activeLayer * layerSize);
+                sim.writeOmega(full);
+                sim.storeOmega(full);
+            } else {
+                throw new Error(`Omega length mismatch: ${omegaDecoded.length} (expected ${sim.N} or ${layerSize})`);
+            }
+        }
+
+        stats.reset();
+        if (ui?.updateDisplay) ui.updateDisplay();
+        updateURLFromState(STATE, true);
+        drawKernel(STATE);
+    };
+
+    const snapshotSaveBtn = document.getElementById('snapshot-save-btn');
+    if (snapshotSaveBtn) snapshotSaveBtn.addEventListener('click', () => { void captureSnapshot(); });
+    const snapshotLoadInput = document.getElementById('snapshot-load-input');
+    if (snapshotLoadInput) {
+        snapshotLoadInput.addEventListener('change', () => {
+            const file = snapshotLoadInput.files && snapshotLoadInput.files[0];
+            if (!file) return;
+            setSnapshotStatus('loading...');
+            file.text().then(async (text) => {
+                const snap = JSON.parse(text);
+                await applySnapshot(snap);
+                setSnapshotStatus('loaded');
+            }).catch((e) => {
+                console.error('Snapshot load failed:', e);
+                setSnapshotStatus('load failed');
+            }).finally(() => {
+                snapshotLoadInput.value = '';
+            });
+        });
+    }
     
     // Initialize plots after DOM is ready
     setTimeout(() => {
@@ -2105,6 +2313,18 @@ function downloadJSON(json, filename) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+function formatBytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let v = n;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i++;
+    }
+    return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function resetSimulation(sim) {
