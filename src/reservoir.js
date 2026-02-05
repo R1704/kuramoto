@@ -20,6 +20,9 @@ export class ReservoirIO {
         
         // Readout mask: which oscillators are used for output (0 or 1)
         this.readoutMask = new Float32Array(this.N);
+
+        // Cached readout indices for fast feature extraction
+        this.readoutIndices = [];
         
         // Current input signal value
         this.inputSignal = 0;
@@ -119,6 +122,7 @@ export class ReservoirIO {
     setOutputRegion(region, width = 0.1) {
         this.readoutMask.fill(0);
         this.numReadouts = 0;
+        this.readoutIndices = [];
         
         // With online learning (RLS), we can handle more readouts
         // 100 readouts × 2 features × 10 history = 2000 features
@@ -158,6 +162,7 @@ export class ReservoirIO {
             for (const idx of candidates) {
                 this.readoutMask[idx] = 1;
                 this.numReadouts++;
+                this.readoutIndices.push(idx);
             }
         } else {
             // Uniformly sample from candidates
@@ -166,6 +171,7 @@ export class ReservoirIO {
                 const idx = candidates[Math.floor(i * step)];
                 this.readoutMask[idx] = 1;
                 this.numReadouts++;
+                this.readoutIndices.push(idx);
             }
         }
     }
@@ -196,16 +202,17 @@ export class ReservoirIO {
         }
         
         // Features: sin(θ) and cos(θ) for each readout oscillator
-        const features = new Float32Array(this.numReadouts * 2);
+        const indices = this.readoutIndices;
+        const features = new Float32Array(indices.length * 2);
         let fi = 0;
-        
-        for (let i = 0; i < this.N; i++) {
-            if (this.readoutMask[i] > 0) {
-                features[fi++] = Math.sin(theta[i]);
-                features[fi++] = Math.cos(theta[i]);
-            }
+
+        for (let k = 0; k < indices.length; k++) {
+            const i = indices[k];
+            const th = theta[i];
+            features[fi++] = Math.sin(th);
+            features[fi++] = Math.cos(th);
         }
-        
+
         return features;
     }
     
@@ -269,6 +276,7 @@ export class ReservoirIO {
         this.N = newGridSize * newGridSize;
         this.inputWeights = new Float32Array(this.N);
         this.readoutMask = new Float32Array(this.N);
+        this.readoutIndices = [];
         this.clearHistory();
     }
 
@@ -316,6 +324,10 @@ export class OnlineLearner {
         this.delta = 1.0;     // Initial P scaling
         this.sampleCount = 0;
         this.initialized = false;
+
+        this.xScratch = null;
+        this.PxScratch = null;
+        this.kScratch = null;
         
         // For computing running NRMSE
         this.errorSum = 0;
@@ -342,6 +354,10 @@ export class OnlineLearner {
         this.targetSum = 0;
         this.targetSqSum = 0;
         this.initialized = true;
+
+        this.xScratch = new Float32Array(this.dim);
+        this.PxScratch = new Float32Array(this.dim);
+        this.kScratch = new Float32Array(this.dim);
         console.log(`OnlineLearner initialized with ${dim} features (+1 bias)`);
     }
     
@@ -357,10 +373,9 @@ export class OnlineLearner {
         }
         
         // Augment features with bias term
-        const x = new Float32Array(this.dim);
-        for (let i = 0; i < features.length; i++) {
-            x[i] = features[i];
-        }
+        const x = this.xScratch;
+        x.fill(0);
+        x.set(features, 0);
         x[this.dim - 1] = 1.0; // Bias
         
         // Compute prediction with current weights
@@ -373,7 +388,7 @@ export class OnlineLearner {
         const error = target - prediction;
         
         // RLS update: compute P * x
-        const Px = new Float32Array(this.dim);
+        const Px = this.PxScratch;
         for (let i = 0; i < this.dim; i++) {
             let sum = 0;
             for (let j = 0; j < this.dim; j++) {
@@ -390,7 +405,7 @@ export class OnlineLearner {
         
         // Compute gain vector k = P * x / (lambda + x' * P * x)
         const denom = this.lambda + xPx;
-        const k = new Float32Array(this.dim);
+        const k = this.kScratch;
         for (let i = 0; i < this.dim; i++) {
             k[i] = Px[i] / denom;
         }
@@ -486,6 +501,10 @@ export class OnlineLearner {
         this.errorSum = 0;
         this.targetSum = 0;
         this.targetSqSum = 0;
+
+        this.xScratch = null;
+        this.PxScratch = null;
+        this.kScratch = null;
     }
 }
 
@@ -941,6 +960,9 @@ export class ReservoirComputer {
         console.log(`Starting inference`);
         this.isInference = true;
         this.isTraining = false;
+        this.currentStep = 0;
+        this.tasks.reset();
+        this.io.clearHistory();
         this.predictions = [];
         this.targets = [];
         return true;

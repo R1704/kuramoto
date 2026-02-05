@@ -117,6 +117,7 @@ const STATE = {
     rcInference: false, // Running trained model
     rcTrainingSamples: 0, // Number of samples collected
     rcNRMSE: null, // Performance metric after training
+    rcTestNRMSE: null,
 
     // Visualization toggles
     phaseSpaceEnabled: true,
@@ -428,6 +429,8 @@ async function init() {
     let rcKsweepPlot = null;
     let rcReadPending = false;
     let lastRCReadMs = 0;
+    let rcTestRemaining = 0;
+    const RC_TEST_STEPS = 200;
     let rcWeightsFull = null;
     let rcWeightsLastLayer = null;
     let rcWeightsLayerSize = 0;
@@ -1828,6 +1831,7 @@ async function init() {
                     STATE.rcTraining = false;
                     const nrmse = reservoir.stopTraining();
                     STATE.rcNRMSE = nrmse;
+                    // Keep last test NRMSE until next test run.
                     trainBtn.disabled = false;
                     stopBtn.disabled = true;
                     testBtn.disabled = false;
@@ -1835,6 +1839,7 @@ async function init() {
                 } else if (STATE.rcInference) {
                     STATE.rcInference = false;
                     reservoir.stopInference();
+                    rcTestRemaining = 0;
                     trainBtn.disabled = false;
                     stopBtn.disabled = true;
                     testBtn.disabled = false;
@@ -1845,9 +1850,17 @@ async function init() {
         
         if (testBtn) {
             testBtn.addEventListener('click', () => {
+                // Stop & Test: ensure trained weights, then run a short test window.
+                if (STATE.rcTraining) {
+                    STATE.rcTraining = false;
+                    STATE.rcNRMSE = reservoir.stopTraining();
+                }
+
                 if (reservoir.startInference()) {
                     STATE.rcInference = true;
                     STATE.rcTraining = false;
+                    rcTestRemaining = RC_TEST_STEPS;
+                    STATE.rcTestNRMSE = null;
                     trainBtn.disabled = true;
                     stopBtn.disabled = false;
                     testBtn.disabled = true;
@@ -1897,6 +1910,22 @@ async function init() {
             } else {
                 nrmseEl.textContent = '—';
                 nrmseEl.style.color = '#888';
+            }
+        }
+
+        const testNrmseEl = document.getElementById('rc-test-nrmse');
+        if (testNrmseEl) {
+            if (STATE.rcInference && rcTestRemaining > 0) {
+                testNrmseEl.textContent = `testing… (${rcTestRemaining})`;
+                testNrmseEl.style.color = '#888';
+            } else if (STATE.rcTestNRMSE !== null && isFinite(STATE.rcTestNRMSE)) {
+                testNrmseEl.textContent = STATE.rcTestNRMSE.toFixed(4);
+                if (STATE.rcTestNRMSE < 0.3) testNrmseEl.style.color = '#4CAF50';
+                else if (STATE.rcTestNRMSE < 0.7) testNrmseEl.style.color = '#FF9800';
+                else testNrmseEl.style.color = '#f44336';
+            } else {
+                testNrmseEl.textContent = '—';
+                testNrmseEl.style.color = '#888';
             }
         }
 
@@ -2199,6 +2228,23 @@ async function init() {
                                     updateRCDisplay();
                                     drawRCPlot();
                                     renderPhaseSpace(theta);
+
+                                    if (STATE.rcInference && rcTestRemaining > 0) {
+                                        rcTestRemaining--;
+                                        if (rcTestRemaining <= 0) {
+                                            STATE.rcInference = false;
+                                            reservoir.stopInference();
+                                            STATE.rcTestNRMSE = reservoir.computeTestNRMSE();
+
+                                            const trainBtn = document.getElementById('rc-train-btn');
+                                            const stopBtn = document.getElementById('rc-stop-btn');
+                                            const testBtn = document.getElementById('rc-test-btn');
+                                            if (trainBtn) trainBtn.disabled = false;
+                                            if (stopBtn) stopBtn.disabled = true;
+                                            if (testBtn) testBtn.disabled = false;
+                                            updateRCDisplay();
+                                        }
+                                    }
                                 } catch (e) {
                                     console.error('RC step error:', e);
                                 }
