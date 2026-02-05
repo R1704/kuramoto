@@ -5,10 +5,10 @@
  * - Global order parameter R (coherent phase alignment)
  * - Mean LOCAL order R̄_local (spatial organization - waves/spirals/clusters)
  * - Phase gradient magnitude (detects traveling waves/spirals)
- * - Susceptibility χ = N × Var(R) (peaks at criticality)
+ * - Susceptibility χ = N × Var(local mean R) (peaks at criticality)
  * - Sync fraction (fraction with local R > threshold)
  * - Time series history for plotting
- * - Phase diagram builder (R vs K scan)
+ * - Phase diagram builder (local mean R vs K scan)
  * - Criticality estimation (K_c from χ peak)
  * - Local order histogram (multimodality/chimera detection)
  * 
@@ -111,8 +111,8 @@ export class StatisticsTracker {
     }
     
     /**
-     * Compute susceptibility χ = N × Var(R)
-     * Uses variance of local R over recent window
+     * Compute susceptibility χ = N × Var(local mean R)
+     * Uses variance of local mean R over a recent window.
      */
     computeSusceptibility() {
         const count = this.windowFilled ? this.varianceWindowSize : this.windowIndex;
@@ -137,7 +137,7 @@ export class StatisticsTracker {
         }
         const variance = sumSq / (count - 1);
         
-        // Susceptibility χ = N × Var(R)
+        // Susceptibility χ = N × Var(local mean R)
         this.chi = this.N * variance;
     }
     
@@ -298,7 +298,8 @@ export class StatisticsTracker {
             const R_samples = [];
             for (let t = 0; t < measureSteps; t++) {
                 await this.waitFrame();
-                R_samples.push(this.R);
+                // Use local mean R as the primary organization metric
+                R_samples.push(this.localR);
             }
             
             // Compute statistics for this K value
@@ -507,12 +508,12 @@ export class StatisticsTracker {
      * Export statistics data to CSV format
      */
     exportCSV() {
-        let csv = 'time,R,chi,Psi\n';
+        let csv = 'time,globalR,localMeanR,chi,gradient,Psi\n';
         const count = this.historyCount;
         
         for (let i = 0; i < count; i++) {
             const idx = (this.historyIndex - count + i + this.historySize) % this.historySize;
-            csv += `${i},${this.R_history[idx].toFixed(6)},${this.chi_history[idx].toFixed(6)},${this.Psi_history[idx].toFixed(6)}\n`;
+            csv += `${i},${this.R_history[idx].toFixed(6)},${this.localR_history[idx].toFixed(6)},${this.chi_history[idx].toFixed(6)},${this.gradient_history[idx].toFixed(6)},${this.Psi_history[idx].toFixed(6)}\n`;
         }
         
         return csv;
@@ -526,7 +527,7 @@ export class StatisticsTracker {
             return 'No phase diagram data. Run K-scan first.';
         }
         
-        let csv = 'K,R_mean,R_std,chi\n';
+        let csv = 'K,localMeanR_mean,localMeanR_std,chi\n';
         for (const point of this.phaseDiagramData) {
             csv += `${point.K.toFixed(4)},${point.R_mean.toFixed(6)},${point.R_std.toFixed(6)},${point.chi.toFixed(6)}\n`;
         }
@@ -1010,7 +1011,7 @@ export class TimeSeriesPlot {
 
 
 /**
- * Phase Diagram Plot - R vs K with error bars
+ * Phase Diagram Plot - local mean R vs K with error bars
  */
 export class PhaseDiagramPlot {
     constructor(canvasId) {
@@ -1084,7 +1085,7 @@ export class PhaseDiagramPlot {
         ctx.save();
         ctx.translate(10, top + plotH / 2);
         ctx.rotate(-Math.PI / 2);
-        ctx.fillText('R', 0, 0);
+        ctx.fillText('Local R̄', 0, 0);
         ctx.restore();
         
         // Tick labels

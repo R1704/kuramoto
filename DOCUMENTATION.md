@@ -1524,9 +1524,9 @@ $$R = \left| \frac{1}{N} \sum_{j=1}^{N} e^{i\theta_j} \right|$$
 
 #### Susceptibility χ
 
-**Susceptibility** measures fluctuations in the order parameter:
+**Susceptibility** measures fluctuations in the order parameter. In this implementation we use the **mean local order** (Local R̄) since it better captures spatial organization (waves/spirals) than the global order parameter.
 
-$$\chi = N \cdot \text{Var}(R)$$
+$$\chi = N \cdot \text{Var}(\bar{R}_{local})$$
 
 This quantity **peaks at the critical coupling strength** $K_c$, making it useful for detecting phase transitions.
 
@@ -1537,11 +1537,11 @@ The criticality indicator shows the operating regime:
 - **Orange zone**: Critical regime (K ≈ Kc)
 - **Green zone**: Synchronized regime (high K)
 
-The marker position corresponds to the current R value.
+The marker position corresponds to the current **Local R̄** value.
 
 #### Time Series Plots
 
-- **R(t)**: Rolling history of order parameter (300 samples)
+- **R̄_local(t)**: Rolling history of mean local order (300 samples)
 - **χ(t)**: Rolling history of susceptibility (300 samples)
 
 #### Phase Diagram Builder (K-Scan)
@@ -1550,8 +1550,8 @@ The **K-scan** feature automatically sweeps coupling strength to build a phase d
 
 1. Press **K** or click "Scan K" button
 2. System automatically varies K from 0.1 to 2.5
-3. At each K value, measures mean R and variance
-4. Plots R vs K curve with error bars
+3. At each K value, measures mean **Local R̄** and variance
+4. Plots **Local R̄** vs K curve with error bars
 5. Estimates $K_c$ from susceptibility peak
 
 **Controls:**

@@ -1413,7 +1413,7 @@ fn main() {
     stats_out[0] = mean_r;                           // Mean local R
     stats_out[1] = sync_count / n;                   // Sync fraction
     stats_out[2] = sum_grad / n;                     // Mean gradient (indicates waves)
-    stats_out[3] = (sum_r2 / n) - (mean_r * mean_r); // Var(R) = E[R^2] - E[R]^2
+    stats_out[3] = (sum_r2 / n) - (mean_r * mean_r); // Var(local R) = E[R^2] - E[R]^2
     stats_out[4] = n;
     
     // Histogram normalize

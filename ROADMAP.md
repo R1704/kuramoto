@@ -25,8 +25,8 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 - RC injection modes: `freq_mod`, `phase_drive`, `coupling_mod`.
 
 ## Known issues / correctness risks (must address early)
-- **Multi-layer stats**: the local-stats gradient computation currently treats theta as a single tall grid, so gradients can cross layer boundaries when `layerCount > 1`.
-- **Metric semantics drift**: phase diagram y-axis uses Local R̄ data but labels it as “R”; exports mix Local vs Global naming.
+- **Multi-layer stats**: ensure layer-aware metrics stay intra-layer (e.g., phase gradient); avoid cross-layer indexing artifacts.
+- **Metric semantics drift**: ensure UI/plot/export naming is explicit (globalR vs localMeanR) and consistent.
 - **RC + layers mismatch**: reservoir feature extraction assumes theta length = gridSize^2, but sim theta is gridSize^2 * layerCount.
 - **LLE scope**: Lyapunov estimator is heuristic and not aligned with every shader mode (kernels/topology/interlayer); treat as an indicator, not a proof.
 
