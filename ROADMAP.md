@@ -55,7 +55,7 @@ Goal: fast iteration without manual eyeballing.
 - Seed discipline: a single `seed` controls all stochastic init/presets/RC task generation (stored in URL; UI reseed control).
 - Scenario runner: rollout runner with JSON export (state snapshot + protocol + summary metrics + timeseries).
 - URL/state completeness: ensure all parameters used in experiments round-trip.
-- “Save/Load state”: serialize θ/ω/params with versioning; optional shareable link.
+- “Save/Load state”: versioned snapshots of theta/omega/params (JSON) for reproducible restoration.
 - Targeted perturbations: reproducible pulse/erase actions (logged in the scenario runner) for stability/recovery experiments.
 - Optional recording/export: deterministic capture (fixed FPS, downsample) for shareable comparisons.
 

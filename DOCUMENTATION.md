@@ -2505,6 +2505,16 @@ The Analysis tab includes a lightweight **Rollout runner** for reproducible A/B 
 
 Export produces a single JSON artifact containing the URL, a state snapshot, protocol, summary metrics, and downsampled timeseries.
 
+## State Snapshots (Save/Load)
+
+Use **State Snapshot** (in the Init panel) to save and restore the full system state.
+
+- Saves a versioned JSON containing the current URL/state parameters plus optional raw buffers.
+- Optional buffers: `theta` and `omega` (Float32) stored as base64.
+- "Active layer only" saves only the active layer’s buffers (other layers load as zeros).
+
+This is the recommended way to reproduce runs after interactive drawing or long evolution.
+
 $$\mathbf{x}(t) = [\sin(\theta_{r_1}), \cos(\theta_{r_1}), \sin(\theta_{r_2}), \cos(\theta_{r_2}), ...]$$
 
 Using both sin and cos captures the full phase information (avoiding the wrap-around discontinuity).
