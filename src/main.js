@@ -678,6 +678,53 @@ async function init() {
         onPhaseSpaceToggle: (enabled) => {
             STATE.phaseSpaceEnabled = enabled;
         },
+        onToggleStatistics: (enabled) => {
+            STATE.showStatistics = enabled;
+            if (!enabled) {
+                // Stop K-scan
+                if (stats.isScanning) {
+                    stats.isScanning = false;
+                    stats.scanProgress = 0;
+                    kScanner = null;
+                    document.getElementById('kscan-btn')?.classList.remove('active');
+                    const progress = document.getElementById('kscan-progress');
+                    if (progress) progress.textContent = '';
+                }
+
+                // Stop LLE
+                if (lyapunovCalc.isRunning) {
+                    lyapunovCalc.stop();
+                    const startBtn = document.getElementById('lle-start-btn');
+                    const stopBtn = document.getElementById('lle-stop-btn');
+                    if (stopBtn) stopBtn.disabled = true;
+                    if (startBtn) startBtn.disabled = true;
+                    if (lleUpdateInterval) {
+                        clearInterval(lleUpdateInterval);
+                        lleUpdateInterval = null;
+                    }
+                    updateLLEDisplay();
+                }
+
+                // Cancel FSS if running
+                if (fssRunning) {
+                    fssAbort = true;
+                }
+            } else {
+                fssAbort = false;
+            }
+
+            const setDisabled = (id, disabled) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = disabled;
+            };
+            setDisabled('kscan-btn', !enabled);
+            setDisabled('findkc-btn', !enabled);
+            setDisabled('lle-start-btn', !enabled || lyapunovCalc.isRunning);
+            setDisabled('lle-stop-btn', !enabled || !lyapunovCalc.isRunning);
+            setDisabled('fss-start-btn', !enabled || fssRunning);
+
+            updateURLFromState(STATE, true);
+        },
         onDrawKernel: () => { drawKernel(STATE); },
         onPause: () => { 
             STATE.paused = !STATE.paused; 
@@ -768,6 +815,7 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onStartKScan: () => {
+            if (!STATE.showStatistics) return;
             if (stats.isScanning) return;
             kScanner = stats.createKScanner(sim, STATE, {
                 K_min: 0.1,
@@ -779,6 +827,7 @@ async function init() {
             document.getElementById('kscan-btn')?.classList.add('active');
         },
         onFindKc: async () => {
+            if (!STATE.showStatistics) return;
             if (!stats.estimatedKc && stats.phaseDiagramData.length === 0) {
                 alert('Run K-scan first to estimate Kc');
                 return;
@@ -940,6 +989,17 @@ async function init() {
         
         // Initialize RC controls
         initRCControls();
+
+        // Apply initial disabled state for analysis controls
+        const statsEnabled = !!STATE.showStatistics;
+        const kscanBtn = document.getElementById('kscan-btn');
+        if (kscanBtn) kscanBtn.disabled = !statsEnabled;
+        const findkcBtn = document.getElementById('findkc-btn');
+        if (findkcBtn) findkcBtn.disabled = !statsEnabled;
+        const lleStartBtn = document.getElementById('lle-start-btn');
+        if (lleStartBtn) lleStartBtn.disabled = !statsEnabled;
+        const fssBtn = document.getElementById('fss-start-btn');
+        if (fssBtn) fssBtn.disabled = !statsEnabled;
     }, 100);
     
     // ============= LYAPUNOV EXPONENT =============
@@ -950,6 +1010,7 @@ async function init() {
         
         if (startBtn) {
             startBtn.addEventListener('click', async () => {
+                if (!STATE.showStatistics) return;
                 if (lyapunovCalc.isRunning) return;
                 
                 // Read current theta from GPU
@@ -1015,6 +1076,7 @@ async function init() {
     let fssData = [];  // Array of {N, Kc} pairs
     let fssRunning = false;
     let fssExtrapolatedKc = null;
+    let fssAbort = false;
     
     function initFSSControls() {
         const startBtn = document.getElementById('fss-start-btn');
@@ -1022,6 +1084,7 @@ async function init() {
         if (startBtn) {
             startBtn.addEventListener('click', async () => {
                 if (fssRunning) return;
+                if (!STATE.showStatistics) return;
                 await runFiniteSizeScaling();
             });
         }
@@ -1029,6 +1092,7 @@ async function init() {
     
     async function runFiniteSizeScaling() {
         fssRunning = true;
+        fssAbort = false;
         fssData = [];
         
         const progressEl = document.getElementById('fss-progress');
@@ -1043,6 +1107,7 @@ async function init() {
         const originalK = STATE.K0;
         
         for (let i = 0; i < gridSizes.length; i++) {
+            if (fssAbort || !STATE.showStatistics) break;
             const gridSize = gridSizes[i];
             
             if (progressEl) {
@@ -1069,6 +1134,11 @@ async function init() {
             // Wait for scan to complete
             await new Promise(resolve => {
                 const checkComplete = setInterval(() => {
+                    if (fssAbort || !STATE.showStatistics) {
+                        clearInterval(checkComplete);
+                        resolve();
+                        return;
+                    }
                     // Step the simulation and scanner
                     const encoder = device.createCommandEncoder();
                     sim.step(encoder, STATE.delaySteps, STATE.globalCoupling, true);
@@ -1109,19 +1179,24 @@ async function init() {
         sim.updateFullParams(STATE);
         ui.updateDisplay();
         
-        // Extrapolate Kc to N→∞
-        if (fssData.length >= 2) {
-            fssExtrapolatedKc = extrapolateKc(fssData);
-            if (kcEl) {
-                kcEl.textContent = fssExtrapolatedKc.toFixed(3);
+        if (fssAbort || !STATE.showStatistics) {
+            if (progressEl) progressEl.textContent = 'Canceled';
+        } else {
+            // Extrapolate Kc to N→∞
+            if (fssData.length >= 2) {
+                fssExtrapolatedKc = extrapolateKc(fssData);
+                if (kcEl) {
+                    kcEl.textContent = fssExtrapolatedKc.toFixed(3);
+                }
             }
+            
+            // Draw FSS plot
+            drawFSSPlot();
+            
+            if (progressEl) progressEl.textContent = 'Done!';
         }
-        
-        // Draw FSS plot
-        drawFSSPlot();
-        
-        if (progressEl) progressEl.textContent = 'Done!';
-        if (startBtn) startBtn.disabled = false;
+
+        if (startBtn) startBtn.disabled = !STATE.showStatistics;
         fssRunning = false;
     }
     

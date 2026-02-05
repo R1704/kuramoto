@@ -493,10 +493,18 @@ export class UIManager {
         bind('data-layer-select', 'colormap', 'int', 'change');
         bind('palette-select', 'colormapPalette', 'int', 'change');
 
-        this.state.phaseSpaceEnabled = true;
-        this.state.showStatistics = true;
-        if (this.cb.onParamChange) {
-            this.cb.onParamChange();
+        // Respect state loaded from URL/defaults; do not force analysis toggles on.
+        const statsToggle = document.getElementById('show-statistics-toggle');
+        if (statsToggle) {
+            statsToggle.addEventListener('change', () => {
+                this.state.showStatistics = !!statsToggle.checked;
+                if (this.cb.onToggleStatistics) {
+                    this.cb.onToggleStatistics(this.state.showStatistics);
+                } else if (this.cb.onParamChange) {
+                    this.cb.onParamChange();
+                }
+                this.updateDisplay();
+            });
         }
         // Surface mode (3D)
         const surfaceSelect = document.getElementById('surface-mode-select');
@@ -1036,6 +1044,11 @@ export class UIManager {
         }
         const overlayToggle = document.getElementById('graph-overlay-toggle');
         if (overlayToggle) overlayToggle.checked = !!this.state.graphOverlayEnabled;
+
+        const statsToggle = document.getElementById('show-statistics-toggle');
+        if (statsToggle) statsToggle.checked = !!this.state.showStatistics;
+        const analysisGrid = document.getElementById('analysis-grid');
+        if (analysisGrid) analysisGrid.style.opacity = this.state.showStatistics ? '1' : '0.7';
         
         // Update kernel shape controls
         const kernelShapeSelect = document.getElementById('kernel-shape-select');
