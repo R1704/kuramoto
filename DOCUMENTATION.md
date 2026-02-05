@@ -2491,6 +2491,12 @@ Where:
 
 The reservoir state is sampled from readout oscillators:
 
+### Training vs test NRMSE
+
+The RC UI reports two errors:
+- **Train NRMSE**: running/terminal NRMSE measured during online training (RLS).
+- **Test NRMSE**: computed from a short fixed inference window after clicking **Stop & Test**.
+
 ---
 
 ## Experiments (Rollouts)
