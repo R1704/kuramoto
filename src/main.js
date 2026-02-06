@@ -9,7 +9,7 @@ import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, Ly
 import { ReservoirComputer } from './reservoir.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
 import { makeRng, normalizeSeed, cryptoSeedFallback } from './rng.js';
-import { ExperimentRunner } from './experiments.js';
+import { ExperimentRunner, RCCriticalitySweepRunner } from './experiments.js';
 import { encodeFloat32ToBase64, decodeBase64ToFloat32, estimateBase64SizeBytes } from './stateio.js';
 
 const STATE = {
@@ -445,6 +445,8 @@ async function init() {
     let lastRCReadMs = 0;
     let rcTestRemaining = 0;
     const RC_TEST_STEPS = 200;
+    let rcCritSweepInfo = { running: false, phase: 'idle', kIdx: 0, kTotal: 0, K: null, configHash: null, results: [] };
+    let rcCritSweepPrevPaused = null;
     let rcWeightsFull = null;
     let rcWeightsLastLayer = null;
     let rcWeightsLayerSize = 0;
@@ -607,15 +609,9 @@ async function init() {
         }
     };
 
-    // RC K sweep state
-    let rcSweep = {
-        active: false,
-        Ks: [],
-        idx: 0,
-        steps: 0,
-        stepsPerK: 300,
-        results: []
-    };
+    // RC vs criticality sweep state
+    let rcCritSweepRunner = null;
+    let rcCritSweepLastExport = null;
     
     // K-scan state
     let kScanner = null;
@@ -644,6 +640,9 @@ async function init() {
         if (experimentRunner) {
             experimentRunner.setSimulation(sim, stats);
         }
+        if (rcCritSweepRunner) {
+            rcCritSweepRunner.setSimulation(sim, stats);
+        }
         applyLayerParamsToState(STATE.activeLayer ?? 0);
         sim.updateFullParams(STATE);
         sim.writeLayerParams(STATE.layerParams);
@@ -659,7 +658,7 @@ async function init() {
 
     ui = new UIManager(STATE, {
         onParamChange: () => { 
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             if (STATE.viewMode !== lastViewMode) {
                 overlayDirty = true;
                 lastViewMode = STATE.viewMode;
@@ -674,18 +673,18 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onTopologyChange: () => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             regenerateTopology();
             updateURLFromState(STATE, true);
         },
         onTopologyRegenerate: () => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             STATE.topologySeed = (STATE.topologySeed || 1) + 1;
             regenerateTopology();
             updateURLFromState(STATE, true);
         },
         onApplyInit: async () => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             normalizeSelectedLayers(STATE.layerCount);
             const targets = STATE.selectedLayers;
             const thetaPattern = document.getElementById('theta-pattern-select')?.value || STATE.thetaPattern || 'random';
@@ -730,13 +729,13 @@ async function init() {
             STATE.phaseSpaceEnabled = enabled;
         },
         onSeedChange: (seed) => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             STATE.seed = normalizeSeed(seed);
             reservoir.setSeed?.(STATE.seed);
             updateURLFromState(STATE, true);
         },
         onReseed: () => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             STATE.seed = cryptoSeedFallback();
             reservoir.setSeed?.(STATE.seed);
             resetSimulation(sim);
@@ -744,7 +743,7 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onExperimentConfigChange: () => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             updateURLFromState(STATE, true);
         },
         onExperimentRun: null,
@@ -755,6 +754,9 @@ async function init() {
             if (!enabled) {
                 if (experimentRunner && experimentRunner.isRunning()) {
                     experimentRunner.cancel();
+                }
+                if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
+                    rcCritSweepRunner.cancel();
                 }
                 // Stop K-scan
                 if (stats.isScanning) {
@@ -799,6 +801,9 @@ async function init() {
             setDisabled('fss-start-btn', !enabled || fssRunning);
             setDisabled('exp-run-btn', !enabled);
             setDisabled('exp-export-btn', !enabled || !experimentLastExport);
+            setDisabled('rc-ksweep-btn', !enabled);
+            setDisabled('rc-ksweep-export-json', !enabled || !rcCritSweepLastExport);
+            setDisabled('rc-ksweep-export-csv', !enabled || !(rcCritSweepInfo.results && rcCritSweepInfo.results.length > 0));
 
             updateURLFromState(STATE, true);
         },
@@ -831,6 +836,9 @@ async function init() {
         onResizeGrid: async (newSize) => {
             if (experimentRunner && experimentRunner.isRunning()) {
                 experimentRunner.cancel();
+            }
+            if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
+                rcCritSweepRunner.cancel();
             }
             if (gridResizeInProgress) {
                 return;
@@ -877,10 +885,13 @@ async function init() {
             if (experimentRunner && experimentRunner.isRunning()) {
                 experimentRunner.cancel();
             }
+            if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
+                rcCritSweepRunner.cancel();
+            }
             void rebuildLayerCount(newCount);
         },
         onLayerSelect: (layerIdx, selected, prevSelected, prevActive) => {
-            if (experimentRunner && experimentRunner.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
             // Use passed previous selection (UI already updated STATE before calling us)
             const prev = Array.isArray(prevSelected) && prevSelected.length > 0
                 ? prevSelected
@@ -1135,6 +1146,36 @@ async function init() {
         ui.cb.onExperimentExport = exportRollout;
     }
 
+    rcCritSweepRunner = new RCCriticalitySweepRunner({
+        device,
+        sim,
+        stats,
+        reservoir,
+        writeRCInputWeights: () => writeRCInputWeights(),
+        setInputSignal: (signal) => sim.setInputSignal(signal),
+        getActiveLayerTheta: (thetaFull) => getActiveLayerThetaForRC(thetaFull),
+        resetSimulation: () => resetSimulation(sim),
+        setK: (K) => {
+            STATE.K0 = K;
+            STATE.frameTime = 0;
+            sim.updateFullParams(STATE);
+            if (ui?.updateDisplay) ui.updateDisplay();
+        },
+        onUpdate: (info) => {
+            rcCritSweepInfo = info;
+            if (!info.running && (info.phase === 'done' || info.phase === 'canceled')) {
+                rcCritSweepLastExport = rcCritSweepRunner.exportJSON();
+                if (rcCritSweepPrevPaused !== null) {
+                    STATE.paused = rcCritSweepPrevPaused;
+                    rcCritSweepPrevPaused = null;
+                }
+                // Restore current K0 in URL/UI now that sweep is finished.
+                updateURLFromState(STATE, true);
+            }
+            updateRCDisplay();
+        },
+    });
+
     // Snapshot save/load (theta/omega + params)
     const snapshotStatusEl = document.getElementById('snapshot-status');
     const setSnapshotStatus = (text) => {
@@ -1387,7 +1428,7 @@ async function init() {
                 fillColor: 'rgba(255,152,0,0.2)',
                 showGrid: true,
                 showYAxis: true,
-                label: 'NRMSE'
+                label: 'Test NRMSE'
             });
         };
 
@@ -1892,8 +1933,59 @@ async function init() {
                     alert('Enable Reservoir Computing first');
                     return;
                 }
-                startRCKSweep();
-                if (kSweepStatus) kSweepStatus.textContent = 'running...';
+                if (!STATE.showStatistics) {
+                    alert('Enable Statistics Compute to run sweep');
+                    return;
+                }
+                if (!rcCritSweepRunner) {
+                    alert('Sweep runner not initialized');
+                    return;
+                }
+                if (rcCritSweepRunner.isRunning()) {
+                    rcCritSweepRunner.cancel();
+                    return;
+                }
+
+                if (STATE.rcTraining || STATE.rcInference) {
+                    alert('Stop RC training/inference before running a sweep');
+                    return;
+                }
+
+                rcCritSweepLastExport = null;
+                rcCritSweepPrevPaused = STATE.paused;
+                STATE.paused = false;
+
+                const protocol = {
+                    K_min: 0.2,
+                    K_max: 2.4,
+                    K_step: 0.2,
+                    warmupSamples: Math.max(STATE.rcHistoryLength || 10, 20),
+                    trainSamples: 400,
+                    testSamples: 200,
+                    statsEvery: 4,
+                };
+
+                const snapshot = JSON.parse(JSON.stringify(STATE));
+                rcCritSweepInfo = { running: true, phase: 'starting', kIdx: 0, kTotal: 0, K: null, configHash: null, results: [] };
+                updateRCDisplay();
+                void rcCritSweepRunner.start(protocol, snapshot);
+            });
+        }
+
+        const exportJsonBtn = document.getElementById('rc-ksweep-export-json');
+        if (exportJsonBtn) {
+            exportJsonBtn.addEventListener('click', () => {
+                if (!rcCritSweepLastExport) return;
+                const json = JSON.stringify(rcCritSweepLastExport, null, 2);
+                downloadJSON(json, `rc_vs_criticality_${rcCritSweepLastExport.configHash || 'sweep'}.json`);
+            });
+        }
+        const exportCsvBtn = document.getElementById('rc-ksweep-export-csv');
+        if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', () => {
+                if (!rcCritSweepRunner) return;
+                const csv = rcCritSweepRunner.exportCSV();
+                downloadCSV(csv, `rc_vs_criticality_${rcCritSweepRunner.configHash || 'sweep'}.csv`);
             });
         }
     }
@@ -1961,15 +2053,28 @@ async function init() {
         }
 
         if (ksweepStatus) {
-            ksweepStatus.textContent = rcSweep.active ? `K ${rcSweep.idx + 1}/${rcSweep.Ks.length}` : 'idle';
-        }
-        if (ksweepResults) {
-            if (rcSweep.results.length === 0) {
-                ksweepResults.textContent = '—';
+            if (rcCritSweepInfo.running) {
+                const kLabel = rcCritSweepInfo.K !== null ? rcCritSweepInfo.K.toFixed(2) : '—';
+                ksweepStatus.textContent = `${rcCritSweepInfo.phase} | K ${rcCritSweepInfo.kIdx + 1}/${rcCritSweepInfo.kTotal} @ ${kLabel}`;
             } else {
-                ksweepResults.textContent = rcSweep.results.map(r => `K=${r.K.toFixed(2)} NRMSE=${r.nrmse.toFixed(3)}`).join('\n');
+                ksweepStatus.textContent = 'idle';
             }
         }
+
+        if (ksweepResults) {
+            const results = rcCritSweepInfo.results || [];
+            if (results.length === 0) {
+                ksweepResults.textContent = '—';
+            } else {
+                const shown = results.slice(-8);
+                ksweepResults.textContent = shown.map(r => `K=${r.K.toFixed(2)} test=${r.testNRMSE.toFixed(3)} localR=${r.localMeanR_mean.toFixed(3)} chiMax=${r.chi_max.toFixed(2)}`).join('\n');
+            }
+        }
+
+        const exportJsonBtn = document.getElementById('rc-ksweep-export-json');
+        if (exportJsonBtn) exportJsonBtn.disabled = !rcCritSweepLastExport;
+        const exportCsvBtn = document.getElementById('rc-ksweep-export-csv');
+        if (exportCsvBtn) exportCsvBtn.disabled = !(rcCritSweepInfo.results && rcCritSweepInfo.results.length > 0);
 
         renderRCKSweepPlot();
     }
@@ -2051,15 +2156,16 @@ async function init() {
 
     function renderRCKSweepPlot() {
         if (!rcKsweepPlot) return;
-        if (!rcSweep.results || rcSweep.results.length === 0) {
+        const results = rcCritSweepInfo.results || [];
+        if (!results || results.length === 0) {
             rcKsweepPlot.render(new Float32Array(0));
             return;
         }
         // Sort results by K
-        const sorted = [...rcSweep.results].sort((a, b) => a.K - b.K);
+        const sorted = [...results].sort((a, b) => a.K - b.K);
         const data = new Float32Array(sorted.length);
         for (let i = 0; i < sorted.length; i++) {
-            data[i] = sorted[i].nrmse;
+            data[i] = sorted[i].testNRMSE;
         }
         // Temporarily set x-axis scaling by reusing TimeSeriesPlot (uniform spacing)
         rcKsweepPlot.render(data);
@@ -2100,51 +2206,6 @@ async function init() {
             ctx.fillText(k.toFixed(2), x, yAxis + 6);
         });
         ctx.restore();
-    }
-
-    function startRCKSweep() {
-        const Ks = [];
-        const startK = 0.2;
-        const endK = 2.4;
-        const step = 0.2;
-        for (let k = startK; k <= endK + 1e-6; k += step) {
-            Ks.push(parseFloat(k.toFixed(2)));
-        }
-        rcSweep = {
-            active: true,
-            Ks,
-            idx: 0,
-            steps: 0,
-            stepsPerK: 300,
-            results: []
-        };
-        beginSweepK();
-        updateRCDisplay();
-    }
-
-    function beginSweepK() {
-        if (!rcSweep.active) return;
-        if (rcSweep.idx >= rcSweep.Ks.length) {
-            rcSweep.active = false;
-            STATE.rcTraining = false;
-            STATE.rcInference = false;
-            updateRCDisplay();
-            return;
-        }
-        const K = rcSweep.Ks[rcSweep.idx];
-        STATE.K0 = K;
-        ui.updateDisplay();
-        sim.updateFullParams(STATE);
-        resetSimulation(sim);
-        reservoir.setFeatureBudget(STATE.rcMaxFeatures);
-        reservoir.setHistoryLength(STATE.rcHistoryLength);
-        reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-        writeRCInputWeights();
-        reservoir.startTraining();
-        STATE.rcTraining = true;
-        STATE.rcInference = false;
-        rcSweep.steps = 0;
-        updateRCDisplay();
     }
 
     function renderPhaseSpace(theta) {
@@ -2197,9 +2258,12 @@ async function init() {
             let didComputeStats = false;
             
             const experimentActive = experimentRunner && experimentRunner.isRunning();
+            const rcSweepActive = rcCritSweepRunner && rcCritSweepRunner.isRunning();
 
             if (experimentActive) {
                 experimentRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
+            } else if (rcSweepActive) {
+                rcCritSweepRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
             } else {
                 // Only compute statistics if enabled and throttled
                 statsFrameCounter++;
@@ -2228,7 +2292,7 @@ async function init() {
             
             // Reservoir Computing: Always inject input signal when RC is enabled (for visualization)
             // Full RC step (training/inference) only when active
-            if (STATE.rcEnabled && !STATE.paused) {
+            if (!rcSweepActive && STATE.rcEnabled && !STATE.paused) {
                 if (STATE.rcTraining || STATE.rcInference) {
                     const nowMs = performance.now();
                     if (!rcReadPending && (nowMs - lastRCReadMs) >= RC_READ_MIN_MS) {
@@ -2279,20 +2343,12 @@ async function init() {
                 }
             }
 
-            // RC K sweep bookkeeping
-            if (rcSweep.active && STATE.rcTraining && !STATE.paused) {
-                rcSweep.steps++;
-                if (rcSweep.steps >= rcSweep.stepsPerK) {
-                    const nrmse = reservoir.getNRMSE();
-                    rcSweep.results.push({ K: STATE.K0, nrmse: isFinite(nrmse) ? nrmse : Infinity });
-                    rcSweep.idx++;
-                    beginSweepK();
-                }
-            }
-        
         // Process readback and update statistics (async)
         if (experimentActive) {
             experimentRunner.afterSubmit();
+            updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
+        } else if (rcSweepActive) {
+            rcCritSweepRunner.afterSubmit();
             updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
         } else if (STATE.showStatistics) {
             const canReadback = sim.readbackPending && (frameNow - lastStatsReadbackMs >= STATS_READBACK_MIN_MS);
@@ -2329,7 +2385,7 @@ async function init() {
         }
 
         // Phase space sampling (throttled when RC is idle)
-        if (phaseSpacePlot && STATE.phaseSpaceEnabled && !(STATE.rcTraining || STATE.rcInference)) {
+        if (phaseSpacePlot && STATE.phaseSpaceEnabled && !(STATE.rcTraining || STATE.rcInference) && !rcSweepActive) {
             phaseSpaceCounter++;
             const interval = STATE.gridSize >= 512 ? PHASE_SAMPLE_INTERVAL * 2 : PHASE_SAMPLE_INTERVAL;
             if (phaseSpaceCounter >= interval && !phaseSpacePending) {

@@ -288,3 +288,284 @@ export class ExperimentRunner {
         });
     }
 }
+
+export class RCCriticalitySweepRunner {
+    constructor({ device, sim, stats, reservoir, writeRCInputWeights, setInputSignal, getActiveLayerTheta, resetSimulation, setK, onUpdate }) {
+        this.device = device;
+        this.sim = sim;
+        this.stats = stats;
+        this.reservoir = reservoir;
+        this.writeRCInputWeights = writeRCInputWeights;
+        this.setInputSignal = setInputSignal;
+        this.getActiveLayerTheta = getActiveLayerTheta;
+        this.resetSimulation = resetSimulation;
+        this.setK = setK;
+        this.onUpdate = onUpdate;
+
+        this.active = false;
+        this.cancelRequested = false;
+
+        this.protocol = null;
+        this.snapshot = null;
+        this.configHash = null;
+
+        this.Ks = [];
+        this.kIdx = 0;
+        this.phase = 'idle';
+        this.sampleInPhase = 0;
+
+        this.pendingTheta = false;
+        this.pendingStats = false;
+        this.pendingStatsThisStep = false;
+        this.stepSubmitted = false;
+
+        this.results = [];
+        this.current = null;
+
+        this.baseline = null;
+    }
+
+    setSimulation(sim, stats) {
+        this.sim = sim;
+        this.stats = stats;
+    }
+
+    isRunning() {
+        return this.active;
+    }
+
+    async start(protocol, stateSnapshot) {
+        if (this.active) return false;
+        this.protocol = {
+            K_min: protocol.K_min ?? 0.2,
+            K_max: protocol.K_max ?? 2.4,
+            K_step: protocol.K_step ?? 0.2,
+            warmupSamples: Math.max(0, Math.floor(protocol.warmupSamples ?? 50)),
+            trainSamples: Math.max(1, Math.floor(protocol.trainSamples ?? 400)),
+            testSamples: Math.max(1, Math.floor(protocol.testSamples ?? 200)),
+            statsEvery: Math.max(1, Math.floor(protocol.statsEvery ?? 4)),
+            delaySteps: Math.max(0, Math.floor(protocol.delaySteps ?? 10)),
+            globalCoupling: !!protocol.globalCoupling,
+        };
+
+        this.snapshot = stateSnapshot;
+        const hashStr = stableStringify({ state: stateSnapshot, protocol: this.protocol, type: 'rc_vs_criticality_sweep' });
+        this.configHash = fnv1a32(hashStr).toString(16).padStart(8, '0');
+
+        this.Ks = [];
+        for (let k = this.protocol.K_min; k <= this.protocol.K_max + 1e-6; k += this.protocol.K_step) {
+            this.Ks.push(parseFloat(k.toFixed(3)));
+        }
+
+        this.cancelRequested = false;
+        this.results = [];
+        this.kIdx = 0;
+        this.phase = 'initializing';
+        this.sampleInPhase = 0;
+
+        // Preserve current sim state to restore after sweep.
+        const baselineTheta = await this.sim.readTheta();
+        const baselineOmega = this.sim.getOmega() ? new Float32Array(this.sim.getOmega()) : null;
+        this.baseline = {
+            K0: stateSnapshot?.K0,
+            theta: baselineTheta ? new Float32Array(baselineTheta) : null,
+            omega: baselineOmega,
+        };
+
+        this.active = true;
+        this._startK(this.Ks[this.kIdx]);
+        this._emit();
+        return true;
+    }
+
+    cancel() {
+        if (!this.active) return;
+        this.cancelRequested = true;
+    }
+
+    encodeSteps(encoder, delaySteps, globalCoupling) {
+        if (!this.active) return;
+
+        // Pace simulation by theta samples: don't advance until the previous sample is processed.
+        if (this.stepSubmitted || this.pendingTheta) return;
+
+        const shouldComputeStats = this.phase === 'test' && (this.sampleInPhase % this.protocol.statsEvery === 0);
+        this.pendingStatsThisStep = shouldComputeStats;
+        this.sim.step(encoder, delaySteps, globalCoupling, shouldComputeStats);
+        if (shouldComputeStats) {
+            this.sim.requestGlobalOrderReadback(encoder);
+        }
+
+        this.stepSubmitted = true;
+    }
+
+    afterSubmit() {
+        if (!this.active) return;
+
+        if (!this.stepSubmitted) return;
+
+        if (this.pendingStatsThisStep && !this.pendingStats && this.sim.readbackPending) {
+            this.pendingStats = true;
+            this.sim.processReadback().then(result => {
+                if (result) {
+                    this.stats.update(result.cos, result.sin, result.localStats);
+                    if (this.phase === 'test' && this.current) {
+                        if (this.sampleInPhase > this.protocol.warmupSamples) {
+                            this.current.localMeanR.push(result.localStats?.meanR ?? 0);
+                            this.current.chi.push(this.stats.chi);
+                        }
+                    }
+                }
+            }).finally(() => {
+                this.pendingStats = false;
+            });
+        }
+
+        if (!this.pendingTheta) {
+            this.pendingTheta = true;
+            this.sim.readTheta().then(thetaFull => {
+                if (!thetaFull) return;
+                const thetaLayer = this.getActiveLayerTheta(thetaFull);
+                this.reservoir.step(thetaLayer);
+                if (this.reservoir.tasks && this.reservoir.tasks.taskType === 'moving_dot') {
+                    this.writeRCInputWeights();
+                }
+                this.setInputSignal(this.reservoir.getInputSignal());
+
+                this.sampleInPhase++;
+                this._advancePhaseIfNeeded();
+            }).finally(() => {
+                this.pendingTheta = false;
+                this.pendingStatsThisStep = false;
+                this.stepSubmitted = false;
+            });
+        }
+    }
+
+    exportJSON() {
+        return {
+            type: 'rc_vs_criticality_sweep',
+            timestamp: new Date().toISOString(),
+            configHash: this.configHash,
+            url: (typeof window !== 'undefined') ? window.location.href : null,
+            state: this.snapshot,
+            protocol: this.protocol,
+            results: this.results,
+        };
+    }
+
+    exportCSV() {
+        let csv = 'K,trainNRMSE,testNRMSE,localMeanR_mean,chi_mean,chi_max\n';
+        for (const r of this.results) {
+            csv += `${r.K.toFixed(3)},${r.trainNRMSE.toFixed(6)},${r.testNRMSE.toFixed(6)},${r.localMeanR_mean.toFixed(6)},${r.chi_mean.toFixed(6)},${r.chi_max.toFixed(6)}\n`;
+        }
+        return csv;
+    }
+
+    async restoreBaseline() {
+        if (!this.baseline) return;
+        if (this.setK && Number.isFinite(this.baseline.K0)) {
+            this.setK(this.baseline.K0);
+        }
+        if (this.baseline.theta) {
+            this.sim.writeTheta(this.baseline.theta);
+        }
+        if (this.baseline.omega) {
+            this.sim.writeOmega(this.baseline.omega);
+            this.sim.storeOmega(this.baseline.omega);
+        }
+    }
+
+    _startK(K) {
+        this.current = {
+            K,
+            localMeanR: [],
+            chi: [],
+            trainNRMSE: Infinity,
+            testNRMSE: Infinity,
+        };
+        this.stats.reset();
+        if (this.setK) {
+            this.setK(K);
+        }
+        this.resetSimulation();
+        this.reservoir.setTask(this.snapshot?.rcTask ?? 'sine');
+        this.reservoir.setHistoryLength(this.snapshot?.rcHistoryLength ?? 20);
+        this.reservoir.setFeatureBudget(this.snapshot?.rcMaxFeatures ?? 512);
+        this.reservoir.configure(this.snapshot?.rcInputRegion ?? 'center', this.snapshot?.rcOutputRegion ?? 'random', this.snapshot?.rcInputStrength ?? 2.0);
+        this.writeRCInputWeights();
+
+        this.reservoir.warmupSteps = Math.max(this.reservoir.warmupSteps || 15, this.protocol.warmupSamples);
+        this.reservoir.startTraining();
+        this.phase = 'warmup_train';
+        this.sampleInPhase = 0;
+        this._emit();
+    }
+
+    _advancePhaseIfNeeded() {
+        if (!this.active) return;
+        if (this.cancelRequested) {
+            void this._finish('canceled');
+            return;
+        }
+
+        if (this.phase === 'warmup_train') {
+            if (this.sampleInPhase >= (this.protocol.warmupSamples + this.protocol.trainSamples)) {
+                this.current.trainNRMSE = this.reservoir.stopTraining();
+                // Start test window
+                this.reservoir.startInference();
+                this.phase = 'test';
+                this.sampleInPhase = 0;
+                this._emit();
+            }
+            return;
+        }
+
+        if (this.phase === 'test') {
+            if (this.sampleInPhase >= (this.protocol.warmupSamples + this.protocol.testSamples)) {
+                this.reservoir.stopInference();
+                this.current.testNRMSE = this.reservoir.computeTestNRMSE();
+                const localStats = meanStd(this.current.localMeanR);
+                const chiStats = meanStd(this.current.chi);
+                const chiMax = this.current.chi.length ? Math.max(...this.current.chi) : 0;
+
+                this.results.push({
+                    K: this.current.K,
+                    trainNRMSE: isFinite(this.current.trainNRMSE) ? this.current.trainNRMSE : Infinity,
+                    testNRMSE: isFinite(this.current.testNRMSE) ? this.current.testNRMSE : Infinity,
+                    localMeanR_mean: localStats.mean,
+                    chi_mean: chiStats.mean,
+                    chi_max: chiMax,
+                });
+
+                this.kIdx++;
+                if (this.kIdx >= this.Ks.length) {
+                    void this._finish('done');
+                } else {
+                    this._startK(this.Ks[this.kIdx]);
+                }
+            }
+        }
+    }
+
+    async _finish(status) {
+        this.active = false;
+        this.phase = status;
+        this.setInputSignal(0);
+        await this.restoreBaseline();
+        this._emit();
+    }
+
+    _emit() {
+        if (!this.onUpdate) return;
+        this.onUpdate({
+            running: this.active,
+            phase: this.phase,
+            kIdx: this.kIdx,
+            kTotal: this.Ks.length,
+            K: this.current ? this.current.K : null,
+            configHash: this.configHash,
+            results: this.results,
+        });
+    }
+}

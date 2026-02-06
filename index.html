@@ -2646,7 +2646,11 @@
                             <button id="rc-train-btn">Train</button>
                             <button id="rc-stop-btn" disabled>Stop</button>
                             <button id="rc-test-btn">Stop & Test</button>
-                            <button id="rc-ksweep-btn">K Sweep</button>
+                            <button id="rc-ksweep-btn">RC vs Criticality</button>
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top: 8px;">
+                            <button id="rc-ksweep-export-json" class="tiny-btn" style="flex:1;" disabled>Export Sweep JSON</button>
+                            <button id="rc-ksweep-export-csv" class="tiny-btn" style="flex:1;" disabled>Export Sweep CSV</button>
                         </div>
                         <div class="stats-grid" style="margin-top: 8px;">
                             <div class="stat-row">
@@ -2687,7 +2691,7 @@
                             <canvas id="rc-plot" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px;"></canvas>
                         </div>
                         <div class="viz-section">
-                            <div class="viz-title">K Sweep NRMSE</div>
+                            <div class="viz-title">RC vs Criticality (Test NRMSE vs K)</div>
                             <canvas id="rc-ksweep-plot" width="280" height="120" style="width: 100%; height: 120px; border-radius: 4px;"></canvas>
                         </div>
                     </div>
