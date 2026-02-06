@@ -1540,15 +1540,15 @@ $$R = \left| \frac{1}{N} \sum_{j=1}^{N} e^{i\theta_j} \right|$$
 
 $$\chi = N \cdot \text{Var}(\bar{R}_{local})$$
 
+Since \(\chi\) scales with \(N\), a more directly interpretable quantity is:
+
+$$\mathrm{Std}(\bar{R}_{local}) = \sqrt{\chi / N}$$
+
 This quantity **peaks at the critical coupling strength** $K_c$, making it useful for detecting phase transitions.
 
 #### Criticality Indicator
 
-The criticality indicator is a **χ-based proxy** derived from temporal variance of Local R̄:
-- Low χ: relatively steady regime
-- High χ: large fluctuations (often near transitions)
-
-The marker position is scaled relative to the recent χ history (it is not an absolute physical scale).
+The analysis UI includes a small χ indicator bar aligned to the current χ(t) plot scale (autoscaled). It is intended as a quick visual cue; interpret χ numerically (and via Std(Local R̄)) when comparing across grid sizes.
 
 #### Time Series Plots
 
