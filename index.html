@@ -815,6 +815,17 @@
             pointer-events: none;
             display: none;
         }
+
+        #rc-task-overlay {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: block;
+            z-index: 4;
+        }
     </style>
 </head>
 <body>
@@ -822,6 +833,7 @@
         <div id="canvas-container">
             <canvas id="canvas" width="1000" height="800"></canvas>
             <canvas id="graph-overlay" width="1000" height="800"></canvas>
+            <canvas id="rc-task-overlay" width="1000" height="800"></canvas>
             <div id="render-mode-indicator"></div>
         </div>
         
@@ -2585,6 +2597,7 @@
                                     <option value="sine">Sine Prediction</option>
                                     <option value="narma10">NARMA-10</option>
                                     <option value="memory">Memory Capacity</option>
+                                    <option value="moving_dot">Moving Dot (Spatial)</option>
                                 </select>
                             </div>
                             <div class="control-group">
@@ -2821,6 +2834,12 @@
         // Cache-bust module loads on localhost for rapid iteration.
         // GitHub Pages (and other hosts) retain normal module caching.
         const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1';
+        const suffix = isLocal ? `?t=${Date.now()}` : '';
+        import(`./src/main.js${suffix}`);
+    </script>
+</body>
+</html>
+ isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1';
         const suffix = isLocal ? `?t=${Date.now()}` : '';
         import(`./src/main.js${suffix}`);
     </script>

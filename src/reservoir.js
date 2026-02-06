@@ -850,6 +850,7 @@ export class RCTasks {
         const target = xNext; // predict future x in [0,1]
         // Store current x for weight placement
         this.currentDotX = x;
+        this.currentDotXNext = xNext;
         return { input, target };
     }
     
@@ -885,6 +886,10 @@ export class ReservoirComputer {
         this.predictions = [];
         this.targets = [];
         this.maxPlotPoints = 200;
+
+        this.lastPrediction = null;
+        this.lastTarget = null;
+        this.lastInput = null;
         
         // Running NRMSE during training
         this.lastNRMSE = Infinity;
@@ -983,6 +988,8 @@ export class ReservoirComputer {
     step(theta) {
         // Get task input/target
         const { input, target } = this.tasks.step();
+        this.lastInput = input;
+        this.lastTarget = target;
         
         // Set input signal for next simulation step
         this.io.setInputSignal(input);
@@ -1027,6 +1034,7 @@ export class ReservoirComputer {
                 this.lastNRMSE = this.onlineLearner.getNRMSE();
             }
             
+            this.lastPrediction = prediction;
             return { input, prediction, target };
         }
         
@@ -1042,6 +1050,7 @@ export class ReservoirComputer {
                 this.targets.shift();
             }
             
+            this.lastPrediction = prediction;
             return { input, prediction, target };
         }
         

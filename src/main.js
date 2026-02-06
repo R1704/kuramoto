@@ -412,6 +412,8 @@ async function init() {
     const camera = new Camera(canvas);
     const graphOverlay = document.getElementById('graph-overlay');
     const graphOverlayCtx = graphOverlay ? graphOverlay.getContext('2d') : null;
+    const rcOverlay = document.getElementById('rc-task-overlay');
+    const rcOverlayCtx = rcOverlay ? rcOverlay.getContext('2d') : null;
     let overlayDirty = true;
     let lastViewMode = STATE.viewMode;
 
@@ -548,6 +550,65 @@ async function init() {
         graphOverlay.height = Math.round(displayH * dpr);
         graphOverlay.style.width = `${displayW}px`;
         graphOverlay.style.height = `${displayH}px`;
+
+        if (rcOverlay) {
+            rcOverlay.width = Math.round(displayW * dpr);
+            rcOverlay.height = Math.round(displayH * dpr);
+            rcOverlay.style.width = `${displayW}px`;
+            rcOverlay.style.height = `${displayH}px`;
+        }
+    };
+
+    const rcDotTrail = [];
+    const rcDotTrailMax = 120;
+
+    const drawRCTaskOverlay = () => {
+        if (!rcOverlayCtx || !rcOverlay) return;
+        ensureOverlaySize();
+        const w = rcOverlay.width;
+        const h = rcOverlay.height;
+        rcOverlayCtx.clearRect(0, 0, w, h);
+
+        const sweepActive = rcCritSweepRunner && rcCritSweepRunner.isRunning();
+        const show = (STATE.rcEnabled && STATE.rcTask === 'moving_dot') || (sweepActive && STATE.rcTask === 'moving_dot');
+        if (!show) return;
+
+        const x = reservoir.tasks?.currentDotX ?? 0.5;
+        const xNext = reservoir.tasks?.currentDotXNext ?? null;
+        const y = reservoir.tasks?.movingDotY ?? 0.5;
+
+        // Trail
+        if (rcDotTrail.length >= 2) {
+            rcOverlayCtx.strokeStyle = 'rgba(255, 152, 0, 0.25)';
+            rcOverlayCtx.lineWidth = 2;
+            rcOverlayCtx.beginPath();
+            for (let i = 0; i < rcDotTrail.length; i++) {
+                const px = rcDotTrail[i].x * w;
+                const py = (1.0 - rcDotTrail[i].y) * h;
+                if (i === 0) rcOverlayCtx.moveTo(px, py);
+                else rcOverlayCtx.lineTo(px, py);
+            }
+            rcOverlayCtx.stroke();
+        }
+
+        // Current dot
+        const px = x * w;
+        const py = (1.0 - y) * h;
+        rcOverlayCtx.fillStyle = 'rgba(255, 152, 0, 0.95)';
+        rcOverlayCtx.beginPath();
+        rcOverlayCtx.arc(px, py, 7, 0, Math.PI * 2);
+        rcOverlayCtx.fill();
+
+        // Ghost for next position
+        if (xNext !== null && Number.isFinite(xNext)) {
+            const gx = xNext * w;
+            const gy = py;
+            rcOverlayCtx.strokeStyle = 'rgba(255, 152, 0, 0.5)';
+            rcOverlayCtx.lineWidth = 2;
+            rcOverlayCtx.beginPath();
+            rcOverlayCtx.arc(gx, gy, 9, 0, Math.PI * 2);
+            rcOverlayCtx.stroke();
+        }
     };
 
     const drawGraphOverlay = (topology) => {
@@ -2052,6 +2113,24 @@ async function init() {
             }
         }
 
+        const taskStatusEl = document.getElementById('rc-task-status');
+        if (taskStatusEl) {
+            if (STATE.rcTask === 'moving_dot') {
+                const x = reservoir.tasks?.currentDotX ?? null;
+                const xNext = reservoir.tasks?.currentDotXNext ?? null;
+                const pred = reservoir.lastPrediction;
+                const target = reservoir.lastTarget;
+                const parts = [];
+                if (x !== null && Number.isFinite(x)) parts.push(`x=${x.toFixed(3)}`);
+                if (xNext !== null && Number.isFinite(xNext)) parts.push(`x*=${xNext.toFixed(3)}`);
+                if (pred !== null && Number.isFinite(pred)) parts.push(`pred=${pred.toFixed(3)}`);
+                if (target !== null && Number.isFinite(target)) parts.push(`tgt=${target.toFixed(3)}`);
+                taskStatusEl.textContent = parts.length ? parts.join(' ') : 'moving dot';
+            } else {
+                taskStatusEl.textContent = STATE.rcTask || '—';
+            }
+        }
+
         if (ksweepStatus) {
             if (rcCritSweepInfo.running) {
                 const kLabel = rcCritSweepInfo.K !== null ? rcCritSweepInfo.K.toFixed(2) : '—';
@@ -2285,6 +2364,8 @@ async function init() {
             
             device.queue.submit([encoder.finish()]);
 
+            drawRCTaskOverlay();
+
             if (overlayDirty) {
                 drawGraphOverlay(sim.topologyInfo);
                 overlayDirty = false;
@@ -2302,6 +2383,14 @@ async function init() {
                                 try {
                                     const thetaLayer = getActiveLayerThetaForRC(theta);
                                     reservoir.step(thetaLayer);
+                                    if (STATE.rcTask === 'moving_dot') {
+                                        const x = reservoir.tasks?.currentDotX ?? null;
+                                        const y = reservoir.tasks?.movingDotY ?? null;
+                                        if (x !== null && y !== null && Number.isFinite(x) && Number.isFinite(y)) {
+                                            rcDotTrail.push({ x, y });
+                                            if (rcDotTrail.length > rcDotTrailMax) rcDotTrail.shift();
+                                        }
+                                    }
                                     if (reservoir.tasks && reservoir.tasks.taskType === 'moving_dot') {
                                         writeRCInputWeights();
                                     }
