@@ -133,6 +133,69 @@ const STATE = {
     sparklinePaused: false,
 };
 
+// History strip (sparklines) state.
+// NOTE: updateStats() is defined at module scope, so it can't access variables
+// declared inside init(). Keep these at module scope.
+let SPARKLINE = {
+    rCanvas: null,
+    chiCanvas: null,
+    rCtx: null,
+    chiCtx: null,
+    rBuf: null,
+    chiBuf: null,
+    statusEl: null,
+    pauseBtn: null,
+    exportBtn: null,
+    lastDrawMs: 0,
+    minMs: 180,
+};
+
+function resizeSparkCanvas(canvas, ctx) {
+    if (!canvas || !ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+    }
+}
+
+function renderSparkline(canvas, ctx, data, opts) {
+    if (!canvas || !ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillRect(0, 0, w, h);
+
+    const yMin = opts.yMin;
+    const yMax = opts.yMax;
+    const denom = Math.max(1e-8, yMax - yMin);
+
+    ctx.strokeStyle = opts.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+        const x = (i / (data.length - 1)) * (w - 2) + 1;
+        const v = data[i];
+        const t = (v - yMin) / denom;
+        const y = (1 - Math.min(1, Math.max(0, t))) * (h - 2) + 1;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    const last = data[data.length - 1];
+    const tt = (last - yMin) / denom;
+    const yy = (1 - Math.min(1, Math.max(0, tt))) * (h - 2) + 1;
+    ctx.fillStyle = opts.color;
+    ctx.beginPath();
+    ctx.arc(w - 3, yy, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 
 const makeLayerParamsFromState = (state) => ({
     ruleMode: state.ruleMode,
@@ -509,71 +572,15 @@ async function init() {
     let ui = null;
 
     // History strip (sparklines)
-    const sparkR = document.getElementById('spark-r');
-    const sparkChi = document.getElementById('spark-chi');
-    const sparkPauseBtn = document.getElementById('spark-pause-btn');
-    const sparkExportBtn = document.getElementById('spark-export-btn');
-    const sparkStatus = document.getElementById('spark-status');
-    const sparkBufR = new Float32Array(160);
-    const sparkBufChi = new Float32Array(160);
-    let sparkLastDrawMs = 0;
-    const SPARK_MIN_MS = 180;
-
-    const setupSparkCanvas = (canvas) => {
-        if (!canvas) return null;
-        const ctx = canvas.getContext('2d');
-        return ctx;
-    };
-
-    const sparkCtxR = setupSparkCanvas(sparkR);
-    const sparkCtxChi = setupSparkCanvas(sparkChi);
-
-    const resizeSparkCanvas = (canvas, ctx) => {
-        if (!canvas || !ctx) return;
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        const w = Math.max(1, Math.round(rect.width * dpr));
-        const h = Math.max(1, Math.round(rect.height * dpr));
-        if (canvas.width !== w || canvas.height !== h) {
-            canvas.width = w;
-            canvas.height = h;
-        }
-    };
-
-    const renderSparkline = (canvas, ctx, data, opts) => {
-        if (!canvas || !ctx) return;
-        const w = canvas.width;
-        const h = canvas.height;
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = '#0f0f1a';
-        ctx.fillRect(0, 0, w, h);
-
-        const yMin = opts.yMin;
-        const yMax = opts.yMax;
-        const denom = Math.max(1e-8, yMax - yMin);
-
-        ctx.strokeStyle = opts.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (let i = 0; i < data.length; i++) {
-            const x = (i / (data.length - 1)) * (w - 2) + 1;
-            const v = data[i];
-            const t = (v - yMin) / denom;
-            const y = (1 - Math.min(1, Math.max(0, t))) * (h - 2) + 1;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-
-        // Last value marker
-        const last = data[data.length - 1];
-        const tt = (last - yMin) / denom;
-        const yy = (1 - Math.min(1, Math.max(0, tt))) * (h - 2) + 1;
-        ctx.fillStyle = opts.color;
-        ctx.beginPath();
-        ctx.arc(w - 3, yy, 3, 0, Math.PI * 2);
-        ctx.fill();
-    };
+    SPARKLINE.rCanvas = document.getElementById('spark-r');
+    SPARKLINE.chiCanvas = document.getElementById('spark-chi');
+    SPARKLINE.pauseBtn = document.getElementById('spark-pause-btn');
+    SPARKLINE.exportBtn = document.getElementById('spark-export-btn');
+    SPARKLINE.statusEl = document.getElementById('spark-status');
+    SPARKLINE.rBuf = new Float32Array(160);
+    SPARKLINE.chiBuf = new Float32Array(160);
+    SPARKLINE.rCtx = SPARKLINE.rCanvas ? SPARKLINE.rCanvas.getContext('2d') : null;
+    SPARKLINE.chiCtx = SPARKLINE.chiCanvas ? SPARKLINE.chiCanvas.getContext('2d') : null;
 
     let experimentRunner = null;
     let experimentLastExport = null;
@@ -655,28 +662,28 @@ async function init() {
 
     // Sparkline resizing
     const resizeSparklines = () => {
-        resizeSparkCanvas(sparkR, sparkCtxR);
-        resizeSparkCanvas(sparkChi, sparkCtxChi);
+        resizeSparkCanvas(SPARKLINE.rCanvas, SPARKLINE.rCtx);
+        resizeSparkCanvas(SPARKLINE.chiCanvas, SPARKLINE.chiCtx);
     };
     resizeSparklines();
     window.addEventListener('resize', resizeSparklines, { passive: true });
-    if (sparkR && 'ResizeObserver' in window) {
+    if (SPARKLINE.rCanvas && 'ResizeObserver' in window) {
         const ro = new ResizeObserver(() => resizeSparklines());
-        ro.observe(sparkR);
+        ro.observe(SPARKLINE.rCanvas);
     }
 
-    if (sparkPauseBtn) {
-        sparkPauseBtn.addEventListener('click', () => {
+    if (SPARKLINE.pauseBtn) {
+        SPARKLINE.pauseBtn.addEventListener('click', () => {
             STATE.sparklinePaused = !STATE.sparklinePaused;
-            if (sparkStatus) sparkStatus.textContent = STATE.sparklinePaused ? 'paused' : '';
-            if (sparkPauseBtn) sparkPauseBtn.textContent = STATE.sparklinePaused ? 'Resume' : 'Pause';
+            if (SPARKLINE.statusEl) SPARKLINE.statusEl.textContent = STATE.sparklinePaused ? 'paused' : '';
+            if (SPARKLINE.pauseBtn) SPARKLINE.pauseBtn.textContent = STATE.sparklinePaused ? 'Resume' : 'Pause';
             updateURLFromState(STATE, true);
         });
-        sparkPauseBtn.textContent = STATE.sparklinePaused ? 'Resume' : 'Pause';
+        SPARKLINE.pauseBtn.textContent = STATE.sparklinePaused ? 'Resume' : 'Pause';
     }
 
-    if (sparkExportBtn) {
-        sparkExportBtn.addEventListener('click', () => {
+    if (SPARKLINE.exportBtn) {
+        SPARKLINE.exportBtn.addEventListener('click', () => {
             if (!stats) return;
             const csv = stats.exportCSV();
             const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -3207,29 +3214,29 @@ function updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot) {
 
         // History strip sparklines
         const nowMs = performance.now();
-        if (!STATE.sparklinePaused && nowMs - sparkLastDrawMs >= SPARK_MIN_MS) {
-            sparkLastDrawMs = nowMs;
-            if (sparkStatus) {
-                sparkStatus.textContent = STATE.showStatistics ? '' : 'compute off';
-            }
-            if (STATE.showStatistics) {
-                stats.fillRecentR(sparkBufR, true);
-                stats.fillRecentChi(sparkBufChi);
-            } else {
-                sparkBufR.fill(0);
-                sparkBufChi.fill(0);
-            }
+        if (!STATE.sparklinePaused && SPARKLINE.rCanvas && SPARKLINE.chiCanvas && SPARKLINE.rCtx && SPARKLINE.chiCtx && SPARKLINE.rBuf && SPARKLINE.chiBuf) {
+            if (nowMs - SPARKLINE.lastDrawMs >= SPARKLINE.minMs) {
+                SPARKLINE.lastDrawMs = nowMs;
+                if (SPARKLINE.statusEl) {
+                    SPARKLINE.statusEl.textContent = STATE.showStatistics ? '' : 'compute off';
+                }
+                if (STATE.showStatistics) {
+                    stats.fillRecentR(SPARKLINE.rBuf, true);
+                    stats.fillRecentChi(SPARKLINE.chiBuf);
+                } else {
+                    SPARKLINE.rBuf.fill(0);
+                    SPARKLINE.chiBuf.fill(0);
+                }
 
-            // Local R̄ is always 0..1
-            renderSparkline(sparkR, sparkCtxR, sparkBufR, { yMin: 0, yMax: 1, color: '#4CAF50' });
+                renderSparkline(SPARKLINE.rCanvas, SPARKLINE.rCtx, SPARKLINE.rBuf, { yMin: 0, yMax: 1, color: '#4CAF50' });
 
-            // χ is unbounded: scale to recent max for sparkline readability
-            let maxChi = 0;
-            for (let i = 0; i < sparkBufChi.length; i++) {
-                maxChi = Math.max(maxChi, sparkBufChi[i]);
+                let maxChi = 0;
+                for (let i = 0; i < SPARKLINE.chiBuf.length; i++) {
+                    maxChi = Math.max(maxChi, SPARKLINE.chiBuf[i]);
+                }
+                const chiMax = Math.max(1e-6, maxChi);
+                renderSparkline(SPARKLINE.chiCanvas, SPARKLINE.chiCtx, SPARKLINE.chiBuf, { yMin: 0, yMax: chiMax, color: '#FF9800' });
             }
-            const chiMax = Math.max(1e-6, maxChi);
-            renderSparkline(sparkChi, sparkCtxChi, sparkBufChi, { yMin: 0, yMax: chiMax, color: '#FF9800' });
         }
 
         const chiStdEl = document.getElementById('stat-chi-std');
