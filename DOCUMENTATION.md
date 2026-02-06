@@ -2505,6 +2505,13 @@ Use **RC vs Criticality** to sweep K and record:
 
 Exports provide JSON/CSV for offline plotting.
 
+### Moving dot task (spatial)
+
+The **Moving Dot** task injects a localized input pattern that moves horizontally. The HUD overlay shows:
+- a filled dot = current position
+- a ring = future target position (horizon)
+- a faint trail = recent positions
+
 ---
 
 ## Experiments (Rollouts)

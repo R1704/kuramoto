@@ -35,7 +35,7 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 ## Near-term queue (next 2-3 sessions)
 - **Surface-mode stability pass**: regression-test mesh vs instanced across resize/zoom/draw parity in 2D/3D; add a small UI mode indicator.
 - **RC vs criticality experiment preset**: one-click K-sweep that overlays task test NRMSE vs K alongside local mean R and chi (temporal variance proxy); same seed across runs.
-- **Spatiotemporal benchmark polish**: make moving-dot task explicit (dot overlay + target trail) and log/report its metric separately.
+- **Spatiotemporal benchmark polish**: moving-dot task is exposed in UI and rendered with dot/ghost/trail HUD.
 - **Input-mode comparison**: side-by-side micro-plots for `freq_mod` / `phase_drive` / `coupling_mod` under shared seed.
 - **Order-history sparkline**: lightweight local mean R(t) / chi(t) strip that can be paused/exported.
 
