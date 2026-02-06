@@ -2534,6 +2534,14 @@ The Analysis tab includes a lightweight **Rollout runner** for reproducible A/B 
 
 Export produces a single JSON artifact containing the URL, a state snapshot, protocol, summary metrics, and downsampled timeseries.
 
+## History Strip (Sparklines)
+
+The control panel includes lightweight sparklines for quick iteration:
+- Local R̄(t): fixed 0..1 scale
+- χ(t): scaled to the recent max for visibility (use the Analysis χ plot + numeric value for absolute interpretation)
+
+Use **Pause** to freeze the strip, and **Export Stats CSV** to download the full time series.
+
 ## State Snapshots (Save/Load)
 
 Use **State Snapshot** (in the Init panel) to save and restore the full system state.

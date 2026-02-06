@@ -37,7 +37,7 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 - **RC vs criticality experiment preset**: one-click K-sweep that overlays task test NRMSE vs K alongside local mean R and chi (temporal variance proxy); same seed across runs.
 - **Spatiotemporal benchmark polish**: moving-dot task is exposed in UI and rendered with dot/ghost/trail HUD.
 - **Input-mode comparison**: injection mode compare runner + plot + export for `freq_mod` / `phase_drive` / `coupling_mod` under shared seed.
-- **Order-history sparkline**: lightweight local mean R(t) / chi(t) strip that can be paused/exported.
+- **Order-history sparkline**: implemented as control-panel sparklines with pause + export.
 
 ### Phase 0 — Make outputs trustworthy
 Goal: you can rely on displayed numbers and exported files.
