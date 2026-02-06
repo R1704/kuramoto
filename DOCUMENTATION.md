@@ -2497,6 +2497,14 @@ The RC UI reports two errors:
 - **Train NRMSE**: running/terminal NRMSE measured during online training (RLS).
 - **Test NRMSE**: computed from a short fixed inference window after clicking **Stop & Test**.
 
+### RC vs criticality sweep
+
+Use **RC vs Criticality** to sweep K and record:
+- RC train/test NRMSE vs K (same seed/config across K)
+- local mean R and chi (variance proxy) during the test window
+
+Exports provide JSON/CSV for offline plotting.
+
 ---
 
 ## Experiments (Rollouts)
