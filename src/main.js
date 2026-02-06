@@ -541,30 +541,110 @@ async function init() {
         return topology;
     };
 
-    const ensureOverlaySize = () => {
-        if (!graphOverlay || !canvas) return;
+    const resizeCanvasesToDisplay = () => {
+        if (!canvas) return;
         const dpr = window.devicePixelRatio || 1;
         const displayW = canvas.clientWidth || canvas.width;
         const displayH = canvas.clientHeight || canvas.height;
-        graphOverlay.width = Math.round(displayW * dpr);
-        graphOverlay.height = Math.round(displayH * dpr);
-        graphOverlay.style.width = `${displayW}px`;
-        graphOverlay.style.height = `${displayH}px`;
+        const w = Math.max(1, Math.round(displayW * dpr));
+        const h = Math.max(1, Math.round(displayH * dpr));
+
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+            context.configure({ device, format, alphaMode: 'opaque' });
+            renderer.resize(w, h);
+            overlayDirty = true;
+        }
+
+        if (graphOverlay) {
+            if (graphOverlay.width !== w || graphOverlay.height !== h) {
+                graphOverlay.width = w;
+                graphOverlay.height = h;
+            }
+            graphOverlay.style.width = `${displayW}px`;
+            graphOverlay.style.height = `${displayH}px`;
+        }
 
         if (rcOverlay) {
-            rcOverlay.width = Math.round(displayW * dpr);
-            rcOverlay.height = Math.round(displayH * dpr);
+            if (rcOverlay.width !== w || rcOverlay.height !== h) {
+                rcOverlay.width = w;
+                rcOverlay.height = h;
+            }
             rcOverlay.style.width = `${displayW}px`;
             rcOverlay.style.height = `${displayH}px`;
         }
     };
 
+    // Keep WebGPU canvas backing store matched to its CSS size.
+    resizeCanvasesToDisplay();
+    window.addEventListener('resize', resizeCanvasesToDisplay, { passive: true });
+    const canvasContainer = document.getElementById('canvas-container');
+    if (canvasContainer && 'ResizeObserver' in window) {
+        const ro = new ResizeObserver(() => resizeCanvasesToDisplay());
+        ro.observe(canvasContainer);
+    }
+
     const rcDotTrail = [];
     const rcDotTrailMax = 120;
+    let rcOverlayLastThetaLayer = null;
 
-    const drawRCTaskOverlay = () => {
+    const projectWorldToScreen = (viewProj, wx, wy, wz, w, h) => {
+        const x = wx;
+        const y = wy;
+        const z = wz;
+        const cx = viewProj[0] * x + viewProj[4] * y + viewProj[8] * z + viewProj[12];
+        const cy = viewProj[1] * x + viewProj[5] * y + viewProj[9] * z + viewProj[13];
+        const cz = viewProj[2] * x + viewProj[6] * y + viewProj[10] * z + viewProj[14];
+        const cw = viewProj[3] * x + viewProj[7] * y + viewProj[11] * z + viewProj[15];
+        if (cw <= 0.00001) return { visible: false, x: 0, y: 0 };
+        const ndcX = cx / cw;
+        const ndcY = cy / cw;
+        const ndcZ = cz / cw;
+        if (ndcZ < -1.2 || ndcZ > 1.2) return { visible: false, x: 0, y: 0 };
+        const sx = (ndcX * 0.5 + 0.5) * w;
+        const sy = (1.0 - (ndcY * 0.5 + 0.5)) * h;
+        return { visible: isFinite(sx) && isFinite(sy), x: sx, y: sy };
+    };
+
+    const mapDotNormToScreen = (nx, ny, viewProj) => {
+        if (!rcOverlay) return { visible: false, x: 0, y: 0 };
+        const w = rcOverlay.width;
+        const h = rcOverlay.height;
+
+        if (STATE.viewMode === 1) {
+            // Match 2D shader UV convention: (0,0)=top-left.
+            const zoom = (STATE.zoom && STATE.zoom > 0) ? STATE.zoom : 1.0;
+            let u = nx;
+            let v = ny;
+            u = (u - 0.5) / zoom + (STATE.panX || 0.0) + 0.5;
+            v = (v - 0.5) / zoom + (STATE.panY || 0.0) + 0.5;
+            if (u < 0 || u > 1 || v < 0 || v > 1) return { visible: false, x: 0, y: 0 };
+            return { visible: true, x: u * w, y: v * h };
+        }
+
+        if (!viewProj) return { visible: false, x: 0, y: 0 };
+        const grid = STATE.gridSize;
+        const cx = Math.min(grid - 1, Math.max(0, Math.floor(nx * grid)));
+        const cy = Math.min(grid - 1, Math.max(0, Math.floor(ny * grid)));
+        const gx = cx + 0.5;
+        const gy = cy + 0.5;
+        const wx = gx * 0.5 - grid * 0.25;
+        const wz = gy * 0.5 - grid * 0.25;
+
+        let thetaVal = null;
+        if (rcOverlayLastThetaLayer && rcOverlayLastThetaLayer.length === grid * grid) {
+            thetaVal = rcOverlayLastThetaLayer[cy * grid + cx];
+        }
+        const h3 = thetaVal !== null && isFinite(thetaVal) ? Math.sin(thetaVal) * 2.0 : 0.0;
+        const layer = Math.min(Math.max(0, STATE.activeLayer ?? 0), (STATE.layerCount || 1) - 1);
+        const wy = h3 + (STATE.layerZOffset || 0.0) * layer;
+        return projectWorldToScreen(viewProj, wx, wy, wz, w, h);
+    };
+
+    const drawRCTaskOverlay = (viewProj) => {
         if (!rcOverlayCtx || !rcOverlay) return;
-        ensureOverlaySize();
+        resizeCanvasesToDisplay();
         const w = rcOverlay.width;
         const h = rcOverlay.height;
         rcOverlayCtx.clearRect(0, 0, w, h);
@@ -577,43 +657,49 @@ async function init() {
         const xNext = reservoir.tasks?.currentDotXNext ?? null;
         const y = reservoir.tasks?.movingDotY ?? 0.5;
 
-        // Trail
+        const p = mapDotNormToScreen(x, y, viewProj);
+        if (!p.visible) return;
+
+        // Update trail in normalized coords
+        if (rcDotTrail.length === 0 || rcDotTrail[rcDotTrail.length - 1].x !== x || rcDotTrail[rcDotTrail.length - 1].y !== y) {
+            rcDotTrail.push({ x, y });
+            if (rcDotTrail.length > rcDotTrailMax) rcDotTrail.shift();
+        }
+
         if (rcDotTrail.length >= 2) {
             rcOverlayCtx.strokeStyle = 'rgba(255, 152, 0, 0.25)';
             rcOverlayCtx.lineWidth = 2;
             rcOverlayCtx.beginPath();
+            let started = false;
             for (let i = 0; i < rcDotTrail.length; i++) {
-                const px = rcDotTrail[i].x * w;
-                const py = (1.0 - rcDotTrail[i].y) * h;
-                if (i === 0) rcOverlayCtx.moveTo(px, py);
-                else rcOverlayCtx.lineTo(px, py);
+                const pp = mapDotNormToScreen(rcDotTrail[i].x, rcDotTrail[i].y, viewProj);
+                if (!pp.visible) continue;
+                if (!started) { rcOverlayCtx.moveTo(pp.x, pp.y); started = true; }
+                else rcOverlayCtx.lineTo(pp.x, pp.y);
             }
-            rcOverlayCtx.stroke();
+            if (started) rcOverlayCtx.stroke();
         }
 
-        // Current dot
-        const px = x * w;
-        const py = (1.0 - y) * h;
         rcOverlayCtx.fillStyle = 'rgba(255, 152, 0, 0.95)';
         rcOverlayCtx.beginPath();
-        rcOverlayCtx.arc(px, py, 7, 0, Math.PI * 2);
+        rcOverlayCtx.arc(p.x, p.y, 7, 0, Math.PI * 2);
         rcOverlayCtx.fill();
 
-        // Ghost for next position
         if (xNext !== null && Number.isFinite(xNext)) {
-            const gx = xNext * w;
-            const gy = py;
-            rcOverlayCtx.strokeStyle = 'rgba(255, 152, 0, 0.5)';
-            rcOverlayCtx.lineWidth = 2;
-            rcOverlayCtx.beginPath();
-            rcOverlayCtx.arc(gx, gy, 9, 0, Math.PI * 2);
-            rcOverlayCtx.stroke();
+            const gp = mapDotNormToScreen(xNext, y, viewProj);
+            if (gp.visible) {
+                rcOverlayCtx.strokeStyle = 'rgba(255, 152, 0, 0.5)';
+                rcOverlayCtx.lineWidth = 2;
+                rcOverlayCtx.beginPath();
+                rcOverlayCtx.arc(gp.x, gp.y, 9, 0, Math.PI * 2);
+                rcOverlayCtx.stroke();
+            }
         }
     };
 
     const drawGraphOverlay = (topology) => {
         if (!graphOverlayCtx || !graphOverlay) return;
-        ensureOverlaySize();
+        resizeCanvasesToDisplay();
         graphOverlayCtx.clearRect(0, 0, graphOverlay.width, graphOverlay.height);
         graphOverlay.style.display = 'none';
         if (!STATE.graphOverlayEnabled || STATE.viewMode !== 1) return;
@@ -2358,13 +2444,14 @@ async function init() {
                 }
             }
             
+            resizeCanvasesToDisplay();
             const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
             const viewModeStr = STATE.viewMode === 0 ? '3d' : '2d';
             renderer.draw(encoder, sim, viewProj, STATE.gridSize * STATE.gridSize, viewModeStr, STATE.renderAllLayers, STATE.activeLayer, STATE.selectedLayers);
             
             device.queue.submit([encoder.finish()]);
 
-            drawRCTaskOverlay();
+            drawRCTaskOverlay(viewProj);
 
             if (overlayDirty) {
                 drawGraphOverlay(sim.topologyInfo);
@@ -2384,12 +2471,7 @@ async function init() {
                                     const thetaLayer = getActiveLayerThetaForRC(theta);
                                     reservoir.step(thetaLayer);
                                     if (STATE.rcTask === 'moving_dot') {
-                                        const x = reservoir.tasks?.currentDotX ?? null;
-                                        const y = reservoir.tasks?.movingDotY ?? null;
-                                        if (x !== null && y !== null && Number.isFinite(x) && Number.isFinite(y)) {
-                                            rcDotTrail.push({ x, y });
-                                            if (rcDotTrail.length > rcDotTrailMax) rcDotTrail.shift();
-                                        }
+                                        rcOverlayLastThetaLayer = thetaLayer;
                                     }
                                     if (reservoir.tasks && reservoir.tasks.taskType === 'moving_dot') {
                                         writeRCInputWeights();
