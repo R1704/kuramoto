@@ -3087,13 +3087,19 @@ function updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot) {
             Kc_el.textContent = stats.estimatedKc.toFixed(2);
         }
         
-        // Update criticality indicator position (0-100%) - use local R
+        // Update criticality indicator position (0-100%) - use χ proxy (temporal variance)
         const critMarker = document.getElementById('crit-marker');
         if (critMarker) {
-            const pos = Math.min(100, Math.max(0, stats.localR * 100));
+            const chiSeries = stats.getRecentChi(240);
+            let chiMax = 0;
+            for (let i = 0; i < chiSeries.length; i++) {
+                chiMax = Math.max(chiMax, chiSeries[i]);
+            }
+            const frac = chiMax > 1e-8 ? Math.min(1, Math.max(0, stats.chi / chiMax)) : 0;
+            const pos = frac * 100;
             critMarker.style.left = `${pos}%`;
-            critMarker.style.background = '#4a9eff';
-            critMarker.title = `Local R̄ = ${stats.localR.toFixed(3)}, Global R = ${stats.R.toFixed(3)}`;
+            critMarker.style.background = '#f59e0b';
+            critMarker.title = `χ = ${stats.chi.toFixed(4)} (relative), Local R̄ = ${stats.localR.toFixed(3)}, Global R = ${stats.R.toFixed(3)}`;
         }
         
         // Update R(t) bar indicator - use local R

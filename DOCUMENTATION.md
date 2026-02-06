@@ -1544,12 +1544,11 @@ This quantity **peaks at the critical coupling strength** $K_c$, making it usefu
 
 #### Criticality Indicator
 
-The criticality indicator shows the operating regime:
-- **Blue zone**: Chaotic/desynchronized regime (low K)
-- **Orange zone**: Critical regime (K ≈ Kc)
-- **Green zone**: Synchronized regime (high K)
+The criticality indicator is a **χ-based proxy** derived from temporal variance of Local R̄:
+- Low χ: relatively steady regime
+- High χ: large fluctuations (often near transitions)
 
-The marker position corresponds to the current **Local R̄** value.
+The marker position is scaled relative to the recent χ history (it is not an absolute physical scale).
 
 #### Time Series Plots
 

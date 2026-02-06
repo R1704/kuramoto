@@ -223,15 +223,15 @@
         }
         
         .crit-zone-chaos {
-            background: linear-gradient(90deg, #1a237e, #283593);
+            background: linear-gradient(90deg, #0f172a, #1e293b);
         }
         
         .crit-zone-critical {
-            background: linear-gradient(90deg, #283593, #FF5722, #BF360C);
+            background: linear-gradient(90deg, #1e293b, #b45309, #f59e0b);
         }
         
         .crit-zone-sync {
-            background: linear-gradient(90deg, #BF360C, #4CAF50);
+            background: linear-gradient(90deg, #f59e0b, #f97316);
         }
         
         .crit-marker {
@@ -2860,11 +2860,6 @@
         const suffix = isLocal ? `?t=${Date.now()}` : '';
         import(`./src/main.js${suffix}`);
     </script>
-</body>
-</html>
- isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '::1';
-        const suffix = isLocal ? `?t=${Date.now()}` : '';
-        import(`./src/main.js${suffix}`);
-    </script>
+
 </body>
 </html>
