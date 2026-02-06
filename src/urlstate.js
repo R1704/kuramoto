@@ -98,7 +98,10 @@ const DEFAULTS = {
     expWarmupSteps: 200,
     expMeasureSteps: 600,
     expStepsPerFrame: 2,
-    expReadbackEvery: 4
+    expReadbackEvery: 4,
+
+    // History strip
+    sparklinePaused: false
 };
 
 // Keys to include in the URL and their types
@@ -132,7 +135,10 @@ const SCHEMA = {
     graphOverlayEnabled: 'bool', showStatistics: 'bool',
 
     // Experiments
-    expResetAtStart: 'bool', expWarmupSteps: 'int', expMeasureSteps: 'int', expStepsPerFrame: 'int', expReadbackEvery: 'int'
+    expResetAtStart: 'bool', expWarmupSteps: 'int', expMeasureSteps: 'int', expStepsPerFrame: 'int', expReadbackEvery: 'int',
+
+    // History strip
+    sparklinePaused: 'bool'
 };
 
 function encodeArray(arr) {

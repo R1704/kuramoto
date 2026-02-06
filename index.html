@@ -735,6 +735,44 @@
             color: #4a9eff;
             font-weight: 600;
         }
+
+        .history-strip {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .history-strip .row {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .history-strip .label {
+            font-size: 10px;
+            color: #777;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .history-strip canvas {
+            width: 100%;
+            height: 26px;
+            border-radius: 6px;
+            background: #0f0f1a;
+            border: 1px solid rgba(255,255,255,0.06);
+            display: block;
+        }
+
+        .history-strip .controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
         
         #global-indicator {
             display: none;
@@ -824,6 +862,22 @@
                     <div><span>FPS</span><span class="value" id="fps">--</span></div>
                     <div><span>Oscillators</span><span class="value" id="count">--</span></div>
                     <div><span>Grid</span><span class="value" id="grid">--</span></div>
+                </div>
+
+                <div class="history-strip" id="history-strip">
+                    <div class="row">
+                        <div class="label">Local R̄(t)</div>
+                        <canvas id="spark-r" width="260" height="26"></canvas>
+                    </div>
+                    <div class="row">
+                        <div class="label">χ(t)</div>
+                        <canvas id="spark-chi" width="260" height="26"></canvas>
+                    </div>
+                    <div class="controls">
+                        <button id="spark-pause-btn" class="tiny-btn">Pause</button>
+                        <button id="spark-export-btn" class="tiny-btn">Export Stats CSV</button>
+                        <div id="spark-status" style="font-size: 10px; color:#666; align-self:center;"></div>
+                    </div>
                 </div>
             </div>
 

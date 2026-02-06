@@ -198,6 +198,29 @@ export class StatisticsTracker {
         
         return result;
     }
+
+    fillRecentR(out, useLocal = true) {
+        const count = out.length;
+        const available = Math.min(count, this.historyCount);
+        const history = useLocal ? this.localR_history : this.R_history;
+        out.fill(0);
+        for (let i = 0; i < available; i++) {
+            const idx = (this.historyIndex - available + i + this.historySize) % this.historySize;
+            out[count - available + i] = history[idx];
+        }
+        return out;
+    }
+
+    fillRecentChi(out) {
+        const count = out.length;
+        const available = Math.min(count, this.historyCount);
+        out.fill(0);
+        for (let i = 0; i < available; i++) {
+            const idx = (this.historyIndex - available + i + this.historySize) % this.historySize;
+            out[count - available + i] = this.chi_history[idx];
+        }
+        return out;
+    }
     
     /**
      * Check if system is near criticality
