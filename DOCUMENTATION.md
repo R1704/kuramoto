@@ -2505,6 +2505,15 @@ Use **RC vs Criticality** to sweep K and record:
 
 Exports provide JSON/CSV for offline plotting.
 
+### Injection mode compare
+
+Use **Compare Modes** to run the same RC task and initialization under each injection mode:
+- `freq_mod`
+- `phase_drive`
+- `coupling_mod`
+
+The compare runner restores the same theta/omega baseline between modes for strict fairness.
+
 ### Moving dot task (spatial)
 
 The **Moving Dot** task injects a localized input pattern that moves horizontally. The HUD overlay shows:
