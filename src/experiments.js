@@ -569,3 +569,286 @@ export class RCCriticalitySweepRunner {
         });
     }
 }
+
+export class RCInjectionModeCompareRunner {
+    constructor({ device, sim, stats, reservoir, writeRCInputWeights, setInputSignal, getActiveLayerTheta, setInjectionMode, resetSimulation, onUpdate }) {
+        this.device = device;
+        this.sim = sim;
+        this.stats = stats;
+        this.reservoir = reservoir;
+        this.writeRCInputWeights = writeRCInputWeights;
+        this.setInputSignal = setInputSignal;
+        this.getActiveLayerTheta = getActiveLayerTheta;
+        this.setInjectionMode = setInjectionMode;
+        this.resetSimulation = resetSimulation;
+        this.onUpdate = onUpdate;
+
+        this.active = false;
+        this.cancelRequested = false;
+
+        this.protocol = null;
+        this.snapshot = null;
+        this.configHash = null;
+
+        this.modes = ['freq_mod', 'phase_drive', 'coupling_mod'];
+        this.modeIdx = 0;
+        this.mode = null;
+        this.phase = 'idle';
+        this.sampleInPhase = 0;
+
+        this.pendingTheta = false;
+        this.pendingStats = false;
+        this.pendingStatsThisStep = false;
+        this.stepSubmitted = false;
+
+        this.results = [];
+        this.current = null;
+
+        this.baseline = null;
+    }
+
+    setSimulation(sim, stats) {
+        this.sim = sim;
+        this.stats = stats;
+    }
+
+    isRunning() {
+        return this.active;
+    }
+
+    async start(protocol, stateSnapshot) {
+        if (this.active) return false;
+
+        this.protocol = {
+            warmupSamples: Math.max(0, Math.floor(protocol.warmupSamples ?? 30)),
+            trainSamples: Math.max(1, Math.floor(protocol.trainSamples ?? 300)),
+            testSamples: Math.max(1, Math.floor(protocol.testSamples ?? 200)),
+            statsEvery: Math.max(1, Math.floor(protocol.statsEvery ?? 4)),
+        };
+
+        this.snapshot = stateSnapshot;
+        const hashStr = stableStringify({ state: stateSnapshot, protocol: this.protocol, type: 'rc_injection_mode_compare' });
+        this.configHash = fnv1a32(hashStr).toString(16).padStart(8, '0');
+
+        const baselineTheta = await this.sim.readTheta();
+        const baselineOmega = this.sim.getOmega() ? new Float32Array(this.sim.getOmega()) : null;
+        this.baseline = {
+            theta: baselineTheta ? new Float32Array(baselineTheta) : null,
+            omega: baselineOmega,
+            injectionMode: stateSnapshot?.rcInjectionMode,
+            K0: stateSnapshot?.K0,
+        };
+
+        this.cancelRequested = false;
+        this.results = [];
+        this.modeIdx = 0;
+        this.mode = null;
+        this.phase = 'initializing';
+        this.sampleInPhase = 0;
+
+        this.active = true;
+        this._startMode(this.modes[this.modeIdx]);
+        this._emit();
+        return true;
+    }
+
+    cancel() {
+        if (!this.active) return;
+        this.cancelRequested = true;
+    }
+
+    encodeSteps(encoder, delaySteps, globalCoupling) {
+        if (!this.active) return;
+
+        if (this.stepSubmitted || this.pendingTheta) return;
+
+        const shouldComputeStats = this.phase === 'test' && (this.sampleInPhase % this.protocol.statsEvery === 0);
+        this.pendingStatsThisStep = shouldComputeStats;
+        this.sim.step(encoder, delaySteps, globalCoupling, shouldComputeStats);
+        if (shouldComputeStats) {
+            this.sim.requestGlobalOrderReadback(encoder);
+        }
+
+        this.stepSubmitted = true;
+    }
+
+    afterSubmit() {
+        if (!this.active) return;
+        if (!this.stepSubmitted) return;
+
+        if (this.pendingStatsThisStep && !this.pendingStats && this.sim.readbackPending) {
+            this.pendingStats = true;
+            this.sim.processReadback().then(result => {
+                if (!result) return;
+                this.stats.update(result.cos, result.sin, result.localStats);
+                if (this.phase === 'test' && this.current) {
+                    if (this.sampleInPhase > this.protocol.warmupSamples) {
+                        this.current.localMeanR.push(result.localStats?.meanR ?? 0);
+                        this.current.chi.push(this.stats.chi);
+                    }
+                }
+            }).finally(() => {
+                this.pendingStats = false;
+            });
+        }
+
+        if (!this.pendingTheta) {
+            this.pendingTheta = true;
+            this.sim.readTheta().then(thetaFull => {
+                if (!thetaFull) return;
+                const thetaLayer = this.getActiveLayerTheta(thetaFull);
+                this.reservoir.step(thetaLayer);
+                if (this.reservoir.tasks && this.reservoir.tasks.taskType === 'moving_dot') {
+                    this.writeRCInputWeights();
+                }
+                this.setInputSignal(this.reservoir.getInputSignal());
+
+                this.sampleInPhase++;
+                this._advancePhaseIfNeeded();
+            }).finally(() => {
+                this.pendingTheta = false;
+                this.pendingStatsThisStep = false;
+                this.stepSubmitted = false;
+            });
+        }
+    }
+
+    exportJSON() {
+        return {
+            type: 'rc_injection_mode_compare',
+            timestamp: new Date().toISOString(),
+            configHash: this.configHash,
+            url: (typeof window !== 'undefined') ? window.location.href : null,
+            state: this.snapshot,
+            protocol: this.protocol,
+            results: this.results,
+        };
+    }
+
+    exportCSV() {
+        let csv = 'mode,trainNRMSE,testNRMSE,localMeanR_mean,chi_mean,chi_max\n';
+        for (const r of this.results) {
+            csv += `${r.mode},${r.trainNRMSE.toFixed(6)},${r.testNRMSE.toFixed(6)},${r.localMeanR_mean.toFixed(6)},${r.chi_mean.toFixed(6)},${r.chi_max.toFixed(6)}\n`;
+        }
+        return csv;
+    }
+
+    async restoreBaseline() {
+        if (!this.baseline) return;
+        if (this.baseline.theta) {
+            this.sim.writeTheta(this.baseline.theta);
+        }
+        if (this.baseline.omega) {
+            this.sim.writeOmega(this.baseline.omega);
+            this.sim.storeOmega(this.baseline.omega);
+        }
+        if (this.setInjectionMode && this.baseline.injectionMode) {
+            this.setInjectionMode(this.baseline.injectionMode);
+        }
+    }
+
+    _startMode(mode) {
+        this.mode = mode;
+        this.current = {
+            mode,
+            localMeanR: [],
+            chi: [],
+            trainNRMSE: Infinity,
+            testNRMSE: Infinity,
+        };
+
+        this.stats.reset();
+        this.resetSimulation();
+        if (this.setInjectionMode) {
+            this.setInjectionMode(mode);
+        }
+
+        this.reservoir.setTask(this.snapshot?.rcTask ?? 'sine');
+        this.reservoir.setHistoryLength(this.snapshot?.rcHistoryLength ?? 20);
+        this.reservoir.setFeatureBudget(this.snapshot?.rcMaxFeatures ?? 512);
+        this.reservoir.configure(this.snapshot?.rcInputRegion ?? 'center', this.snapshot?.rcOutputRegion ?? 'random', this.snapshot?.rcInputStrength ?? 2.0);
+        this.writeRCInputWeights();
+
+        this.reservoir.warmupSteps = Math.max(this.reservoir.warmupSteps || 15, this.protocol.warmupSamples);
+        this.reservoir.startTraining();
+        this.phase = 'warmup_train';
+        this.sampleInPhase = 0;
+        this._emit();
+    }
+
+    _advancePhaseIfNeeded() {
+        if (!this.active) return;
+
+        if (this.cancelRequested) {
+            void this._finish('canceled');
+            return;
+        }
+
+        if (this.phase === 'warmup_train') {
+            if (this.sampleInPhase >= (this.protocol.warmupSamples + this.protocol.trainSamples)) {
+                this.current.trainNRMSE = this.reservoir.stopTraining();
+                this.reservoir.warmupSteps = Math.max(this.reservoir.warmupSteps || 15, this.protocol.warmupSamples);
+                this.reservoir.startInference();
+                this.phase = 'test';
+                this.sampleInPhase = 0;
+                this._emit();
+            }
+            return;
+        }
+
+        if (this.phase === 'test') {
+            if (this.sampleInPhase >= (this.protocol.warmupSamples + this.protocol.testSamples)) {
+                this.reservoir.stopInference();
+                this.current.testNRMSE = this.reservoir.computeTestNRMSE();
+                const localStats = meanStd(this.current.localMeanR);
+                const chiStats = meanStd(this.current.chi);
+                const chiMax = this.current.chi.length ? Math.max(...this.current.chi) : 0;
+
+                this.results.push({
+                    mode: this.current.mode,
+                    trainNRMSE: isFinite(this.current.trainNRMSE) ? this.current.trainNRMSE : Infinity,
+                    testNRMSE: isFinite(this.current.testNRMSE) ? this.current.testNRMSE : Infinity,
+                    localMeanR_mean: localStats.mean,
+                    chi_mean: chiStats.mean,
+                    chi_max: chiMax,
+                });
+
+                this.modeIdx++;
+                if (this.modeIdx >= this.modes.length) {
+                    void this._finish('done');
+                } else {
+                    // Restore baseline state before next mode for strict fairness
+                    if (this.baseline && this.baseline.theta) {
+                        this.sim.writeTheta(this.baseline.theta);
+                    }
+                    if (this.baseline && this.baseline.omega) {
+                        this.sim.writeOmega(this.baseline.omega);
+                        this.sim.storeOmega(this.baseline.omega);
+                    }
+                    this._startMode(this.modes[this.modeIdx]);
+                }
+            }
+        }
+    }
+
+    async _finish(status) {
+        this.active = false;
+        this.phase = status;
+        this.setInputSignal(0);
+        await this.restoreBaseline();
+        this._emit();
+    }
+
+    _emit() {
+        if (!this.onUpdate) return;
+        this.onUpdate({
+            running: this.active,
+            phase: this.phase,
+            mode: this.mode,
+            modeIdx: this.modeIdx,
+            modeTotal: this.modes.length,
+            configHash: this.configHash,
+            results: this.results,
+        });
+    }
+}

@@ -9,7 +9,7 @@ import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, Ly
 import { ReservoirComputer } from './reservoir.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from './topology.js';
 import { makeRng, normalizeSeed, cryptoSeedFallback } from './rng.js';
-import { ExperimentRunner, RCCriticalitySweepRunner } from './experiments.js';
+import { ExperimentRunner, RCCriticalitySweepRunner, RCInjectionModeCompareRunner } from './experiments.js';
 import { encodeFloat32ToBase64, decodeBase64ToFloat32, estimateBase64SizeBytes } from './stateio.js';
 
 const STATE = {
@@ -757,6 +757,11 @@ async function init() {
     // RC vs criticality sweep state
     let rcCritSweepRunner = null;
     let rcCritSweepLastExport = null;
+
+    // RC injection mode compare state
+    let rcModeCompareRunner = null;
+    let rcModeCompareLastExport = null;
+    let rcModeCompareInfo = { running: false, phase: 'idle', mode: null, modeIdx: 0, modeTotal: 0, configHash: null, results: [] };
     
     // K-scan state
     let kScanner = null;
@@ -788,6 +793,9 @@ async function init() {
         if (rcCritSweepRunner) {
             rcCritSweepRunner.setSimulation(sim, stats);
         }
+        if (rcModeCompareRunner) {
+            rcModeCompareRunner.setSimulation(sim, stats);
+        }
         applyLayerParamsToState(STATE.activeLayer ?? 0);
         sim.updateFullParams(STATE);
         sim.writeLayerParams(STATE.layerParams);
@@ -803,7 +811,7 @@ async function init() {
 
     ui = new UIManager(STATE, {
         onParamChange: () => { 
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             if (STATE.viewMode !== lastViewMode) {
                 overlayDirty = true;
                 lastViewMode = STATE.viewMode;
@@ -818,18 +826,18 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onTopologyChange: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             regenerateTopology();
             updateURLFromState(STATE, true);
         },
         onTopologyRegenerate: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             STATE.topologySeed = (STATE.topologySeed || 1) + 1;
             regenerateTopology();
             updateURLFromState(STATE, true);
         },
         onApplyInit: async () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             normalizeSelectedLayers(STATE.layerCount);
             const targets = STATE.selectedLayers;
             const thetaPattern = document.getElementById('theta-pattern-select')?.value || STATE.thetaPattern || 'random';
@@ -874,13 +882,13 @@ async function init() {
             STATE.phaseSpaceEnabled = enabled;
         },
         onSeedChange: (seed) => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             STATE.seed = normalizeSeed(seed);
             reservoir.setSeed?.(STATE.seed);
             updateURLFromState(STATE, true);
         },
         onReseed: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             STATE.seed = cryptoSeedFallback();
             reservoir.setSeed?.(STATE.seed);
             resetSimulation(sim);
@@ -888,7 +896,7 @@ async function init() {
             updateURLFromState(STATE, true);
         },
         onExperimentConfigChange: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             updateURLFromState(STATE, true);
         },
         onExperimentRun: null,
@@ -902,6 +910,9 @@ async function init() {
                 }
                 if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
                     rcCritSweepRunner.cancel();
+                }
+                if (rcModeCompareRunner && rcModeCompareRunner.isRunning()) {
+                    rcModeCompareRunner.cancel();
                 }
                 // Stop K-scan
                 if (stats.isScanning) {
@@ -949,6 +960,9 @@ async function init() {
             setDisabled('rc-ksweep-btn', !enabled);
             setDisabled('rc-ksweep-export-json', !enabled || !rcCritSweepLastExport);
             setDisabled('rc-ksweep-export-csv', !enabled || !(rcCritSweepInfo.results && rcCritSweepInfo.results.length > 0));
+            setDisabled('rc-mode-compare-btn', !enabled);
+            setDisabled('rc-mode-compare-export-json', !enabled || !rcModeCompareLastExport);
+            setDisabled('rc-mode-compare-export-csv', !enabled || !(rcModeCompareInfo.results && rcModeCompareInfo.results.length > 0));
 
             updateURLFromState(STATE, true);
         },
@@ -984,6 +998,9 @@ async function init() {
             }
             if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
                 rcCritSweepRunner.cancel();
+            }
+            if (rcModeCompareRunner && rcModeCompareRunner.isRunning()) {
+                rcModeCompareRunner.cancel();
             }
             if (gridResizeInProgress) {
                 return;
@@ -1033,10 +1050,13 @@ async function init() {
             if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
                 rcCritSweepRunner.cancel();
             }
+            if (rcModeCompareRunner && rcModeCompareRunner.isRunning()) {
+                rcModeCompareRunner.cancel();
+            }
             void rebuildLayerCount(newCount);
         },
         onLayerSelect: (layerIdx, selected, prevSelected, prevActive) => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning())) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             // Use passed previous selection (UI already updated STATE before calling us)
             const prev = Array.isArray(prevSelected) && prevSelected.length > 0
                 ? prevSelected
@@ -1315,6 +1335,30 @@ async function init() {
                     rcCritSweepPrevPaused = null;
                 }
                 // Restore current K0 in URL/UI now that sweep is finished.
+                updateURLFromState(STATE, true);
+            }
+            updateRCDisplay();
+        },
+    });
+
+    rcModeCompareRunner = new RCInjectionModeCompareRunner({
+        device,
+        sim,
+        stats,
+        reservoir,
+        writeRCInputWeights: () => writeRCInputWeights(),
+        setInputSignal: (signal) => sim.setInputSignal(signal),
+        getActiveLayerTheta: (thetaFull) => getActiveLayerThetaForRC(thetaFull),
+        setInjectionMode: (mode) => {
+            STATE.rcInjectionMode = mode;
+            sim.updateFullParams(STATE);
+            if (ui?.updateDisplay) ui.updateDisplay();
+        },
+        resetSimulation: () => resetSimulation(sim),
+        onUpdate: (info) => {
+            rcModeCompareInfo = info;
+            if (!info.running && (info.phase === 'done' || info.phase === 'canceled')) {
+                rcModeCompareLastExport = rcModeCompareRunner.exportJSON();
                 updateURLFromState(STATE, true);
             }
             updateRCDisplay();
@@ -2117,6 +2161,74 @@ async function init() {
             });
         }
 
+        const modeCompareBtn = document.getElementById('rc-mode-compare-btn');
+        if (modeCompareBtn) {
+            modeCompareBtn.addEventListener('click', async () => {
+                if (!STATE.rcEnabled) {
+                    alert('Enable Reservoir Computing first');
+                    return;
+                }
+                if (!STATE.showStatistics) {
+                    alert('Enable Statistics Compute to run comparison');
+                    return;
+                }
+                if (!rcModeCompareRunner) {
+                    alert('Compare runner not initialized');
+                    return;
+                }
+                if (rcModeCompareRunner.isRunning()) {
+                    rcModeCompareRunner.cancel();
+                    return;
+                }
+                if (STATE.rcTraining || STATE.rcInference) {
+                    alert('Stop RC training/inference before running compare');
+                    return;
+                }
+                if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
+                    alert('Stop RC vs criticality sweep first');
+                    return;
+                }
+
+                rcModeCompareLastExport = null;
+                rcModeCompareInfo = { running: true, phase: 'starting', mode: null, modeIdx: 0, modeTotal: 3, configHash: null, results: [] };
+                updateRCDisplay();
+
+                const protocol = {
+                    warmupSamples: Math.max(STATE.rcHistoryLength || 10, 20),
+                    trainSamples: 400,
+                    testSamples: 200,
+                    statsEvery: 4,
+                };
+                const snapshot = JSON.parse(JSON.stringify(STATE));
+                await rcModeCompareRunner.start(protocol, snapshot);
+            });
+        }
+
+        const modeCompareCancel = document.getElementById('rc-mode-compare-cancel');
+        if (modeCompareCancel) {
+            modeCompareCancel.addEventListener('click', () => {
+                if (rcModeCompareRunner) rcModeCompareRunner.cancel();
+            });
+        }
+
+        const modeCompareExportJson = document.getElementById('rc-mode-compare-export-json');
+        if (modeCompareExportJson) {
+            modeCompareExportJson.addEventListener('click', () => {
+                if (!rcModeCompareLastExport) return;
+                const json = JSON.stringify(rcModeCompareLastExport, null, 2);
+                downloadJSON(json, `rc_mode_compare_${rcModeCompareLastExport.configHash || 'compare'}.json`);
+            });
+        }
+
+        const modeCompareExportCsv = document.getElementById('rc-mode-compare-export-csv');
+        if (modeCompareExportCsv) {
+            modeCompareExportCsv.addEventListener('click', () => {
+                if (!rcModeCompareRunner) return;
+                const csv = rcModeCompareRunner.exportCSV();
+                downloadCSV(csv, `rc_mode_compare_${rcModeCompareRunner.configHash || 'compare'}.csv`);
+            });
+        }
+
         const exportJsonBtn = document.getElementById('rc-ksweep-export-json');
         if (exportJsonBtn) {
             exportJsonBtn.addEventListener('click', () => {
@@ -2240,6 +2352,76 @@ async function init() {
         if (exportCsvBtn) exportCsvBtn.disabled = !(rcCritSweepInfo.results && rcCritSweepInfo.results.length > 0);
 
         renderRCKSweepPlot();
+
+        const compareStatus = document.getElementById('rc-mode-compare-status');
+        if (compareStatus) {
+            if (rcModeCompareInfo.running) {
+                compareStatus.textContent = `${rcModeCompareInfo.phase} | ${rcModeCompareInfo.modeIdx + 1}/${rcModeCompareInfo.modeTotal} ${rcModeCompareInfo.mode || ''}`;
+            } else {
+                compareStatus.textContent = 'idle';
+            }
+        }
+
+        const compareResults = document.getElementById('rc-mode-compare-results');
+        if (compareResults) {
+            const results = rcModeCompareInfo.results || [];
+            if (results.length === 0) {
+                compareResults.textContent = '—';
+            } else {
+                compareResults.textContent = results.map(r => {
+                    return `${r.mode.padEnd(12)} test=${r.testNRMSE.toFixed(3)} train=${r.trainNRMSE.toFixed(3)} localR=${r.localMeanR_mean.toFixed(3)} chiMax=${r.chi_max.toFixed(2)}`;
+                }).join('\n');
+            }
+        }
+
+        const compareExportJson = document.getElementById('rc-mode-compare-export-json');
+        if (compareExportJson) compareExportJson.disabled = !rcModeCompareLastExport;
+        const compareExportCsv = document.getElementById('rc-mode-compare-export-csv');
+        if (compareExportCsv) compareExportCsv.disabled = !(rcModeCompareInfo.results && rcModeCompareInfo.results.length > 0);
+
+        const compareCancelBtn = document.getElementById('rc-mode-compare-cancel');
+        if (compareCancelBtn) compareCancelBtn.disabled = !rcModeCompareInfo.running;
+
+        renderRCModeComparePlot();
+    }
+
+    function renderRCModeComparePlot() {
+        const canvas = document.getElementById('rc-mode-compare-plot');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const results = rcModeCompareInfo.results || [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (results.length === 0) {
+            ctx.fillStyle = '#666';
+            ctx.font = '11px Monaco, monospace';
+            ctx.fillText('No results yet', 10, 20);
+            return;
+        }
+
+        const padding = 10;
+        const w = canvas.width - padding * 2;
+        const h = canvas.height - padding * 2;
+        const max = Math.max(...results.map(r => r.testNRMSE));
+        const scaleMax = Math.max(0.5, Math.min(2.0, max));
+        const barW = w / results.length;
+
+        ctx.font = '10px Monaco, monospace';
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            const v = Math.min(scaleMax, r.testNRMSE);
+            const bh = (v / scaleMax) * h;
+            const x = padding + i * barW;
+            const y = padding + (h - bh);
+            ctx.fillStyle = 'rgba(255, 152, 0, 0.7)';
+            ctx.fillRect(x + 6, y, barW - 12, bh);
+            ctx.fillStyle = '#aaa';
+            ctx.fillText(r.mode.replace('_mod',''), x + 6, canvas.height - 6);
+        }
     }
     
     function drawRCPlot() {
@@ -2422,11 +2604,14 @@ async function init() {
             
             const experimentActive = experimentRunner && experimentRunner.isRunning();
             const rcSweepActive = rcCritSweepRunner && rcCritSweepRunner.isRunning();
+            const rcModeCompareActive = rcModeCompareRunner && rcModeCompareRunner.isRunning();
 
             if (experimentActive) {
                 experimentRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
             } else if (rcSweepActive) {
                 rcCritSweepRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
+            } else if (rcModeCompareActive) {
+                rcModeCompareRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
             } else {
                 // Only compute statistics if enabled and throttled
                 statsFrameCounter++;
@@ -2458,7 +2643,7 @@ async function init() {
             
             // Reservoir Computing: Always inject input signal when RC is enabled (for visualization)
             // Full RC step (training/inference) only when active
-            if (!rcSweepActive && STATE.rcEnabled && !STATE.paused) {
+            if (!rcSweepActive && !rcModeCompareActive && STATE.rcEnabled && !STATE.paused) {
                 if (STATE.rcTraining || STATE.rcInference) {
                     const nowMs = performance.now();
                     if (!rcReadPending && (nowMs - lastRCReadMs) >= RC_READ_MIN_MS) {
@@ -2519,6 +2704,9 @@ async function init() {
         } else if (rcSweepActive) {
             rcCritSweepRunner.afterSubmit();
             updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
+        } else if (rcModeCompareActive) {
+            rcModeCompareRunner.afterSubmit();
+            updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
         } else if (STATE.showStatistics) {
             const canReadback = sim.readbackPending && (frameNow - lastStatsReadbackMs >= STATS_READBACK_MIN_MS);
             if (canReadback) {
@@ -2554,7 +2742,7 @@ async function init() {
         }
 
         // Phase space sampling (throttled when RC is idle)
-        if (phaseSpacePlot && STATE.phaseSpaceEnabled && !(STATE.rcTraining || STATE.rcInference) && !rcSweepActive) {
+        if (phaseSpacePlot && STATE.phaseSpaceEnabled && !(STATE.rcTraining || STATE.rcInference) && !rcSweepActive && !rcModeCompareActive) {
             phaseSpaceCounter++;
             const interval = STATE.gridSize >= 512 ? PHASE_SAMPLE_INTERVAL * 2 : PHASE_SAMPLE_INTERVAL;
             if (phaseSpaceCounter >= interval && !phaseSpacePending) {
