@@ -1579,7 +1579,8 @@ async function init() {
                 yMin: 0, yMax: 1,
                 color: '#4CAF50',
                 fillColor: 'rgba(76, 175, 80, 0.2)',
-                label: 'R(t)'
+                label: 'Local R̄',
+                showYAxis: true
             });
             
             chi_plot = new TimeSeriesPlot('chi-plot', {
@@ -3087,25 +3088,11 @@ function updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot) {
             Kc_el.textContent = stats.estimatedKc.toFixed(2);
         }
         
-        // Update criticality indicator position (0-100%) - use χ proxy (temporal variance)
-        const critMarker = document.getElementById('crit-marker');
-        if (critMarker) {
-            const chiSeries = stats.getRecentChi(240);
-            let chiMax = 0;
-            for (let i = 0; i < chiSeries.length; i++) {
-                chiMax = Math.max(chiMax, chiSeries[i]);
-            }
-            const frac = chiMax > 1e-8 ? Math.min(1, Math.max(0, stats.chi / chiMax)) : 0;
-            const pos = frac * 100;
-            critMarker.style.left = `${pos}%`;
-            critMarker.style.background = '#f59e0b';
-            critMarker.title = `χ = ${stats.chi.toFixed(4)} (relative), Local R̄ = ${stats.localR.toFixed(3)}, Global R = ${stats.R.toFixed(3)}`;
-        }
-        
         // Update R(t) bar indicator - use local R
         const R_bar = document.getElementById('stat-R-bar');
         if (R_bar) {
-            R_bar.style.width = `${stats.localR * 100}%`;
+            const r = Math.min(1, Math.max(0, stats.localR));
+            R_bar.style.width = `${r * 100}%`;
         }
         
         // Update plots - use local R (better metric)
@@ -3115,6 +3102,28 @@ function updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot) {
         
         if (chi_plot && chi_plot.canvas) {
             chi_plot.render(stats.getRecentChi(300));
+        }
+
+        const chiStdEl = document.getElementById('stat-chi-std');
+        if (chiStdEl) {
+            const std = stats.N > 0 ? Math.sqrt(Math.max(0, stats.chi) / stats.N) : 0;
+            chiStdEl.textContent = std < 1 ? std.toFixed(4) : std.toFixed(3);
+        }
+
+        const chiFill = document.getElementById('stat-chi-fill');
+        const chiMarker = document.getElementById('stat-chi-marker');
+        const chiMinEl = document.getElementById('stat-chi-scale-min');
+        const chiMaxEl = document.getElementById('stat-chi-scale-max');
+        if (chi_plot && (chiFill || chiMarker || chiMinEl || chiMaxEl)) {
+            const yMin = Number.isFinite(chi_plot.lastYMin) ? chi_plot.lastYMin : 0;
+            const yMax = Number.isFinite(chi_plot.lastYMax) ? chi_plot.lastYMax : Math.max(1, stats.chi);
+            const denom = Math.max(1e-8, yMax - yMin);
+            const frac = Math.min(1, Math.max(0, (stats.chi - yMin) / denom));
+            const pct = frac * 100;
+            if (chiFill) chiFill.style.width = `${pct}%`;
+            if (chiMarker) chiMarker.style.left = `${pct}%`;
+            if (chiMinEl) chiMinEl.textContent = yMin.toFixed(yMin < 1 ? 3 : 1);
+            if (chiMaxEl) chiMaxEl.textContent = yMax.toFixed(yMax < 1 ? 3 : 1);
         }
 
         // Update local R histogram

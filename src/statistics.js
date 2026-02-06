@@ -1097,8 +1097,17 @@ export class PhaseDiagramPlot {
         ctx.fillStyle = '#666';
         ctx.font = '9px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText('1', left - 4, top + 4);
-        ctx.fillText('0', left - 4, H - bottom + 4);
+        ctx.fillText('1.0', left - 4, top + 4);
+        ctx.fillText('0.5', left - 4, top + plotH / 2 + 4);
+        ctx.fillText('0.0', left - 4, H - bottom + 4);
+
+        // Midline grid
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(left, top + plotH / 2);
+        ctx.lineTo(W - right, top + plotH / 2);
+        ctx.stroke();
         
         ctx.textAlign = 'center';
         ctx.fillText('0', left, H - bottom + 12);

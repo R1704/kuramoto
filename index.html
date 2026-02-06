@@ -195,66 +195,37 @@
             transition: width 0.1s ease;
         }
         
-        /* Criticality Indicator */
-        .criticality-section {
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid #333;
-        }
-        
-        .crit-label {
-            font-size: 10px;
-            color: #666;
-            margin-bottom: 6px;
-        }
-        
-        .crit-track {
+        /* χ Indicator (aligned to χ(t) plot scale) */
+        .chi-track {
             position: relative;
-            height: 20px;
-            background: #1a1a1a;
-            border-radius: 10px;
+            height: 10px;
+            background: #222;
+            border-radius: 6px;
             overflow: hidden;
-            display: flex;
+            border: 1px solid rgba(255,255,255,0.06);
         }
-        
-        .crit-zone {
-            flex: 1;
-            height: 100%;
-        }
-        
-        .crit-zone-chaos {
-            background: linear-gradient(90deg, #0f172a, #1e293b);
-        }
-        
-        .crit-zone-critical {
-            background: linear-gradient(90deg, #1e293b, #b45309, #f59e0b);
-        }
-        
-        .crit-zone-sync {
-            background: linear-gradient(90deg, #f59e0b, #f97316);
-        }
-        
-        .crit-marker {
+
+        .chi-fill {
             position: absolute;
-            width: 12px;
-            height: 12px;
-            background: #4a9eff;
-            border: 2px solid #fff;
-            border-radius: 50%;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #b45309, #f59e0b);
+            opacity: 0.5;
+        }
+
+        .chi-marker {
+            position: absolute;
             top: 50%;
             transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f59e0b;
+            border: 2px solid rgba(255,255,255,0.9);
             left: 0%;
-            transition: left 0.1s ease, background 0.3s ease;
-            z-index: 10;
-            box-shadow: 0 0 8px rgba(74, 158, 255, 0.5);
-        }
-        
-        .crit-labels {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 4px;
-            font-size: 9px;
-            color: #666;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.35);
         }
         
         /* Phase Diagram Controls */
@@ -2422,38 +2393,39 @@
                                 <span class="stat-value" id="stat-chi">0.0000</span>
                             </div>
                             <div class="stat-row">
+                                <span class="stat-label">Std(Local R̄):</span>
+                                <span class="stat-value" id="stat-chi-std">0.0000</span>
+                            </div>
+                            <div class="stat-row" style="margin-top: 4px;">
+                                <div class="chi-track" title="Current χ positioned relative to the χ(t) plot scale">
+                                    <div class="chi-fill" id="stat-chi-fill" style="width: 0%;"></div>
+                                    <div class="chi-marker" id="stat-chi-marker" style="left: 0%;"></div>
+                                </div>
+                            </div>
+                            <div class="stat-row" style="font-size: 10px; color: #666; margin-top: 2px;">
+                                <span id="stat-chi-scale-min">min</span>
+                                <span id="stat-chi-scale-max">max</span>
+                            </div>
+                            <div class="stat-row">
                                 <span class="stat-label">Est. Kc:</span>
                                 <span class="stat-value" id="stat-Kc">—</span>
-                            </div>
-                        </div>
-                        <div class="criticality-section">
-                            <div class="crit-label">Local Order:</div>
-                            <div class="crit-track">
-                                <div class="crit-marker" id="crit-marker"></div>
-                                <div class="crit-zone crit-zone-chaos"></div>
-                                <div class="crit-zone crit-zone-critical"></div>
-                                <div class="crit-zone crit-zone-sync"></div>
-                            </div>
-                            <div class="crit-labels">
-                                <span>0</span>
-                                <span>0.5</span>
-                                <span>1</span>
                             </div>
                         </div>
                         <div>
                             <div class="viz-title" style="margin-bottom: 6px;">Local R Histogram</div>
                             <canvas id="local-hist" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px; background: #0f0f1a;"></canvas>
+                            <div style="margin-top: 6px; color: #777; font-size: 11px;">Distribution of per-oscillator local order Rᵢ (bimodal suggests mixed regions).</div>
                         </div>
                     </div>
 
                     <div class="panel-card">
                         <div class="section-title">Time Series</div>
                         <div class="viz-section">
-                            <div class="viz-title">R̄(t) Local Order</div>
+                            <div class="viz-title">Local R̄(t)</div>
                             <canvas id="R-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px;"></canvas>
                         </div>
                         <div class="viz-section">
-                            <div class="viz-title">χ(t) Susceptibility</div>
+                            <div class="viz-title">χ(t) = N·Var(Local R̄)</div>
                             <canvas id="chi-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px;"></canvas>
                         </div>
                     </div>
