@@ -544,8 +544,9 @@ async function init() {
     const resizeCanvasesToDisplay = () => {
         if (!canvas) return;
         const dpr = window.devicePixelRatio || 1;
-        const displayW = canvas.clientWidth || canvas.width;
-        const displayH = canvas.clientHeight || canvas.height;
+        const rect = canvas.getBoundingClientRect();
+        const displayW = rect.width || canvas.clientWidth || canvas.width;
+        const displayH = rect.height || canvas.clientHeight || canvas.height;
         const w = Math.max(1, Math.round(displayW * dpr));
         const h = Math.max(1, Math.round(displayH * dpr));
 
@@ -562,8 +563,7 @@ async function init() {
                 graphOverlay.width = w;
                 graphOverlay.height = h;
             }
-            graphOverlay.style.width = `${displayW}px`;
-            graphOverlay.style.height = `${displayH}px`;
+            // CSS sizing is handled by #canvas-stage (100%).
         }
 
         if (rcOverlay) {
@@ -571,18 +571,16 @@ async function init() {
                 rcOverlay.width = w;
                 rcOverlay.height = h;
             }
-            rcOverlay.style.width = `${displayW}px`;
-            rcOverlay.style.height = `${displayH}px`;
+            // CSS sizing is handled by #canvas-stage (100%).
         }
     };
 
     // Keep WebGPU canvas backing store matched to its CSS size.
     resizeCanvasesToDisplay();
     window.addEventListener('resize', resizeCanvasesToDisplay, { passive: true });
-    const canvasContainer = document.getElementById('canvas-container');
-    if (canvasContainer && 'ResizeObserver' in window) {
+    if (canvas && 'ResizeObserver' in window) {
         const ro = new ResizeObserver(() => resizeCanvasesToDisplay());
-        ro.observe(canvasContainer);
+        ro.observe(canvas);
     }
 
     const rcDotTrail = [];
