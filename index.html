@@ -546,7 +546,7 @@
         .shortcut-trigger {
             position: absolute;
             right: 16px;
-            bottom: 16px;
+            top: 20px;
             width: 36px;
             height: 36px;
             border-radius: 50%;
@@ -559,6 +559,7 @@
             font-size: 14px;
             cursor: pointer;
             transition: all 0.2s ease;
+            z-index: 10;
         }
 
         .shortcut-trigger:hover,
@@ -568,10 +569,58 @@
             box-shadow: 0 0 12px rgba(74, 158, 255, 0.3);
         }
 
+        /* Unified help system for all tooltips */
+        .help-btn {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #151515;
+            border: 1px solid #333;
+            color: #aaa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .help-btn:hover,
+        .help-btn:focus {
+            color: #fff;
+            border-color: #4a9eff;
+            box-shadow: 0 0 8px rgba(74, 158, 255, 0.3);
+        }
+
+        .help-tooltip {
+            position: fixed;
+            width: 280px;
+            padding: 10px;
+            background: rgba(10, 10, 10, 0.95);
+            border: 1px solid #333;
+            border-radius: 8px;
+            font-size: 10px;
+            line-height: 1.5;
+            color: #aaa;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(4px);
+            transition: all 0.2s ease;
+            z-index: 1000;
+        }
+
+        .help-tooltip.visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+        }
+
         .shortcut-panel {
             position: absolute;
             right: 60px;
-            bottom: 16px;
+            top: 20px;
             width: 260px;
             padding: 12px;
             background: rgba(10, 10, 10, 0.95);
@@ -2186,7 +2235,18 @@
             <div class="tab-pane" data-tab-pane="legacy-initialization">
                 <!-- 1. PATTERN PRESETS -->
                 <div class="section">
-                    <div class="section-title">Pattern Presets</div>
+                    <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Pattern Presets</span>
+                        <button class="help-btn" data-help="patterns">?</button>
+                    </div>
+                    <div class="help-tooltip" id="patterns-help">
+                        <strong>Pattern Presets</strong><br>
+                        Each preset combines:<br>
+                        • <strong>Coupling Rules</strong> - Mathematical equations governing oscillation<br>
+                        • <strong>Initial Conditions</strong> - Starting phase/frequency patterns<br>
+                        • <strong>Parameters</strong> - Optimal values for each pattern<br><br>
+                        Presets are shortcuts for common behaviors like spirals, waves, and synchronization patterns.
+                    </div>
                     <div style="font-size: 10px; color: #666; margin-bottom: 4px;">Basic Patterns</div>
                     <div class="button-group">
                         <button class="preset-btn" data-preset="sync">🔄 Global Sync</button>
@@ -2392,7 +2452,19 @@
             <div class="tab-pane" data-tab-pane="legacy-interaction">
                 <div class="panel-grid">
                     <div class="panel-card">
-                        <div class="section-title">Scale Modulation</div>
+                        <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span>Scale Modulation</span>
+                            <button class="help-btn" data-help="scale">?</button>
+                        </div>
+                        <div class="help-tooltip" id="scale-help">
+                            <strong>Scale Modulation</strong><br>
+                            Spatially varies coupling strength (K₀) per oscillator:<br>
+                            • <strong>Base</strong> - Uniform scaling factor<br>
+                            • <strong>Radial</strong> - Stronger coupling at edges<br>
+                            • <strong>Random</strong> - Per-oscillator random variation<br>
+                            • <strong>Ring</strong> - Concentric ring pattern<br><br>
+                            Creates regions with different synchronization dynamics.
+                        </div>
                         <label style="font-size: 10px; color: #888; display: block;">Base Scale</label>
                         <input type="range" id="scale-slider" min="0.2" max="4.0" step="0.05" value="1.0">
                         <label style="font-size: 10px; color: #888; display: block; margin-top: 6px;">Radial</label>
@@ -2404,7 +2476,22 @@
                     </div>
 
                     <div class="panel-card">
-                        <div class="section-title">Flow Field</div>
+                        <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span>Flow Field</span>
+                            <button class="help-btn" data-help="flow">?</button>
+                        </div>
+                        <div class="help-tooltip" id="flow-help">
+                            <strong>Flow Field</strong><br>
+                            Adds directional bias to phase evolution (adds to ω):<br>
+                            • <strong>Radial</strong> - Inward/outward flow from center<br>
+                            • <strong>Rotate</strong> - System-wide rotation bias<br>
+                            • <strong>Swirl</strong> - Spiral flow pattern<br>
+                            • <strong>Bubble</strong> - Quadrupole expansion<br>
+                            • <strong>Ring</strong> - Circular flow<br>
+                            • <strong>Vortex</strong> - Vortex circulation<br>
+                            • <strong>Vertical</strong> - Up/down drift<br><br>
+                            Causes patterns to drift, rotate, or travel.
+                        </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px; color: #888;">
                             <label>Radial</label><input type="range" id="flow-radial-slider" min="-5.0" max="5.0" step="0.1" value="0">
                             <label>Rotate</label><input type="range" id="flow-rotate-slider" min="-5.0" max="5.0" step="0.1" value="0">
@@ -2418,7 +2505,20 @@
                     </div>
 
                     <div class="panel-card">
-                        <div class="section-title">Orientation Map</div>
+                        <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span>Orientation Map</span>
+                            <button class="help-btn" data-help="orientation">?</button>
+                        </div>
+                        <div class="help-tooltip" id="orientation-help">
+                            <strong>Orientation Map</strong><br>
+                            Spatially modulates coupling effectiveness:<br>
+                            • <strong>Radial</strong> - Stronger coupling at left/right<br>
+                            • <strong>Circles</strong> - Stronger coupling at top/bottom<br>
+                            • <strong>Swirl</strong> - Diagonal modulation<br>
+                            • <strong>Bubble</strong> - Quadrupole pattern<br>
+                            • <strong>Linear</strong> - Vertical gradient<br><br>
+                            Creates spatially-varying synchronization behavior.
+                        </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px; color: #888;">
                             <label>Radial</label><input type="range" id="orient-radial-slider" min="-2.0" max="2.0" step="0.05" value="0">
                             <label>Circles</label><input type="range" id="orient-circles-slider" min="-2.0" max="2.0" step="0.05" value="0">
@@ -2870,25 +2970,61 @@
             }
         };
 
-        const initShortcutHover = () => {
-            const trigger = document.getElementById('shortcut-trigger');
-            const panel = document.getElementById('shortcut-panel');
-            if (!trigger || !panel) return;
-            const show = () => panel.classList.add('visible');
-            const hide = () => panel.classList.remove('visible');
-            trigger.addEventListener('mouseenter', show);
-            trigger.addEventListener('mouseleave', hide);
-            trigger.addEventListener('focus', show);
-            trigger.addEventListener('blur', hide);
-            panel.addEventListener('mouseenter', show);
-            panel.addEventListener('mouseleave', hide);
+        const initTooltips = () => {
+            // Initialize shortcuts panel (existing system)
+            const shortcutTrigger = document.getElementById('shortcut-trigger');
+            const shortcutPanel = document.getElementById('shortcut-panel');
+            if (shortcutTrigger && shortcutPanel) {
+                const showShortcut = () => shortcutPanel.classList.add('visible');
+                const hideShortcut = () => shortcutPanel.classList.remove('visible');
+                
+                shortcutTrigger.addEventListener('mouseenter', showShortcut);
+                shortcutTrigger.addEventListener('mouseleave', hideShortcut);
+                shortcutTrigger.addEventListener('focus', showShortcut);
+                shortcutTrigger.addEventListener('blur', hideShortcut);
+                shortcutPanel.addEventListener('mouseenter', showShortcut);
+                shortcutPanel.addEventListener('mouseleave', hideShortcut);
+            }
+
+            // Initialize help tooltips (new system)
+            document.querySelectorAll('.help-btn').forEach(btn => {
+                const helpType = btn.getAttribute('data-help');
+                const tooltip = document.getElementById(`${helpType}-help`);
+                if (!tooltip) return;
+                
+                const showTooltip = () => {
+                    // Position tooltip to the left of button
+                    const btnRect = btn.getBoundingClientRect();
+                    const tooltipWidth = 280; // Match CSS width
+                    const tooltipLeft = btnRect.left - tooltipWidth - 8;
+                    const tooltipTop = btnRect.top;
+                    
+                    tooltip.style.left = `${tooltipLeft}px`;
+                    tooltip.style.top = `${tooltipTop}px`;
+                };
+                
+                const hideTooltip = () => {
+                    tooltip.classList.remove('visible');
+                };
+                
+                btn.addEventListener('mouseenter', () => {
+                    showTooltip();
+                    tooltip.classList.add('visible');
+                });
+                btn.addEventListener('mouseleave', hideTooltip);
+                btn.addEventListener('focus', () => {
+                    showTooltip();
+                    tooltip.classList.add('visible');
+                });
+                btn.addEventListener('blur', hideTooltip);
+            });
         };
 
         document.addEventListener('DOMContentLoaded', () => {
             initTabs('control-tabs');
             moveDynamicsContent();
             initDynTabs();
-            initShortcutHover();
+            initTooltips();
         });
     </script>
     

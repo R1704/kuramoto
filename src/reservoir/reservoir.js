@@ -5,7 +5,7 @@
  * network as a reservoir computer for temporal pattern learning.
  */
 
-import { makeRng, normalizeSeed } from './rng.js';
+import { makeRng, normalizeSeed } from '../utils/index.js';
 
 /**
  * Manages input/output weights and signal injection for reservoir computing

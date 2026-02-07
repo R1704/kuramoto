@@ -1,4 +1,4 @@
-import { RENDER_SHADER, RENDER_2D_SHADER } from './shaders.js';
+import { RENDER_SHADER, RENDER_2D_SHADER } from '../shaders/index.js';
 
 export class Renderer {
     constructor(device, format, canvas, gridSize = 256) {

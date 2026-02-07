@@ -1,0 +1,21 @@
+/**
+ * Shaders Module
+ * 
+ * WebGPU shader programs organized by purpose.
+ */
+
+export {
+    // Compute shaders
+    COMPUTE_SHADER,
+    GLOBAL_ORDER_REDUCTION_SHADER,
+    GLOBAL_ORDER_NORMALIZE_SHADER,
+    LOCAL_ORDER_STATS_SHADER,
+    LOCAL_ORDER_STATS_NORMALIZE_SHADER,
+    S2_COMPUTE_SHADER,
+    S2_GLOBAL_ORDER_REDUCTION_SHADER,
+    S2_GLOBAL_ORDER_NORMALIZE_SHADER,
+    S2_LOCAL_ORDER_STATS_SHADER,
+    // Render shaders
+    RENDER_SHADER,
+    RENDER_2D_SHADER,
+} from './shaders.js';
