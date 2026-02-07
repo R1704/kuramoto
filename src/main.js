@@ -44,6 +44,7 @@ const STATE = {
     thetaPattern: 'random',
     omegaPattern: 'random',
     omegaAmplitude: 0.4,
+    manifoldMode: 's1',
     viewMode: 0, // 0 = 3D, 1 = 2D
     surfaceMode: 'mesh', // 'mesh' or 'instanced'
     gridSize: 256, // Adjustable grid size
@@ -472,6 +473,9 @@ async function init() {
     STATE.activeLayer = Math.min(STATE.activeLayer || 0, STATE.layerCount - 1);
     normalizeSelectedLayers(STATE.layerCount);
     applyLayerParamsToState(STATE.activeLayer);
+    sim.updateFullParams(STATE);
+    sim.setManifoldMode(STATE.manifoldMode);
+    sim.writeLayerParams(STATE.layerParams);
     const renderer = new Renderer(device, format, canvas, STATE.gridSize);
     renderer.setMeshMode(STATE.surfaceMode);
     renderer.setContext(context);
@@ -527,6 +531,7 @@ async function init() {
 
     const getActiveLayerThetaForRC = (thetaFull) => {
         if (!thetaFull) return thetaFull;
+        if (STATE.manifoldMode !== 's1') return null;
         const layers = sim?.layers ?? 1;
         if (layers <= 1) return thetaFull;
         const layerSize = sim.gridSize * sim.gridSize;
@@ -613,6 +618,7 @@ async function init() {
             console.warn(`Topology clamped at degree ${maxDegree}`);
         }
         sim.updateFullParams(STATE);
+        sim.setManifoldMode(STATE.manifoldMode);
         if (ui?.updateDisplay) ui.updateDisplay();
         overlayDirty = true;
         return topology;
@@ -906,6 +912,7 @@ async function init() {
         }
         applyLayerParamsToState(STATE.activeLayer ?? 0);
         sim.updateFullParams(STATE);
+        sim.setManifoldMode(STATE.manifoldMode);
         sim.writeLayerParams(STATE.layerParams);
         renderer.invalidateBindGroup();
         stats.resize(STATE.gridSize * STATE.gridSize * STATE.layerCount);
@@ -920,6 +927,25 @@ async function init() {
     ui = new UIManager(STATE, {
         onParamChange: () => { 
             if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (STATE.manifoldMode !== 's1') {
+                if (STATE.ruleMode !== 0) STATE.ruleMode = 0;
+                if (STATE.harmonicA !== 0.0) STATE.harmonicA = 0.0;
+                if (STATE.harmonicB !== 0.0) STATE.harmonicB = 0.0;
+                if (STATE.delaySteps !== 0) STATE.delaySteps = 0;
+                if (STATE.globalCoupling !== false) STATE.globalCoupling = false;
+                if (STATE.rcEnabled) {
+                    STATE.rcEnabled = false;
+                    sim.setInputSignal(0);
+                }
+            }
+            if (STATE.manifoldMode === 's2') {
+                if (STATE.thetaPattern !== 'random' && STATE.thetaPattern !== 'synchronized') {
+                    STATE.thetaPattern = 'random';
+                }
+                if (STATE.omegaPattern !== 'random' && STATE.omegaPattern !== 'uniform') {
+                    STATE.omegaPattern = 'random';
+                }
+            }
             if (STATE.viewMode !== lastViewMode) {
                 overlayDirty = true;
                 lastViewMode = STATE.viewMode;
@@ -929,6 +955,11 @@ async function init() {
             syncStateToLayerParams(STATE.selectedLayers);
             sim.writeLayerParams(STATE.layerParams);
             sim.updateFullParams(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
+            renderer.invalidateBindGroup();
+            if (STATE.manifoldMode === 's2') {
+                resetSimulation(sim);
+            }
             drawKernel(STATE); 
             // Reflect new parameter state into URL
             updateURLFromState(STATE, true);
@@ -962,18 +993,32 @@ async function init() {
             if (!allLayersSelected) {
                 // Try to get current theta from GPU (with retry)
                 for (let attempt = 0; attempt < 3 && !thetaBase; attempt++) {
-                    thetaBase = await sim.readTheta();
+                    thetaBase = STATE.manifoldMode === 's2' ? await sim.readS2() : await sim.readTheta();
                     if (!thetaBase) await new Promise(r => setTimeout(r, 16)); // Wait a frame
                 }
                 // Fallback to CPU-side copy if GPU read fails
-                thetaBase = thetaBase || sim.thetaData || new Float32Array(sim.N);
-                omegaBase = sim.getOmega() || new Float32Array(sim.N);
+                if (STATE.manifoldMode === 's2') {
+                    thetaBase = thetaBase || sim.s2Data || new Float32Array(sim.N * 4);
+                    omegaBase = sim.omegaVecData || new Float32Array(sim.N * 4);
+                } else {
+                    thetaBase = thetaBase || sim.thetaData || new Float32Array(sim.N);
+                    omegaBase = sim.getOmega() || new Float32Array(sim.N);
+                }
             }
             
-            const thetaRng = makeRng(STATE.seed, `theta:${thetaPattern}`);
-            const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
-            applyThetaPattern(sim, thetaPattern, targets, thetaBase, thetaRng);
-            applyOmegaPattern(sim, omegaPattern, omegaAmp, targets, omegaBase, omegaRng);
+            if (STATE.manifoldMode === 's2') {
+                const vecBase = thetaBase && thetaBase.length === sim.N * 4 ? new Float32Array(thetaBase) : null;
+                const omegaVecBase = omegaBase && omegaBase.length === sim.N * 4 ? new Float32Array(omegaBase) : null;
+                const thetaRng = makeRng(STATE.seed, `s2:${thetaPattern}`);
+                const omegaRng = makeRng(STATE.seed, `s2omega:${omegaPattern}`);
+                applyS2Pattern(sim, thetaPattern, targets, vecBase, thetaRng);
+                applyOmegaVecPattern(sim, omegaPattern, omegaAmp, targets, omegaVecBase, omegaRng);
+            } else {
+                const thetaRng = makeRng(STATE.seed, `theta:${thetaPattern}`);
+                const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
+                applyThetaPattern(sim, thetaPattern, targets, thetaBase, thetaRng);
+                applyOmegaPattern(sim, omegaPattern, omegaAmp, targets, omegaBase, omegaRng);
+            }
         },
         onOverlayToggle: (enabled) => {
             STATE.graphOverlayEnabled = enabled;
@@ -983,6 +1028,7 @@ async function init() {
             STATE.surfaceMode = mode;
             renderer.setMeshMode(mode);
             sim.updateFullParams(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
             updateRenderModeIndicator();
             updateURLFromState(STATE, true);
         },
@@ -993,6 +1039,9 @@ async function init() {
             if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             STATE.seed = normalizeSeed(seed);
             reservoir.setSeed?.(STATE.seed);
+            if (STATE.manifoldMode === 's2') {
+                applyOmegaVecPattern(sim, STATE.omegaPattern, STATE.omegaAmplitude, null, null, makeRng(STATE.seed, `s2omega:${STATE.omegaPattern}`));
+            }
             updateURLFromState(STATE, true);
         },
         onReseed: () => {
@@ -1150,6 +1199,7 @@ async function init() {
             renderer.invalidateBindGroup(); // Buffers changed, need new bind group
             regenerateTopology();
             drawKernel(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
         },
         onLayerCountChange: (newCount) => {
             if (experimentRunner && experimentRunner.isRunning()) {
@@ -1178,6 +1228,7 @@ async function init() {
             applyLayerParamsToState(layerIdx);
             sim.writeLayerParams(STATE.layerParams);
             sim.updateFullParams(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
             drawKernel(STATE);
             if (ui?.updateDisplay) ui.updateDisplay();
             updateURLFromState(STATE, true);
@@ -1203,6 +1254,7 @@ async function init() {
             if (stats.estimatedKc) {
                 STATE.K0 = stats.estimatedKc;
                 sim.updateFullParams(STATE);
+                sim.setManifoldMode(STATE.manifoldMode);
                 ui.updateDisplay();
             }
         },
@@ -1432,6 +1484,7 @@ async function init() {
             STATE.K0 = K;
             STATE.frameTime = 0;
             sim.updateFullParams(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
             if (ui?.updateDisplay) ui.updateDisplay();
         },
         onUpdate: (info) => {
@@ -1460,6 +1513,7 @@ async function init() {
         setInjectionMode: (mode) => {
             STATE.rcInjectionMode = mode;
             sim.updateFullParams(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
             if (ui?.updateDisplay) ui.updateDisplay();
         },
         resetSimulation: () => resetSimulation(sim),
@@ -1497,11 +1551,15 @@ async function init() {
         }
     };
 
-    const captureSnapshot = async () => {
-        if (experimentRunner && experimentRunner.isRunning()) {
-            setSnapshotStatus('cancel rollout first');
-            return;
-        }
+        const captureSnapshot = async () => {
+            if (experimentRunner && experimentRunner.isRunning()) {
+                setSnapshotStatus('cancel rollout first');
+                return;
+            }
+            if (STATE.manifoldMode !== 's1') {
+                setSnapshotStatus('snapshot not supported for S2 yet');
+                return;
+            }
 
         const includeTheta = !!document.getElementById('snapshot-theta-toggle')?.checked;
         const includeOmega = !!document.getElementById('snapshot-omega-toggle')?.checked;
@@ -1516,14 +1574,14 @@ async function init() {
         let omega = null;
 
         if (includeTheta) {
-            theta = await sim.readTheta();
+            theta = STATE.manifoldMode === 's2' ? await sim.readS2() : await sim.readTheta();
             if (!theta) {
                 setSnapshotStatus('theta read failed');
                 return;
             }
         }
         if (includeOmega) {
-            omega = sim.getOmega();
+            omega = STATE.manifoldMode === 's2' ? sim.omegaVecData : sim.getOmega();
             if (!omega) {
                 // Not fatal: omega is optional and may not be stored.
                 omega = null;
@@ -1533,9 +1591,15 @@ async function init() {
         if (activeLayerOnly && layers > 1) {
             if (theta && theta.length === sim.N) {
                 theta = theta.subarray(activeLayer * layerSize, activeLayer * layerSize + layerSize);
+            } else if (theta && theta.length === sim.N * 4) {
+                const start = activeLayer * layerSize * 4;
+                theta = theta.subarray(start, start + layerSize * 4);
             }
             if (omega && omega.length === sim.N) {
                 omega = omega.subarray(activeLayer * layerSize, activeLayer * layerSize + layerSize);
+            } else if (omega && omega.length === sim.N * 4) {
+                const start = activeLayer * layerSize * 4;
+                omega = omega.subarray(start, start + layerSize * 4);
             }
         }
 
@@ -1550,6 +1614,7 @@ async function init() {
                 layerCount: layers,
                 activeLayer,
                 activeLayerOnly,
+                manifoldMode: STATE.manifoldMode,
             },
             state: JSON.parse(JSON.stringify(STATE)),
             buffers: {},
@@ -1562,6 +1627,7 @@ async function init() {
                 dtype: 'f32',
                 encoding: 'base64',
                 length: theta.length,
+                vecSize: STATE.manifoldMode === 's2' ? 4 : 1,
                 base64: encodeFloat32ToBase64(theta),
             };
             approxBytes += estimateBase64SizeBytes(theta.byteLength);
@@ -1572,6 +1638,7 @@ async function init() {
                 dtype: 'f32',
                 encoding: 'base64',
                 length: omega.length,
+                vecSize: STATE.manifoldMode === 's2' ? 4 : 1,
                 base64: encodeFloat32ToBase64(omega),
             };
             approxBytes += estimateBase64SizeBytes(omega.byteLength);
@@ -1583,13 +1650,18 @@ async function init() {
         setSnapshotStatus(`saved ~${formatBytes(approxBytes)}`);
     };
 
-    const applySnapshot = async (snapshot) => {
-        if (!snapshot || snapshot.type !== 'kuramoto_state_snapshot') {
-            throw new Error('Not a kuramoto_state_snapshot');
-        }
-        if (snapshot.version !== 1) {
-            throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
-        }
+        const applySnapshot = async (snapshot) => {
+            if (!snapshot || snapshot.type !== 'kuramoto_state_snapshot') {
+                throw new Error('Not a kuramoto_state_snapshot');
+            }
+            if (snapshot.version !== 1) {
+                throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
+            }
+
+            const snapManifold = snapshot.meta?.manifoldMode ?? snapshot.state?.manifoldMode ?? 's1';
+            if (snapManifold !== 's1') {
+                throw new Error('S2 snapshots are not supported yet');
+            }
 
         if (experimentRunner && experimentRunner.isRunning()) {
             experimentRunner.cancel();
@@ -1597,6 +1669,7 @@ async function init() {
 
         const targetGrid = snapshot.meta?.gridSize ?? snapshot.state?.gridSize;
         const targetLayers = snapshot.meta?.layerCount ?? snapshot.state?.layerCount;
+        const targetManifold = snapshot.meta?.manifoldMode ?? snapshot.state?.manifoldMode ?? STATE.manifoldMode;
         if (!Number.isFinite(targetGrid) || !Number.isFinite(targetLayers)) {
             throw new Error('Snapshot missing gridSize/layerCount');
         }
@@ -1610,6 +1683,7 @@ async function init() {
         }
 
         Object.assign(STATE, snapshot.state || {});
+        STATE.manifoldMode = targetManifold || STATE.manifoldMode || 's1';
         STATE.seed = normalizeSeed(STATE.seed);
         STATE.layerCount = Math.max(1, Math.min(8, Math.floor(STATE.layerCount || 1)));
         STATE.activeLayer = Math.min(Math.max(0, Math.floor(STATE.activeLayer || 0)), STATE.layerCount - 1);
@@ -1620,6 +1694,7 @@ async function init() {
         syncStateToLayerParams(STATE.selectedLayers);
         sim.writeLayerParams(STATE.layerParams);
         sim.updateFullParams(STATE);
+        sim.setManifoldMode(STATE.manifoldMode);
 
         const layerSize = sim.gridSize * sim.gridSize;
         const layers = sim.layers || 1;
@@ -1627,29 +1702,55 @@ async function init() {
 
         if (snapshot.buffers?.theta?.base64) {
             const thetaDecoded = decodeBase64ToFloat32(snapshot.buffers.theta.base64);
-            if (thetaDecoded.length === sim.N) {
-                sim.writeTheta(thetaDecoded);
-            } else if (thetaDecoded.length === layerSize && layers > 1) {
-                const full = new Float32Array(sim.N);
-                full.set(thetaDecoded, activeLayer * layerSize);
-                sim.writeTheta(full);
+            const vecSize = snapshot.buffers.theta.vecSize || 1;
+            if (STATE.manifoldMode === 's2' && vecSize === 4) {
+                if (thetaDecoded.length === sim.N * 4) {
+                    sim.writeS2(thetaDecoded);
+                } else if (thetaDecoded.length === layerSize * 4 && layers > 1) {
+                    const full = new Float32Array(sim.N * 4);
+                    full.set(thetaDecoded, activeLayer * layerSize * 4);
+                    sim.writeS2(full);
+                } else {
+                    throw new Error(`S2 theta length mismatch: ${thetaDecoded.length}`);
+                }
             } else {
-                throw new Error(`Theta length mismatch: ${thetaDecoded.length} (expected ${sim.N} or ${layerSize})`);
+                if (thetaDecoded.length === sim.N) {
+                    sim.writeTheta(thetaDecoded);
+                } else if (thetaDecoded.length === layerSize && layers > 1) {
+                    const full = new Float32Array(sim.N);
+                    full.set(thetaDecoded, activeLayer * layerSize);
+                    sim.writeTheta(full);
+                } else {
+                    throw new Error(`Theta length mismatch: ${thetaDecoded.length} (expected ${sim.N} or ${layerSize})`);
+                }
             }
         }
 
         if (snapshot.buffers?.omega?.base64) {
             const omegaDecoded = decodeBase64ToFloat32(snapshot.buffers.omega.base64);
-            if (omegaDecoded.length === sim.N) {
-                sim.writeOmega(omegaDecoded);
-                sim.storeOmega(omegaDecoded);
-            } else if (omegaDecoded.length === layerSize && layers > 1) {
-                const full = new Float32Array(sim.N);
-                full.set(omegaDecoded, activeLayer * layerSize);
-                sim.writeOmega(full);
-                sim.storeOmega(full);
+            const vecSize = snapshot.buffers.omega.vecSize || 1;
+            if (STATE.manifoldMode === 's2' && vecSize === 4) {
+                if (omegaDecoded.length === sim.N * 4) {
+                    sim.writeOmegaVec(omegaDecoded);
+                } else if (omegaDecoded.length === layerSize * 4 && layers > 1) {
+                    const full = new Float32Array(sim.N * 4);
+                    full.set(omegaDecoded, activeLayer * layerSize * 4);
+                    sim.writeOmegaVec(full);
+                } else {
+                    throw new Error(`S2 omega length mismatch: ${omegaDecoded.length}`);
+                }
             } else {
-                throw new Error(`Omega length mismatch: ${omegaDecoded.length} (expected ${sim.N} or ${layerSize})`);
+                if (omegaDecoded.length === sim.N) {
+                    sim.writeOmega(omegaDecoded);
+                    sim.storeOmega(omegaDecoded);
+                } else if (omegaDecoded.length === layerSize && layers > 1) {
+                    const full = new Float32Array(sim.N);
+                    full.set(omegaDecoded, activeLayer * layerSize);
+                    sim.writeOmega(full);
+                    sim.storeOmega(full);
+                } else {
+                    throw new Error(`Omega length mismatch: ${omegaDecoded.length} (expected ${sim.N} or ${layerSize})`);
+                }
             }
         }
 
@@ -1800,24 +1901,33 @@ async function init() {
         const marker = document.getElementById('lle-marker');
         
         if (lleEl) {
-            lleEl.textContent = lyapunovCalc.lle.toFixed(4);
+            if (STATE.manifoldMode !== 's1') {
+                lleEl.textContent = '--';
+            } else {
+                lleEl.textContent = lyapunovCalc.lle.toFixed(4);
+            }
         }
         if (statusEl) {
-            statusEl.textContent = lyapunovCalc.getInterpretation();
+            statusEl.textContent = STATE.manifoldMode !== 's1' ? 'S2 disabled' : lyapunovCalc.getInterpretation();
         }
         if (iterEl) {
-            iterEl.textContent = `${lyapunovCalc.renormCount} renorms`;
+            iterEl.textContent = STATE.manifoldMode !== 's1' ? '--' : `${lyapunovCalc.renormCount} renorms`;
         }
         if (marker) {
-            // Map LLE from [-0.5, 0.5] to [0%, 100%]
-            const pos = Math.min(100, Math.max(0, (lyapunovCalc.lle + 0.5) * 100));
-            marker.style.left = `${pos}%`;
+            if (STATE.manifoldMode !== 's1') {
+                marker.style.left = '0%';
+            } else {
+                // Map LLE from [-0.5, 0.5] to [0%, 100%]
+                const pos = Math.min(100, Math.max(0, (lyapunovCalc.lle + 0.5) * 100));
+                marker.style.left = `${pos}%`;
+            }
         }
     }
     
     // Step LLE calculation when simulation runs
     async function stepLLE() {
         if (!lyapunovCalc.isRunning || STATE.paused) return;
+        if (STATE.manifoldMode !== 's1') return;
         
         const theta = await sim.readTheta();
         const omega = sim.getOmega();
@@ -1876,6 +1986,7 @@ async function init() {
             renderer.invalidateBindGroup();
             resetSimulation(sim);
             sim.updateFullParams(STATE);
+            sim.setManifoldMode(STATE.manifoldMode);
             
             // Run K-scan at this size
             const scanner = stats.createKScanner(sim, STATE, {
@@ -1932,6 +2043,7 @@ async function init() {
         renderer.invalidateBindGroup();
         resetSimulation(sim);
         sim.updateFullParams(STATE);
+        sim.setManifoldMode(STATE.manifoldMode);
         ui.updateDisplay();
         
         if (fssAbort || !STATE.showStatistics) {
@@ -2664,6 +2776,7 @@ async function init() {
 
     function renderPhaseSpace(theta) {
         if (!phaseSpacePlot || !STATE.phaseSpaceEnabled || !theta) return;
+        if (STATE.manifoldMode !== 's1') return;
         phaseSpacePlot.render(theta);
     }
     
@@ -2752,7 +2865,7 @@ async function init() {
             
             // Reservoir Computing: Always inject input signal when RC is enabled (for visualization)
             // Full RC step (training/inference) only when active
-            if (!rcSweepActive && !rcModeCompareActive && STATE.rcEnabled && !STATE.paused) {
+        if (!rcSweepActive && !rcModeCompareActive && STATE.rcEnabled && !STATE.paused && STATE.manifoldMode === 's1') {
                 if (STATE.rcTraining || STATE.rcInference) {
                     const nowMs = performance.now();
                     if (!rcReadPending && (nowMs - lastRCReadMs) >= RC_READ_MIN_MS) {
@@ -2807,6 +2920,10 @@ async function init() {
             }
 
         // Process readback and update statistics (async)
+        if (STATE.manifoldMode !== 's1' && lyapunovCalc.isRunning) {
+            lyapunovCalc.stop();
+        }
+
         if (experimentActive) {
             experimentRunner.afterSubmit();
             updateStats(sim, stats, R_plot, chi_plot, phaseDiagramPlot);
@@ -2917,6 +3034,15 @@ function resetSimulation(sim) {
     const omegaPattern = document.getElementById('omega-pattern-select')?.value || 'random';
     const omegaAmp = parseFloat(document.getElementById('omega-amplitude-slider')?.value || 0.4);
 
+        if (STATE.manifoldMode === 's2') {
+            applyS2Pattern(sim, thetaPattern, null, null, makeRng(STATE.seed, `s2:${thetaPattern}`));
+            applyOmegaVecPattern(sim, omegaPattern, omegaAmp, null, null, makeRng(STATE.seed, `s2omega:${omegaPattern}`));
+            return;
+        }
+        if (STATE.manifoldMode !== 's1') {
+            return;
+        }
+
     const thetaRng = makeRng(STATE.seed, `theta:${thetaPattern}`);
     const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
     applyThetaPattern(sim, thetaPattern, null, null, thetaRng);
@@ -2924,6 +3050,12 @@ function resetSimulation(sim) {
 }
 
 function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null, rng = null) {
+    if (STATE.manifoldMode !== 's1') {
+        if (STATE.manifoldMode === 's2') {
+            applyS2Pattern(sim, pattern, targetLayers, null, rng);
+        }
+        return;
+    }
     const N = sim.N;
     const GRID = sim.gridSize;
     const layers = sim.layers || 1;
@@ -2944,28 +3076,29 @@ function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null, 
         const k = TWO_PI / (GRID * 1.414);
         for (const layer of targets) {
             const offset = layer * layerSize;
-            for(let r=0; r<GRID; r++) {
-                for(let c=0; c<GRID; c++) {
-                    theta[offset + r*GRID+c] = k * (c + r);
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    theta[offset + r * GRID + c] = k * (c + r);
                 }
             }
         }
     } else if (pattern === 'spiral') {
-        const cx = GRID/2, cy = GRID/2;
+        const cx = GRID / 2;
+        const cy = GRID / 2;
         for (const layer of targets) {
             const offset = layer * layerSize;
-            for(let r=0; r<GRID; r++) {
-                for(let c=0; c<GRID; c++) {
-                    theta[offset + r*GRID+c] = Math.atan2(r-cy, c-cx);
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    theta[offset + r * GRID + c] = Math.atan2(r - cy, c - cx);
                 }
             }
         }
     } else if (pattern === 'checkerboard') {
         for (const layer of targets) {
             const offset = layer * layerSize;
-            for(let r=0; r<GRID; r++) {
-                for(let c=0; c<GRID; c++) {
-                    theta[offset + r*GRID+c] = ((r+c)%2) * Math.PI;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    theta[offset + r * GRID + c] = ((r + c) % 2) * Math.PI;
                 }
             }
         }
@@ -2992,7 +3125,7 @@ function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null, 
         const ctx = lastExternalCanvas.getContext('2d');
         const imageData = ctx.getImageData(0, 0, lastExternalCanvas.width, lastExternalCanvas.height);
         const pixels = imageData.data;
-        
+
         for (const layer of targets) {
             const offset = layer * layerSize;
             for (let i = 0; i < layerSize; i++) {
@@ -3013,6 +3146,12 @@ function applyThetaPattern(sim, pattern, targetLayers = null, thetaBase = null, 
 }
 
 function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = null, rng = null) {
+    if (STATE.manifoldMode !== 's1') {
+        if (STATE.manifoldMode === 's2') {
+            applyOmegaVecPattern(sim, pattern, amp, targetLayers, null, rng);
+        }
+        return;
+    }
     const N = sim.N;
     const GRID = sim.gridSize;
     const layers = sim.layers || 1;
@@ -3026,7 +3165,7 @@ function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = n
         const normal = rng ? rng.normal : null;
         targets.forEach(layer => {
             const offset = layer * layerSize;
-            for(let i=0; i<layerSize; i++) {
+            for (let i = 0; i < layerSize; i++) {
                 if (normal) {
                     omega[offset + i] = normal(0, amp);
                 } else {
@@ -3044,29 +3183,31 @@ function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = n
     } else if (pattern === 'gradient') {
         for (const layer of targets) {
             const offset = layer * layerSize;
-            for(let r=0; r<GRID; r++) {
-                for(let c=0; c<GRID; c++) {
-                    omega[offset + r*GRID+c] = (r/(GRID-1) * 2 - 1) * amp;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    omega[offset + r * GRID + c] = (r / (GRID - 1) * 2 - 1) * amp;
                 }
             }
         }
     } else if (pattern === 'checkerboard') {
         for (const layer of targets) {
             const offset = layer * layerSize;
-            for(let r=0; r<GRID; r++) {
-                for(let c=0; c<GRID; c++) {
-                    omega[offset + r*GRID+c] = ((r+c)%2 ? 1 : -1) * amp;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    omega[offset + r * GRID + c] = ((r + c) % 2 ? 1 : -1) * amp;
                 }
             }
         }
     } else if (pattern === 'center_fast') {
-        const cx = GRID/2, cy = GRID/2, sigma = GRID/4;
+        const cx = GRID / 2;
+        const cy = GRID / 2;
+        const sigma = GRID / 4;
         for (const layer of targets) {
             const offset = layer * layerSize;
-            for(let r=0; r<GRID; r++) {
-                for(let c=0; c<GRID; c++) {
-                    const d2 = (c-cx)**2 + (r-cy)**2;
-                    omega[offset + r*GRID+c] = amp * Math.exp(-d2 / (2*sigma*sigma));
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const d2 = (c - cx) ** 2 + (r - cy) ** 2;
+                    omega[offset + r * GRID + c] = amp * Math.exp(-d2 / (2 * sigma * sigma));
                 }
             }
         }
@@ -3076,10 +3217,139 @@ function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaBase = n
 }
 
 function randomizeTheta(sim) {
+    if (STATE.manifoldMode === 's2') {
+        applyS2Pattern(sim, 'random', null, null, makeRng(STATE.seed, 's2:randomize'));
+        return;
+    }
     const rng = makeRng(STATE.seed, 'theta:randomize');
     const theta = new Float32Array(sim.N);
-    for(let i=0; i<sim.N; i++) theta[i] = rng.float() * 6.28318;
+    for (let i = 0; i < sim.N; i++) theta[i] = rng.float() * 6.28318;
     sim.writeTheta(theta);
+}
+
+function applyS2Pattern(sim, pattern, targetLayers = null, vecBase = null, rng = null) {
+    const N = sim.N;
+    const GRID = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = GRID * GRID;
+    const data = vecBase ? new Float32Array(vecBase) : new Float32Array(N * 4);
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
+
+    const rand = rng ? rng.float : Math.random;
+
+    if (pattern === 'synchronized') {
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const base = (offset + i) * 4;
+                data[base] = 0;
+                data[base + 1] = 0;
+                data[base + 2] = 1;
+                data[base + 3] = 1;
+            }
+        });
+    } else if (pattern === 'gradient') {
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const t = (c + r) / Math.max(1, (GRID - 1) * 2);
+                    const az = t * Math.PI * 2;
+                    const el = (r / Math.max(1, GRID - 1) - 0.5) * Math.PI;
+                    const x = Math.cos(el) * Math.cos(az);
+                    const y = Math.cos(el) * Math.sin(az);
+                    const z = Math.sin(el);
+                    const base = (offset + r * GRID + c) * 4;
+                    data[base] = x;
+                    data[base + 1] = y;
+                    data[base + 2] = z;
+                    data[base + 3] = 1;
+                }
+            }
+        });
+    } else if (pattern === 'checkerboard') {
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const up = (r + c) % 2 === 0 ? 1 : -1;
+                    const base = (offset + r * GRID + c) * 4;
+                    data[base] = 0;
+                    data[base + 1] = 0;
+                    data[base + 2] = up;
+                    data[base + 3] = 1;
+                }
+            }
+        });
+    } else {
+        // random / target / image -> random on sphere
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const u = rand() * 2 - 1;
+                const phi = rand() * Math.PI * 2;
+                const t = Math.sqrt(1 - u * u);
+                const base = (offset + i) * 4;
+                data[base] = t * Math.cos(phi);
+                data[base + 1] = t * Math.sin(phi);
+                data[base + 2] = u;
+                data[base + 3] = 1;
+            }
+        });
+    }
+
+    sim.writeS2(data);
+}
+
+function applyOmegaVecPattern(sim, pattern, amp, targetLayers = null, omegaBase = null, rng = null) {
+    const N = sim.N;
+    const GRID = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = GRID * GRID;
+    const omega = omegaBase ? new Float32Array(omegaBase) : new Float32Array(N * 4);
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
+    const normal = rng ? rng.normal : null;
+    const rand = rng ? rng.float : Math.random;
+
+    if (pattern === 'uniform') {
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const base = (offset + i) * 4;
+                omega[base] = 0;
+                omega[base + 1] = 0;
+                omega[base + 2] = amp;
+                omega[base + 3] = 0;
+            }
+        });
+    } else {
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                let x = 0, y = 0, z = 0;
+                if (normal) {
+                    x = normal(0, amp);
+                    y = normal(0, amp);
+                    z = normal(0, amp);
+                } else {
+                    x = (rand() * 2 - 1) * amp;
+                    y = (rand() * 2 - 1) * amp;
+                    z = (rand() * 2 - 1) * amp;
+                }
+                const base = (offset + i) * 4;
+                omega[base] = x;
+                omega[base + 1] = y;
+                omega[base + 2] = z;
+                omega[base + 3] = 0;
+            }
+        });
+    }
+
+    sim.writeOmegaVec(omega);
 }
 
 async function loadPreset(name, sim, ui) {
@@ -3142,6 +3412,7 @@ async function loadPreset(name, sim, ui) {
         
         ui.updateDisplay();
         sim.updateFullParams(STATE);
+        sim.setManifoldMode(STATE.manifoldMode);
         drawKernel(STATE);
     } else {
         console.warn("Preset not found:", name);
@@ -3435,6 +3706,7 @@ window.addEventListener('popstate', () => {
             // update UI and simulation parameters
             if (typeof sim !== 'undefined' && sim) {
                 sim.updateFullParams(STATE);
+                sim.setManifoldMode(STATE.manifoldMode);
             }
             if (typeof ui !== 'undefined' && ui) ui.updateDisplay();
         } catch (e) {

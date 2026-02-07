@@ -165,13 +165,14 @@ export class Renderer {
             this.layerBindGroupCache.clear();
         }
 
-        if (!this.layerBindGroupCache.has(sim.thetaTexture)) {
+        const keyTexture = sim.paramsManifoldMode === 's2' ? sim.s2Texture : sim.thetaTexture;
+        if (!this.layerBindGroupCache.has(keyTexture)) {
             const groups = [];
             for (let layer = 0; layer < layerCount; layer++) {
                 groups.push(this.device.createBindGroup({
                     layout: this.bindGroupLayout,
                     entries: [
-                        { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
+                        { binding: 0, resource: keyTexture.createView({ dimension: '2d-array' }) },
                         { binding: 1, resource: { buffer: sim.paramsBuf } },
                         { binding: 2, resource: { buffer: this.cameraBuf } },
                         { binding: 3, resource: { buffer: sim.orderBuf } },
@@ -181,10 +182,10 @@ export class Renderer {
                     ],
                 }));
             }
-            this.layerBindGroupCache.set(sim.thetaTexture, groups);
+            this.layerBindGroupCache.set(keyTexture, groups);
         }
 
-        this.layerBindGroups = this.layerBindGroupCache.get(sim.thetaTexture);
+        this.layerBindGroups = this.layerBindGroupCache.get(keyTexture);
     }
     
     init2DPipeline() {
@@ -326,19 +327,20 @@ export class Renderer {
         }
         
         // Get or create bind group for current theta texture
-        let bindGroup = this.bindGroups2D.get(sim.thetaTexture);
+        const keyTexture = sim.paramsManifoldMode === 's2' ? sim.s2Texture : sim.thetaTexture;
+        let bindGroup = this.bindGroups2D.get(keyTexture);
         if (!bindGroup) {
             bindGroup = this.device.createBindGroup({
                 layout: this.pipeline2D.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: sim.thetaTexture.createView({ dimension: '2d-array' }) },
+                    { binding: 0, resource: keyTexture.createView({ dimension: '2d-array' }) },
                     { binding: 1, resource: { buffer: sim.paramsBuf } },
                     { binding: 2, resource: { buffer: sim.orderBuf } },
                     { binding: 3, resource: this.externalSampler },
                     { binding: 4, resource: this.externalTexture.createView() },
                 ],
             });
-            this.bindGroups2D.set(sim.thetaTexture, bindGroup);
+            this.bindGroups2D.set(keyTexture, bindGroup);
         }
 
         const pass = commandEncoder.beginRenderPass({

@@ -1,4 +1,4 @@
-import { COMPUTE_SHADER, GLOBAL_ORDER_REDUCTION_SHADER, GLOBAL_ORDER_NORMALIZE_SHADER, LOCAL_ORDER_STATS_SHADER, LOCAL_ORDER_STATS_NORMALIZE_SHADER } from './shaders.js';
+import { COMPUTE_SHADER, GLOBAL_ORDER_REDUCTION_SHADER, GLOBAL_ORDER_NORMALIZE_SHADER, LOCAL_ORDER_STATS_SHADER, LOCAL_ORDER_STATS_NORMALIZE_SHADER, S2_COMPUTE_SHADER, S2_GLOBAL_ORDER_REDUCTION_SHADER, S2_GLOBAL_ORDER_NORMALIZE_SHADER, S2_LOCAL_ORDER_STATS_SHADER } from './shaders.js';
 import { MAX_GRAPH_DEGREE } from './topology.js';
 
 export class Simulation {
@@ -12,6 +12,7 @@ export class Simulation {
         this.delayBufferSize = 32;
         this.delayBufferIndex = 0;
         this.delayBuffers = [];
+        this.paramsManifoldMode = 's1';
         
         this.initBuffers();
         this.initPipeline();
@@ -51,7 +52,7 @@ export class Simulation {
         
         // Atomic accumulator for reduction (scaled integers for thread safety)
         this.globalOrderAtomicBuf = this.device.createBuffer({
-            size: 8, // 2 * i32 = 2 * 4 bytes
+            size: 12, // 3 * i32 = 3 * 4 bytes (S2 needs xyz)
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
         
@@ -72,6 +73,35 @@ export class Simulation {
 
         // Initialize order buffer
         this.device.queue.writeBuffer(this.orderBuf, 0, new Float32Array(this.N).fill(0.5));
+
+        const makeS2Texture = () => this.device.createTexture({
+            size: [this.gridSize, this.gridSize, this.layers],
+            format: 'rgba32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        });
+
+        this.s2Textures = [makeS2Texture(), makeS2Texture()];
+        this.s2Index = 0;
+        this.s2Texture = this.s2Textures[this.s2Index];
+        this.s2StagingBuf = this.device.createBuffer({
+            size: this.N * 16,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        this.s2ReadbackBuf = null;
+
+        this.omegaVecBuf = this.device.createBuffer({ size: this.N * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        this.omegaVecData = null;
+
+        // Initialize S2 textures to +Z
+        const s2Init = new Float32Array(this.N * 4);
+        for (let i = 0; i < this.N; i++) {
+            const base = i * 4;
+            s2Init[base] = 0;
+            s2Init[base + 1] = 0;
+            s2Init[base + 2] = 1;
+            s2Init[base + 3] = 1;
+        }
+        this.writeS2(s2Init);
 
         // ============= LOCAL ORDER STATISTICS BUFFERS =============
         // Atomic accumulator for local order stats (4 values: sum_r, sync_count, sum_grad, sum_r2)
@@ -161,9 +191,16 @@ export class Simulation {
             layout: 'auto',
             compute: { module, entryPoint: 'main' }
         });
+
+        const s2Module = this.device.createShaderModule({ code: S2_COMPUTE_SHADER });
+        this.s2Pipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: s2Module, entryPoint: 'main' }
+        });
         
         // Cache bind groups for each delay step
         this.bindGroupCache = new Map();
+        this.s2BindGroupCache = new Map();
     }
 
     initReductionPipeline() {
@@ -173,6 +210,12 @@ export class Simulation {
             layout: 'auto',
             compute: { module: reductionModule, entryPoint: 'main' }
         });
+
+        const s2ReductionModule = this.device.createShaderModule({ code: S2_GLOBAL_ORDER_REDUCTION_SHADER });
+        this.s2ReductionPipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: s2ReductionModule, entryPoint: 'main' }
+        });
         
         // Stage 2: Normalize the accumulated sum
         const normalizeModule = this.device.createShaderModule({ code: GLOBAL_ORDER_NORMALIZE_SHADER });
@@ -180,9 +223,16 @@ export class Simulation {
             layout: 'auto',
             compute: { module: normalizeModule, entryPoint: 'main' }
         });
+
+        const s2NormalizeModule = this.device.createShaderModule({ code: S2_GLOBAL_ORDER_NORMALIZE_SHADER });
+        this.s2NormalizePipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: s2NormalizeModule, entryPoint: 'main' }
+        });
         
         // Bind groups for reduction stage (per theta buffer)
         this.reductionBindGroups = [null, null];
+        this.s2ReductionBindGroups = [null, null];
         
         // Bind group for normalize stage
         this.normalizeBindGroup = this.device.createBindGroup({
@@ -193,12 +243,27 @@ export class Simulation {
                 { binding: 2, resource: { buffer: this.paramsBuf } }, // For N
             ],
         });
+
+        this.s2NormalizeBindGroup = this.device.createBindGroup({
+            layout: this.s2NormalizePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: this.globalOrderAtomicBuf } },
+                { binding: 1, resource: { buffer: this.globalOrderBuf } },
+                { binding: 2, resource: { buffer: this.paramsBuf } },
+            ],
+        });
         
         // ============= LOCAL ORDER STATISTICS PIPELINES =============
         const localStatsModule = this.device.createShaderModule({ code: LOCAL_ORDER_STATS_SHADER });
         this.localStatsPipeline = this.device.createComputePipeline({
             layout: 'auto',
             compute: { module: localStatsModule, entryPoint: 'main' }
+        });
+
+        const s2LocalStatsModule = this.device.createShaderModule({ code: S2_LOCAL_ORDER_STATS_SHADER });
+        this.s2LocalStatsPipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: s2LocalStatsModule, entryPoint: 'main' }
         });
         
         const localStatsNormalizeModule = this.device.createShaderModule({ code: LOCAL_ORDER_STATS_NORMALIZE_SHADER });
@@ -218,6 +283,15 @@ export class Simulation {
                 { binding: 4, resource: { buffer: this.gridSizeUniformBuf } },
             ],
         });
+
+        this.s2LocalStatsBindGroup = this.device.createBindGroup({
+            layout: this.s2LocalStatsPipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: this.orderBuf } },
+                { binding: 1, resource: { buffer: this.localStatsAtomicBuf } },
+                { binding: 2, resource: { buffer: this.localHistAtomicBuf } },
+            ],
+        });
         
         this.localStatsNormalizeBindGroup = this.device.createBindGroup({
             layout: this.localStatsNormalizePipeline.getBindGroupLayout(0),
@@ -228,6 +302,7 @@ export class Simulation {
                 { binding: 3, resource: { buffer: this.nUniformBuf } },
             ],
         });
+
     }
 
     getBindGroup(delaySteps) {
@@ -258,6 +333,29 @@ export class Simulation {
             }));
         }
         return this.bindGroupCache.get(cacheKey);
+    }
+
+    getS2BindGroup() {
+        const currentIdx = this.s2Index;
+        const nextIdx = currentIdx ^ 1;
+        const cacheKey = `${currentIdx}`;
+        if (!this.s2BindGroupCache.has(cacheKey)) {
+            this.s2BindGroupCache.set(cacheKey, this.device.createBindGroup({
+                layout: this.s2Pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: this.s2Textures[currentIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 1, resource: { buffer: this.omegaVecBuf } },
+                    { binding: 2, resource: { buffer: this.paramsBuf } },
+                    { binding: 3, resource: { buffer: this.orderBuf } },
+                    { binding: 4, resource: this.s2Textures[nextIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 5, resource: { buffer: this.graphNeighborsBuf } },
+                    { binding: 6, resource: { buffer: this.graphWeightsBuf } },
+                    { binding: 7, resource: { buffer: this.graphCountsBuf } },
+                    { binding: 8, resource: { buffer: this.layerParamsBuf } },
+                ],
+            }));
+        }
+        return this.s2BindGroupCache.get(cacheKey);
     }
 
     writeLayerParams(layers) {
@@ -378,6 +476,8 @@ export class Simulation {
         
         const timeData = new Float32Array([p.frameTime]);
         this.device.queue.writeBuffer(this.paramsBuf, 16 * 4, timeData);
+
+        this.paramsManifoldMode = p.manifoldMode || 's1';
         
         // Only write full params if something other than dt/time changed
         // (This will be called explicitly when params change via updateFullParams)
@@ -401,6 +501,7 @@ export class Simulation {
         })();
         const layerCount = this.layers || 1;
         const activeLayer = Math.min(layerCount - 1, Math.max(0, Math.floor(p.activeLayer ?? 0)));
+        this.paramsManifoldMode = p.manifoldMode || 's1';
         const data = new Float32Array([
             // 0-3
             p.dt * p.timeScale * (p.paused ? 0 : 1), p.K0, p.range, p.ruleMode,
@@ -440,14 +541,23 @@ export class Simulation {
             p.orientRadial ?? 0.0, p.orientCircles ?? 0.0, p.orientSwirl ?? 0.0, p.orientBubble ?? 0.0,
             // 67
             p.orientLinear ?? 0.0,
-            // 68-71 mesh flag + pads
-            (p.surfaceMode === 'mesh' ? 1.0 : 0.0), 0, 0, 0,
+            // 68-71 mesh flag + manifold mode + pads
+            (p.surfaceMode === 'mesh' ? 1.0 : 0.0), (p.manifoldMode === 's2' ? 1.0 : (p.manifoldMode === 's3' ? 2.0 : 0.0)), 0, 0,
             // 72-75 topology mode/meta
             topoMode, this.maxGraphDegree, p.topologyAvgDegree ?? 0, 0,
             // 76-79 layer meta (coupling removed - now per-layer)
             layerCount, 0, 0, activeLayer
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
+    }
+
+    setManifoldMode(mode) {
+        const next = mode || 's1';
+        if (this.paramsManifoldMode === next) return;
+        this.paramsManifoldMode = next;
+        if (next === 's2') {
+            this.thetaTexture = null;
+        }
     }
 
     /**
@@ -458,6 +568,7 @@ export class Simulation {
      * @param {boolean} computeStats - If true, compute statistics this frame (can be throttled)
      */
     step(commandEncoder, delaySteps, globalCoupling, computeStats = true) {
+        const useS2 = this.paramsManifoldMode === 's2';
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
         const currentThetaTex = this.thetaTextures[currentIdx];
@@ -465,80 +576,137 @@ export class Simulation {
         // Only compute statistics if requested (allows throttling for performance)
         if (computeStats) {
             // Reset atomic accumulators to zero
-            commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 8);
+            if (!useS2) {
+                commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 8);
+            }
             commandEncoder.clearBuffer(this.localStatsAtomicBuf, 0, 16);
             commandEncoder.clearBuffer(this.localHistAtomicBuf, 0, 64);
             
-            // Copy current theta texture to staging buffer for reduction shader
-            commandEncoder.copyTextureToBuffer(
-                { texture: currentThetaTex },
-                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
-                [this.gridSize, this.gridSize, this.layers]
-            );
-            
-            // Stage 1: Parallel reduction with atomic accumulation (uses staging buffer)
-            if (!this.reductionBindGroups[currentIdx]) {
-                this.reductionBindGroups[currentIdx] = this.device.createBindGroup({
-                    layout: this.reductionPipeline.getBindGroupLayout(0),
-                    entries: [
-                        { binding: 0, resource: { buffer: this.thetaStagingBuf } },
-                        { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
-                    ],
-                });
-            }
-            const reductionBindGroup = this.reductionBindGroups[currentIdx];
-            const reductionPass = commandEncoder.beginComputePass();
-            reductionPass.setPipeline(this.reductionPipeline);
-            reductionPass.setBindGroup(0, reductionBindGroup);
             const workgroups = Math.ceil(this.N / 256);
-            reductionPass.dispatchWorkgroups(workgroups);
-            reductionPass.end();
-            
-            // Stage 2: Normalize by N and convert to float
-            const normalizePass = commandEncoder.beginComputePass();
-            normalizePass.setPipeline(this.normalizePipeline);
-            normalizePass.setBindGroup(0, this.normalizeBindGroup);
-            normalizePass.dispatchWorkgroups(1);
-            normalizePass.end();
-            
-            // ============= LOCAL ORDER STATISTICS =============
-            // Stage 1: Parallel reduction of local R values
-            const localStatsPass = commandEncoder.beginComputePass();
-            localStatsPass.setPipeline(this.localStatsPipeline);
-            localStatsPass.setBindGroup(0, this.localStatsBindGroup);
-            localStatsPass.dispatchWorkgroups(workgroups);
-            localStatsPass.end();
-            
-            // Stage 2: Normalize local stats
-            const localStatsNormalizePass = commandEncoder.beginComputePass();
-            localStatsNormalizePass.setPipeline(this.localStatsNormalizePipeline);
-            localStatsNormalizePass.setBindGroup(0, this.localStatsNormalizeBindGroup);
-            localStatsNormalizePass.dispatchWorkgroups(1);
-            localStatsNormalizePass.end();
+            if (!useS2) {
+                // Copy current theta texture to staging buffer for reduction shader
+                commandEncoder.copyTextureToBuffer(
+                    { texture: currentThetaTex },
+                    { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
+                    [this.gridSize, this.gridSize, this.layers]
+                );
+                
+                // Stage 1: Parallel reduction with atomic accumulation (uses staging buffer)
+                if (!this.reductionBindGroups[currentIdx]) {
+                    this.reductionBindGroups[currentIdx] = this.device.createBindGroup({
+                        layout: this.reductionPipeline.getBindGroupLayout(0),
+                        entries: [
+                            { binding: 0, resource: { buffer: this.thetaStagingBuf } },
+                            { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
+                        ],
+                    });
+                }
+                const reductionBindGroup = this.reductionBindGroups[currentIdx];
+                const reductionPass = commandEncoder.beginComputePass();
+                reductionPass.setPipeline(this.reductionPipeline);
+                reductionPass.setBindGroup(0, reductionBindGroup);
+                reductionPass.dispatchWorkgroups(workgroups);
+                reductionPass.end();
+                
+                // Stage 2: Normalize by N and convert to float
+                const normalizePass = commandEncoder.beginComputePass();
+                normalizePass.setPipeline(this.normalizePipeline);
+                normalizePass.setBindGroup(0, this.normalizeBindGroup);
+                normalizePass.dispatchWorkgroups(1);
+                normalizePass.end();
+                
+                // ============= LOCAL ORDER STATISTICS =============
+                // Stage 1: Parallel reduction of local R values
+                const localStatsPass = commandEncoder.beginComputePass();
+                localStatsPass.setPipeline(this.localStatsPipeline);
+                localStatsPass.setBindGroup(0, this.localStatsBindGroup);
+                localStatsPass.dispatchWorkgroups(workgroups);
+                localStatsPass.end();
+                
+                // Stage 2: Normalize local stats
+                const localStatsNormalizePass = commandEncoder.beginComputePass();
+                localStatsNormalizePass.setPipeline(this.localStatsNormalizePipeline);
+                localStatsNormalizePass.setBindGroup(0, this.localStatsNormalizeBindGroup);
+                localStatsNormalizePass.dispatchWorkgroups(1);
+                localStatsNormalizePass.end();
+            } else {
+                commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 12);
+
+                commandEncoder.copyTextureToBuffer(
+                    { texture: this.s2Texture },
+                    { buffer: this.s2StagingBuf, bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize },
+                    [this.gridSize, this.gridSize, this.layers]
+                );
+
+                if (!this.s2ReductionBindGroups[this.s2Index]) {
+                    this.s2ReductionBindGroups[this.s2Index] = this.device.createBindGroup({
+                        layout: this.s2ReductionPipeline.getBindGroupLayout(0),
+                        entries: [
+                            { binding: 0, resource: { buffer: this.s2StagingBuf } },
+                            { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
+                        ],
+                    });
+                }
+                const s2ReductionPass = commandEncoder.beginComputePass();
+                s2ReductionPass.setPipeline(this.s2ReductionPipeline);
+                s2ReductionPass.setBindGroup(0, this.s2ReductionBindGroups[this.s2Index]);
+                s2ReductionPass.dispatchWorkgroups(workgroups);
+                s2ReductionPass.end();
+
+                const s2NormalizePass = commandEncoder.beginComputePass();
+                s2NormalizePass.setPipeline(this.s2NormalizePipeline);
+                s2NormalizePass.setBindGroup(0, this.s2NormalizeBindGroup);
+                s2NormalizePass.dispatchWorkgroups(1);
+                s2NormalizePass.end();
+
+                const s2LocalPass = commandEncoder.beginComputePass();
+                s2LocalPass.setPipeline(this.s2LocalStatsPipeline);
+                s2LocalPass.setBindGroup(0, this.s2LocalStatsBindGroup);
+                s2LocalPass.dispatchWorkgroups(workgroups);
+                s2LocalPass.end();
+
+                const s2LocalNormPass = commandEncoder.beginComputePass();
+                s2LocalNormPass.setPipeline(this.localStatsNormalizePipeline);
+                s2LocalNormPass.setBindGroup(0, this.localStatsNormalizeBindGroup);
+                s2LocalNormPass.dispatchWorkgroups(1);
+                s2LocalNormPass.end();
+            }
         }
         
-        // Copy current theta texture to delay buffer history (via staging buffer)
-        // Only do this if we haven't already copied for stats, or if stats were skipped
-        if (!computeStats) {
-            commandEncoder.copyTextureToBuffer(
-                { texture: currentThetaTex },
-                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
-                [this.gridSize, this.gridSize, this.layers]
-            );
+        if (!useS2) {
+            // Copy current theta texture to delay buffer history (via staging buffer)
+            // Only do this if we haven't already copied for stats, or if stats were skipped
+            if (!computeStats) {
+                commandEncoder.copyTextureToBuffer(
+                    { texture: currentThetaTex },
+                    { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
+                    [this.gridSize, this.gridSize, this.layers]
+                );
+            }
+            commandEncoder.copyBufferToBuffer(this.thetaStagingBuf, 0, this.delayBuffers[this.delayBufferIndex], 0, this.N * 4);
+            this.delayBufferIndex = (this.delayBufferIndex + 1) % this.delayBufferSize;
+
+            const pass = commandEncoder.beginComputePass();
+            pass.setPipeline(this.pipeline);
+            pass.setBindGroup(0, this.getBindGroup(delaySteps));
+            const wgCount = Math.ceil(this.gridSize / 16);
+            pass.dispatchWorkgroups(wgCount, wgCount, this.layers);
+            pass.end();
+
+            // Swap textures
+            this.thetaIndex = nextIdx;
+            this.thetaTexture = this.thetaTextures[this.thetaIndex];
+        } else {
+            const pass = commandEncoder.beginComputePass();
+            pass.setPipeline(this.s2Pipeline);
+            pass.setBindGroup(0, this.getS2BindGroup());
+            const wgCount = Math.ceil(this.gridSize / 16);
+            pass.dispatchWorkgroups(wgCount, wgCount, this.layers);
+            pass.end();
+
+            this.s2Index = this.s2Index ^ 1;
+            this.s2Texture = this.s2Textures[this.s2Index];
         }
-        commandEncoder.copyBufferToBuffer(this.thetaStagingBuf, 0, this.delayBuffers[this.delayBufferIndex], 0, this.N * 4);
-        this.delayBufferIndex = (this.delayBufferIndex + 1) % this.delayBufferSize;
-
-        const pass = commandEncoder.beginComputePass();
-        pass.setPipeline(this.pipeline);
-        pass.setBindGroup(0, this.getBindGroup(delaySteps));
-        const wgCount = Math.ceil(this.gridSize / 16);
-        pass.dispatchWorkgroups(wgCount, wgCount, this.layers);
-        pass.end();
-
-        // Swap textures
-        this.thetaIndex = nextIdx;
-        this.thetaTexture = this.thetaTextures[this.thetaIndex];
     }
 
     // Helper to write data directly to theta textures
@@ -560,10 +728,30 @@ export class Simulation {
             this.device.queue.writeBuffer(buf, 0, data);
         }
     }
+
+    writeS2(data) {
+        this.s2Data = new Float32Array(data);
+        const layout = { bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize };
+        const size = [this.gridSize, this.gridSize, this.layers];
+        for (const tex of this.s2Textures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                data,
+                layout,
+                size
+            );
+        }
+        this.s2Texture = this.s2Textures[this.s2Index];
+    }
     
     writeOmega(data) {
         this.omegaData = new Float32Array(data);
         this.device.queue.writeBuffer(this.omegaBuf, 0, data);
+    }
+
+    writeOmegaVec(data) {
+        this.omegaVecData = new Float32Array(data);
+        this.device.queue.writeBuffer(this.omegaVecBuf, 0, data);
     }
     
     /**
@@ -715,6 +903,48 @@ export class Simulation {
             return data;
         } catch (e) {
             console.warn('readTheta failed:', e);
+            return null;
+        } finally {
+            this.thetaReadPending = false;
+        }
+    }
+
+    async readS2() {
+        if (this.thetaReadPending) {
+            return null;
+        }
+        this.thetaReadPending = true;
+
+        try {
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                { texture: this.s2Texture },
+                { buffer: this.s2StagingBuf, bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize },
+                [this.gridSize, this.gridSize, this.layers]
+            );
+            this.device.queue.submit([encoder.finish()]);
+
+            if (!this.s2ReadbackBuf || this.s2ReadbackBuf.size !== this.N * 16) {
+                if (this.s2ReadbackBuf) {
+                    this.s2ReadbackBuf.destroy();
+                }
+                this.s2ReadbackBuf = this.device.createBuffer({
+                    size: this.N * 16,
+                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+                });
+            }
+
+            const encoder2 = this.device.createCommandEncoder();
+            encoder2.copyBufferToBuffer(this.s2StagingBuf, 0, this.s2ReadbackBuf, 0, this.N * 16);
+            this.device.queue.submit([encoder2.finish()]);
+
+            await this.s2ReadbackBuf.mapAsync(GPUMapMode.READ);
+            const data = new Float32Array(this.s2ReadbackBuf.getMappedRange().slice(0));
+            this.s2ReadbackBuf.unmap();
+
+            return data;
+        } catch (e) {
+            console.warn('readS2 failed:', e);
             return null;
         } finally {
             this.thetaReadPending = false;
@@ -912,14 +1142,27 @@ export class Simulation {
         for (const tex of this.thetaTextures) {
             tex.destroy();
         }
+        if (this.s2Textures) {
+            for (const tex of this.s2Textures) {
+                tex.destroy();
+            }
+        }
         if (this.thetaStagingBuf) {
             this.thetaStagingBuf.destroy();
+        }
+        if (this.s2StagingBuf) {
+            this.s2StagingBuf.destroy();
         }
         if (this.thetaReadbackBuf) {
             this.thetaReadbackBuf.destroy();
             this.thetaReadbackBuf = null;
         }
+        if (this.s2ReadbackBuf) {
+            this.s2ReadbackBuf.destroy();
+            this.s2ReadbackBuf = null;
+        }
         if (this.omegaBuf) this.omegaBuf.destroy();
+        if (this.omegaVecBuf) this.omegaVecBuf.destroy();
         if (this.orderBuf) this.orderBuf.destroy();
         if (this.paramsBuf) this.paramsBuf.destroy();
         if (this.globalOrderBuf) this.globalOrderBuf.destroy();
@@ -942,6 +1185,7 @@ export class Simulation {
         if (this.graphCountsBuf) this.graphCountsBuf.destroy();
         if (this.layerParamsBuf) this.layerParamsBuf.destroy();
         this.bindGroupCache.clear();
+        if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
     }
 
     // Resize the simulation grid
@@ -950,14 +1194,27 @@ export class Simulation {
         for (const tex of this.thetaTextures) {
             tex.destroy();
         }
+        if (this.s2Textures) {
+            for (const tex of this.s2Textures) {
+                tex.destroy();
+            }
+        }
         if (this.thetaStagingBuf) {
             this.thetaStagingBuf.destroy();
+        }
+        if (this.s2StagingBuf) {
+            this.s2StagingBuf.destroy();
         }
         if (this.thetaReadbackBuf) {
             this.thetaReadbackBuf.destroy();
             this.thetaReadbackBuf = null;
         }
+        if (this.s2ReadbackBuf) {
+            this.s2ReadbackBuf.destroy();
+            this.s2ReadbackBuf = null;
+        }
         this.omegaBuf.destroy();
+        this.omegaVecBuf.destroy();
         this.orderBuf.destroy();
         this.paramsBuf.destroy();
         this.globalOrderBuf.destroy();
@@ -1008,6 +1265,7 @@ export class Simulation {
         
         // Clear bind group cache since textures/buffers changed
         this.bindGroupCache.clear();
+        if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
         
         // Update size
         this.gridSize = newGridSize;

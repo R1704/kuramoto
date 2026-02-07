@@ -19,7 +19,7 @@ struct Params {
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
-    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
     layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
@@ -841,6 +841,201 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
 }
 `;
 
+// ===================== S2 (Sphere) Compute Shader =====================
+export const S2_COMPUTE_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
+}
+
+struct LayerParams {
+    rule_mode: f32,
+    K0: f32,
+    range: f32,
+    harmonic_a: f32,
+    harmonic_b: f32,
+    sigma: f32,
+    sigma2: f32,
+    beta: f32,
+    noise_strength: f32,
+    leak: f32,
+    kernel_shape: f32,
+    kernel_orientation: f32,
+    kernel_aspect: f32,
+    kernel_scale2_weight: f32,
+    kernel_scale3_weight: f32,
+    kernel_asymmetry: f32,
+    kernel_rings: f32,
+    ring_width_1: f32,
+    ring_width_2: f32,
+    ring_width_3: f32,
+    ring_width_4: f32,
+    ring_width_5: f32,
+    ring_weight_1: f32,
+    ring_weight_2: f32,
+    ring_weight_3: f32,
+    ring_weight_4: f32,
+    ring_weight_5: f32,
+    kernel_composition_enabled: f32,
+    kernel_secondary: f32,
+    kernel_mix_ratio: f32,
+    kernel_asymmetric_orientation: f32,
+    kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32,
+    kernel_gabor_phase: f32,
+    scale_base: f32,
+    scale_radial: f32,
+    scale_random: f32,
+    scale_ring: f32,
+    flow_radial: f32,
+    flow_rotate: f32,
+    flow_swirl: f32,
+    flow_bubble: f32,
+    flow_ring: f32,
+    flow_vortex: f32,
+    flow_vertical: f32,
+    orient_radial: f32,
+    orient_circles: f32,
+    orient_swirl: f32,
+    orient_bubble: f32,
+    orient_linear: f32,
+    layer_coupling_up: f32,
+    layer_coupling_down: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+}
+
+@group(0) @binding(0) var s2_in: texture_2d_array<f32>;
+@group(0) @binding(1) var<storage, read> omega_vec: array<vec4<f32>>;
+@group(0) @binding(2) var<uniform> params: Params;
+@group(0) @binding(3) var<storage, read_write> order: array<f32>;
+@group(0) @binding(4) var s2_out: texture_storage_2d_array<rgba32float, write>;
+@group(0) @binding(5) var<storage, read> graph_neighbors: array<u32>;
+@group(0) @binding(6) var<storage, read> graph_weights: array<f32>;
+@group(0) @binding(7) var<storage, read> graph_counts: array<u32>;
+@group(0) @binding(8) var<uniform> layer_params: array<LayerParams, 8>;
+
+const MAX_GRAPH_DEGREE: u32 = 16u;
+
+fn loadVecGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> vec3<f32> {
+    var c = col % cols;
+    var r = row % rows;
+    if (c < 0) { c = c + cols; }
+    if (r < 0) { r = r + rows; }
+    return textureLoad(s2_in, vec2<i32>(c, r), layer, 0).xyz;
+}
+
+fn loadVecByIndex(idx: u32, cols: u32, rows: u32) -> vec3<f32> {
+    let layer_stride = cols * rows;
+    let layer = i32(idx / layer_stride);
+    let rem = idx - layer_stride * u32(layer);
+    let col = i32(rem % cols);
+    let row = i32(rem / cols);
+    return textureLoad(s2_in, vec2<i32>(col, row), layer, 0).xyz;
+}
+
+fn meanGraph(i: u32, cols: u32, rows: u32) -> vec3<f32> {
+    let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
+    if (count == 0u) { return vec3<f32>(0.0); }
+    let base = i * MAX_GRAPH_DEGREE;
+    var sum = vec3<f32>(0.0);
+    var norm = 0.0;
+    for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
+        if (j >= count) { break; }
+        let idx = graph_neighbors[base + j];
+        let w = abs(graph_weights[base + j]);
+        sum = sum + loadVecByIndex(idx, cols, rows) * w;
+        norm = norm + max(w, 0.0001);
+    }
+    return sum / norm;
+}
+
+fn meanGrid(global_c: u32, global_r: u32, layer: u32, rng: i32, cols: u32, rows: u32) -> vec3<f32> {
+    var sum = vec3<f32>(0.0);
+    var cnt = 0.0;
+    for (var dr = -rng; dr <= rng; dr = dr + 1) {
+        for (var dc = -rng; dc <= rng; dc = dc + 1) {
+            if (dr == 0 && dc == 0) { continue; }
+            let rr = i32(global_r) + dr;
+            let cc = i32(global_c) + dc;
+            sum = sum + loadVecGlobal(cc, rr, i32(layer), i32(cols), i32(rows));
+            cnt = cnt + 1.0;
+        }
+    }
+    return sum / max(cnt, 1.0);
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3<u32>,
+        @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let cols = u32(params.cols);
+    let rows = u32(params.rows);
+    let layer = wg_id.z;
+    if (layer >= u32(params.layer_count)) { return; }
+    if (id.x >= cols || id.y >= rows) { return; }
+
+    let layer_stride = cols * rows;
+    let i = layer * layer_stride + id.y * cols + id.x;
+    let lp = layer_params[min(layer, 7u)];
+    let rng = i32(lp.range);
+
+    let x = textureLoad(s2_in, vec2<i32>(i32(id.x), i32(id.y)), i32(layer), 0).xyz;
+
+    var m = vec3<f32>(0.0);
+    if (params.topology_mode > 0.5) {
+        m = meanGraph(i, cols, rows);
+    } else {
+        m = meanGrid(id.x, id.y, layer, rng, cols, rows);
+    }
+    let local_r = length(m);
+    order[i] = clamp(local_r, 0.0, 1.0);
+
+    var y = m * lp.K0;
+
+    if (layer > 0u && abs(lp.layer_coupling_up) > 0.0001) {
+        let v = loadVecGlobal(i32(id.x), i32(id.y), i32(layer - 1u), i32(cols), i32(rows));
+        y = y + v * lp.layer_coupling_up;
+    }
+    if (layer + 1u < u32(params.layer_count) && abs(lp.layer_coupling_down) > 0.0001) {
+        let v = loadVecGlobal(i32(id.x), i32(id.y), i32(layer + 1u), i32(cols), i32(rows));
+        y = y + v * lp.layer_coupling_down;
+    }
+
+    let omega = omega_vec[i].xyz;
+    let cross_term = cross(omega, x);
+    y = y + cross_term;
+
+    var dx = y - dot(x, y) * x;
+    dx = dx * (1.0 - lp.leak);
+    let x_next = x + dx * params.dt;
+    let n = length(x_next);
+    let x_norm = select(vec3<f32>(1.0, 0.0, 0.0), x_next / n, n > 1e-6);
+
+    textureStore(s2_out, vec2<i32>(i32(id.x), i32(id.y)), i32(layer), vec4<f32>(x_norm, 1.0));
+}
+`;
+
 export const RENDER_SHADER = `
 struct Params {
     dt: f32, K0: f32, range: f32, rule_mode: f32,
@@ -861,7 +1056,7 @@ struct Params {
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
-    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
     layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
@@ -878,7 +1073,14 @@ fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
     return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), i32(layer), 0).r;
 }
 
+fn loadVecRender(col: u32, row: u32, layer: u32) -> vec3<f32> {
+    return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), i32(layer), 0).xyz;
+}
+
 fn compute_gradient(ii: u32, cols: u32, rows: u32, layer: u32) -> f32 {
+    if (params.manifold_mode > 0.5) {
+        return 0.0;
+    }
     let c = ii % cols;
     let r = ii / cols;
     
@@ -941,7 +1143,9 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
 
     // Sample theta/order at the cell (flat per-instance when instanced)
     let theta_val = loadThetaRender(u32(c_i), u32(r_i), active_layer);
-    let height_3d = sin(theta_val) * 2.0;
+    let vec_val = loadVecRender(u32(c_i), u32(r_i), active_layer);
+    let use_s2 = params.manifold_mode > 0.5;
+    let height_3d = select(sin(theta_val) * 2.0, vec_val.z * 2.0, use_s2);
     let is_3d = params.view_mode < 0.5;
     let height_2d = f32(r_i) * 0.0001; // tiny offset to avoid Z-fight in 2D
     let h = select(height_2d, height_3d, is_3d);
@@ -1082,6 +1286,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
 
     let theta = textureLoad(theta_tex, vec2<i32>(c, r), i32(active_layer), 0).r;
+    let v = textureLoad(theta_tex, vec2<i32>(c, r), i32(active_layer), 0).xyz;
     let order_idx = layer_stride * active_layer + u32(r) * u32(cols) + u32(c);
     let order_val = order[order_idx];
 
@@ -1100,13 +1305,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     let height = sin(theta) * 2.0;
     let t_phase = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
+    let t_vec = clamp((v + vec3<f32>(1.0, 1.0, 1.0)) * 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
 
     let layer_choice = i32(params.colormap);
     let palette = i32(params.colormap_palette);
     var color: vec3<f32>;
 
     if (layer_choice == 0) {
-        color = sample_palette(t_phase, palette);
+        color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     } else if (layer_choice == 1) {
         let vel = clamp(gradient * 2.0, 0.0, 1.0);
         color = sample_palette(vel, palette);
@@ -1127,7 +1333,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let phaseMod = 0.5 + 0.5 * sin(theta);
         color = texColor * (0.7 + 0.3 * phaseMod);
     } else {
-        color = sample_palette(t_phase, palette);
+        color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     }
 
     if (params.show_order > 0.5) {
@@ -1244,6 +1450,90 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 }
 `;
 
+// S2 global order reduction: sum unit vectors
+export const S2_GLOBAL_ORDER_REDUCTION_SHADER = `
+@group(0) @binding(0) var<storage, read> state: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> global_order_atomic: array<atomic<i32>, 3>;
+
+var<workgroup> shared_sum: array<vec3<f32>, 256>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let local_id = lid.x;
+    let global_id = gid.x;
+    let N = arrayLength(&state);
+
+    var sum = vec3<f32>(0.0, 0.0, 0.0);
+    if (global_id < N) {
+        let v = state[global_id].xyz;
+        sum = v;
+    }
+
+    shared_sum[local_id] = sum;
+    workgroupBarrier();
+
+    for (var offset = 128u; offset > 0u; offset = offset / 2u) {
+        if (local_id < offset) {
+            shared_sum[local_id] = shared_sum[local_id] + shared_sum[local_id + offset];
+        }
+        workgroupBarrier();
+    }
+
+    if (local_id == 0u) {
+        atomicAdd(&global_order_atomic[0], i32(shared_sum[0].x * 10000.0));
+        atomicAdd(&global_order_atomic[1], i32(shared_sum[0].y * 10000.0));
+        atomicAdd(&global_order_atomic[2], i32(shared_sum[0].z * 10000.0));
+    }
+}
+`;
+
+// S2 normalize: write R into global_order.x, y=0
+export const S2_GLOBAL_ORDER_NORMALIZE_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 3>;
+@group(0) @binding(1) var<storage, read_write> global_order: vec2<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@compute @workgroup_size(1)
+fn main() {
+    let x = atomicLoad(&global_order_atomic[0]);
+    let y = atomicLoad(&global_order_atomic[1]);
+    let z = atomicLoad(&global_order_atomic[2]);
+
+    let N = params.cols * params.rows * max(1.0, params.layer_count);
+    let vx = (f32(x) / 10000.0) / N;
+    let vy = (f32(y) / 10000.0) / N;
+    let vz = (f32(z) / 10000.0) / N;
+    let R = length(vec3<f32>(vx, vy, vz));
+    global_order.x = R;
+    global_order.y = 0.0;
+}
+`;
+
 // Stage 2: Convert atomic integer sums to normalized float vector
 export const GLOBAL_ORDER_NORMALIZE_SHADER = `
 struct Params {
@@ -1265,7 +1555,7 @@ struct Params {
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
-    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
     layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
@@ -1387,6 +1677,54 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 }
 `;
 
+// S2 local stats: use local_order only, no gradient
+export const S2_LOCAL_ORDER_STATS_SHADER = `
+@group(0) @binding(0) var<storage, read> local_order: array<f32>;
+@group(0) @binding(1) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
+@group(0) @binding(2) var<storage, read_write> hist_atomic: array<atomic<i32>, 16>;
+
+var<workgroup> shared_sums: array<vec4<f32>, 256>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let local_id = lid.x;
+    let global_id = gid.x;
+    let N = arrayLength(&local_order);
+
+    var sums = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    if (global_id < N) {
+        let r = local_order[global_id];
+        sums.x = r;
+        sums.y = select(0.0, 1.0, r > 0.7);
+        sums.z = 0.0;
+        sums.w = r * r;
+
+        var bin = i32(floor(r * 16.0));
+        if (bin < 0) { bin = 0; }
+        if (bin > 15) { bin = 15; }
+        atomicAdd(&hist_atomic[bin], 1);
+    }
+
+    shared_sums[local_id] = sums;
+    workgroupBarrier();
+
+    for (var offset = 128u; offset > 0u; offset = offset / 2u) {
+        if (local_id < offset) {
+            shared_sums[local_id] = shared_sums[local_id] + shared_sums[local_id + offset];
+        }
+        workgroupBarrier();
+    }
+
+    if (local_id == 0u) {
+        atomicAdd(&stats_atomic[0], i32(shared_sums[0].x * 10000.0));
+        atomicAdd(&stats_atomic[1], i32(shared_sums[0].y * 10000.0));
+        atomicAdd(&stats_atomic[2], i32(shared_sums[0].z * 10000.0));
+        atomicAdd(&stats_atomic[3], i32(shared_sums[0].w * 10000.0));
+    }
+}
+`;
+
 // Normalize local order statistics
 export const LOCAL_ORDER_STATS_NORMALIZE_SHADER = `
 @group(0) @binding(0) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
@@ -1448,7 +1786,7 @@ struct Params {
     flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
     flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
     orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
-    mesh_mode: f32, pad4: f32, pad5: f32, pad6: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
     layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
@@ -1548,6 +1886,14 @@ fn sample_theta_bilinear(uv: vec2<f32>, cols: f32, rows: f32, layer: u32) -> f32
     if (result >= 6.28318) { result -= 6.28318; }
     
     return result;
+}
+
+fn sample_vec_nearest(uv: vec2<f32>, cols: f32, rows: f32, layer: u32) -> vec3<f32> {
+    let gx = clamp(uv.x, 0.0, 0.9999) * cols;
+    let gy = clamp(uv.y, 0.0, 0.9999) * rows;
+    let x = clamp(i32(gx), 0, i32(cols) - 1);
+    let y = clamp(i32(gy), 0, i32(rows) - 1);
+    return textureLoad(theta_tex, vec2<i32>(x, y), i32(layer), 0).xyz;
 }
 
 // Cubic interpolation helper (Catmull-Rom)
@@ -1821,6 +2167,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let c = clamp(i32(uv.x * params.cols), 0, cols - 1);
     let r = clamp(i32(uv.y * params.rows), 0, rows - 1);
     
+    let use_s2 = params.manifold_mode > 0.5;
     // Load theta value - use smoothing based on mode
     // smoothingMode: 0=nearest, 1=bilinear, 2=bicubic, 3=gaussian
     var theta: f32;
@@ -1829,6 +2176,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else {
         theta = textureLoad(theta_tex, vec2<i32>(c, r), i32(active_layer), 0).r;
     }
+    let vec_val = sample_vec_nearest(uv, params.cols, params.rows, active_layer);
     
     // Load order parameter (no interpolation needed - it's already smooth)
     let idx = layer_stride * active_layer + u32(r) * u32(cols) + u32(c);
@@ -1846,7 +2194,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (dx < -3.14159) { dx += 6.28318; }
     if (dy > 3.14159) { dy -= 6.28318; }
     if (dy < -3.14159) { dy += 6.28318; }
-    let gradient = sqrt(dx * dx + dy * dy) * 0.5;
+    var gradient = sqrt(dx * dx + dy * dy) * 0.5;
+    if (use_s2) { gradient = 0.0; }
     
     // Compute chirality (curl) for spiral detection
     let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
@@ -1859,10 +2208,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (curl < -3.14159) { curl += 6.28318; }
     // Negate curl to match 3D coordinate system (UV Y is inverted)
     curl = -curl;
+    if (use_s2) { curl = 0.0; }
     
     // Use sin(theta) mapping to match 3D shader's height-based coloring
     let height = sin(theta) * 2.0;
     let t_height = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
+    let t_vec = clamp((vec_val + vec3<f32>(1.0, 1.0, 1.0)) * 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
     
     let layer_choice = i32(params.colormap);
     let palette = i32(params.colormap_palette);
@@ -1870,7 +2221,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     if (layer_choice == 0) {
         // Phase
-        col3 = sample_palette_2d(t_height, palette);
+        col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     } else if (layer_choice == 1) {
         // Velocity (gradient magnitude)
         let vel = clamp(gradient * 2.0, 0.0, 1.0);
@@ -1897,7 +2248,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let phaseMod = 0.5 + 0.5 * sin(theta);
         col3 = texColor * (0.7 + 0.3 * phaseMod);
     } else {
-        col3 = sample_palette_2d(t_height, palette);
+        col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     }
     
     // Apply order overlay if enabled

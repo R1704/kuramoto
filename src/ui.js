@@ -106,6 +106,13 @@ export class UIManager {
                 this.updateDisplay();
             });
         }
+        const manifoldSelect = document.getElementById('manifold-select');
+        if (manifoldSelect) {
+            manifoldSelect.addEventListener('change', () => {
+                this.state.manifoldMode = manifoldSelect.value;
+                this.cb.onParamChange();
+            });
+        }
         const wsKSlider = document.getElementById('ws-k-slider');
         if (wsKSlider) {
             wsKSlider.addEventListener('change', () => {
@@ -1116,6 +1123,9 @@ export class UIManager {
         if (statsToggle) statsToggle.checked = !!this.state.showStatistics;
         const analysisGrid = document.getElementById('analysis-grid');
         if (analysisGrid) analysisGrid.style.opacity = this.state.showStatistics ? '1' : '0.7';
+
+        const manifoldSelect = document.getElementById('manifold-select');
+        if (manifoldSelect) manifoldSelect.value = this.state.manifoldMode || 's1';
         
         // Update kernel shape controls
         const kernelShapeSelect = document.getElementById('kernel-shape-select');
@@ -1344,7 +1354,8 @@ export class UIManager {
         const rangeControl = document.getElementById('range-control');
         const rangeSlider = document.getElementById('range-slider');
         const rangeValue = document.getElementById('range-value');
-        if (this.state.globalCoupling) {
+        const rangeDisabled = this.state.globalCoupling || this.state.manifoldMode !== 's1';
+        if (rangeDisabled) {
             if (rangeControl) rangeControl.classList.add('disabled');
             if (rangeSlider) rangeSlider.disabled = true;
             if (rangeValue) rangeValue.style.opacity = '0.5';
@@ -1353,6 +1364,10 @@ export class UIManager {
             if (rangeSlider) rangeSlider.disabled = false;
             if (rangeValue) rangeValue.style.opacity = '1';
         }
+
+        if (ruleSelect) ruleSelect.disabled = this.state.manifoldMode !== 's1';
+        const delaySlider = document.getElementById('delay-slider');
+        if (delaySlider) delaySlider.disabled = this.state.manifoldMode !== 's1';
         
         const thetaSelect = document.getElementById('theta-pattern-select');
         if (thetaSelect) thetaSelect.value = this.state.thetaPattern;
@@ -1425,9 +1440,12 @@ export class UIManager {
         if (rcFeatureBudgetVal) rcFeatureBudgetVal.textContent = this.state.rcMaxFeatures;
 
         const rcEnabled = document.getElementById('rc-enabled');
-        if (rcEnabled) rcEnabled.checked = !!this.state.rcEnabled;
+        if (rcEnabled) {
+            rcEnabled.checked = !!this.state.rcEnabled && this.state.manifoldMode === 's1';
+            rcEnabled.disabled = this.state.manifoldMode !== 's1';
+        }
         const rcContent = document.getElementById('rc-content');
-        if (rcContent) rcContent.style.opacity = this.state.rcEnabled ? '1' : '0.5';
+        if (rcContent) rcContent.style.opacity = this.state.rcEnabled && this.state.manifoldMode === 's1' ? '1' : '0.5';
         const rcTaskSelect = document.getElementById('rc-task-select');
         if (rcTaskSelect) rcTaskSelect.value = this.state.rcTask || 'sine';
         const rcInputRegion = document.getElementById('rc-input-region');
