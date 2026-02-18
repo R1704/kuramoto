@@ -67,6 +67,26 @@ $$\frac{d\theta_i}{dt} = \omega_i + \frac{K}{N} \sum_{j=1}^{N} \sin(\theta_j - \
 - $N$ = total number of oscillators
 - $\sin(\theta_j - \theta_i)$ = **phase difference coupling** (the interaction term)
 
+### Gauge-Covariant Extension (U(1), S1)
+
+This project also supports a local U(1) gauge extension on S1:
+
+$$\theta_i \rightarrow \theta_i + \chi_i,\quad A_{ij} \rightarrow A_{ij} + \chi_j - \chi_i$$
+
+with gauge-invariant covariant phase difference
+
+$$\Delta^{\text{cov}}_{ij} = \theta_j - \theta_i - qA_{ij}$$
+
+so coupling terms use
+
+$$\sin(\Delta^{\text{cov}}_{ij}) = \sin(\theta_j - \theta_i - qA_{ij}).$$
+
+On grid topologies the link fields are stored as $A_x(x,y)$ and $A_y(x,y)$, and the plaquette flux is
+
+$$F(x,y)=A_x(x,y)+A_y(x+1,y)-A_x(x,y+1)-A_y(x,y).$$
+
+Dynamic gauge evolution is available for grid topology; WS/BA topologies currently support static per-edge gauge links.
+
 ### Physical Intuition
 
 ```

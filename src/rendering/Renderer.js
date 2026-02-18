@@ -52,6 +52,16 @@ export class Renderer {
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
+                {
+                    binding: 7,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+                },
+                {
+                    binding: 8,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+                },
             ],
         });
         this.pipelineLayout = device.createPipelineLayout({
@@ -165,7 +175,8 @@ export class Renderer {
             this.layerBindGroupCache.clear();
         }
 
-        const keyTexture = sim.paramsManifoldMode === 's2' ? sim.s2Texture : sim.thetaTexture;
+        const useVectorTexture = sim.paramsManifoldMode === 's2' || sim.paramsManifoldMode === 's3';
+        const keyTexture = useVectorTexture ? sim.s2Texture : sim.thetaTexture;
         if (!this.layerBindGroupCache.has(keyTexture)) {
             const groups = [];
             for (let layer = 0; layer < layerCount; layer++) {
@@ -179,6 +190,8 @@ export class Renderer {
                         { binding: 4, resource: this.externalSampler },
                         { binding: 5, resource: this.externalTexture.createView() },
                         { binding: 6, resource: { buffer: this.renderLayerBuf, offset: layer * this.renderLayerStride, size: 16 } },
+                        { binding: 7, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
+                        { binding: 8, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
                     ],
                 }));
             }
@@ -327,7 +340,8 @@ export class Renderer {
         }
         
         // Get or create bind group for current theta texture
-        const keyTexture = sim.paramsManifoldMode === 's2' ? sim.s2Texture : sim.thetaTexture;
+        const useVectorTexture = sim.paramsManifoldMode === 's2' || sim.paramsManifoldMode === 's3';
+        const keyTexture = useVectorTexture ? sim.s2Texture : sim.thetaTexture;
         let bindGroup = this.bindGroups2D.get(keyTexture);
         if (!bindGroup) {
             bindGroup = this.device.createBindGroup({
@@ -338,6 +352,8 @@ export class Renderer {
                     { binding: 2, resource: { buffer: sim.orderBuf } },
                     { binding: 3, resource: this.externalSampler },
                     { binding: 4, resource: this.externalTexture.createView() },
+                    { binding: 5, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
+                    { binding: 6, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
                 ],
             });
             this.bindGroups2D.set(keyTexture, bindGroup);

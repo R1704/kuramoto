@@ -86,6 +86,17 @@ struct LayerParams {
     _pad3: f32,
 }
 
+struct GaugeParams {
+    enabled: f32,
+    mode_dynamic: f32,
+    charge: f32,
+    matter_coupling: f32,
+    stiffness: f32,
+    damping: f32,
+    noise: f32,
+    dt_scale: f32,
+}
+
 // Textures for theta state (array layers = hierarchical levels)
 @group(0) @binding(0) var theta_in: texture_2d_array<f32>;
 @group(0) @binding(1) var<storage, read> omega: array<f32>;
@@ -100,6 +111,10 @@ struct LayerParams {
 @group(0) @binding(10) var<storage, read> graph_weights: array<f32>;
 @group(0) @binding(11) var<storage, read> graph_counts: array<u32>;
 @group(0) @binding(12) var<uniform> layer_params: array<LayerParams, 8>;
+@group(0) @binding(13) var gauge_x: texture_2d_array<f32>;
+@group(0) @binding(14) var gauge_y: texture_2d_array<f32>;
+@group(0) @binding(15) var<storage, read> graph_gauge: array<f32>;
+@group(0) @binding(16) var<uniform> gauge_params: GaugeParams;
 
 // ============================================================================
 // SHARED MEMORY TILE for fast neighbor access
@@ -133,6 +148,59 @@ fn loadThetaShared(local_c: i32, local_r: i32) -> f32 {
     let sc = u32(local_c + i32(HALO));
     let sr = u32(local_r + i32(HALO));
     return shared_theta[sr * SHARED_SIZE + sc];
+}
+
+fn loadGaugeXGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    var c = col % cols;
+    var r = row % rows;
+    if (c < 0) { c = c + cols; }
+    if (r < 0) { r = r + rows; }
+    return textureLoad(gauge_x, vec2<i32>(c, r), layer, 0).r;
+}
+
+fn loadGaugeYGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    var c = col % cols;
+    var r = row % rows;
+    if (c < 0) { c = c + cols; }
+    if (r < 0) { r = r + rows; }
+    return textureLoad(gauge_y, vec2<i32>(c, r), layer, 0).r;
+}
+
+fn gaugePath(col: i32, row: i32, dc: i32, dr: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    if (gauge_params.enabled < 0.5) { return 0.0; }
+    var sum = 0.0;
+    var x = col;
+    var y = row;
+    if (dc > 0) {
+        for (var sx = 0; sx < dc; sx = sx + 1) {
+            sum = sum + loadGaugeXGlobal(x, y, layer, cols, rows);
+            x = x + 1;
+        }
+    } else if (dc < 0) {
+        for (var sx = 0; sx < -dc; sx = sx + 1) {
+            x = x - 1;
+            sum = sum - loadGaugeXGlobal(x, y, layer, cols, rows);
+        }
+    }
+    if (dr > 0) {
+        for (var sy = 0; sy < dr; sy = sy + 1) {
+            sum = sum + loadGaugeYGlobal(x, y, layer, cols, rows);
+            y = y + 1;
+        }
+    } else if (dr < 0) {
+        for (var sy = 0; sy < -dr; sy = sy + 1) {
+            y = y - 1;
+            sum = sum - loadGaugeYGlobal(x, y, layer, cols, rows);
+        }
+    }
+    return sum;
+}
+
+fn covSin(theta_j: f32, theta_i: f32, link_phase: f32) -> f32 {
+    if (gauge_params.enabled < 0.5) {
+        return sin(theta_j - theta_i);
+    }
+    return sin(theta_j - theta_i - gauge_params.charge * link_phase);
 }
 
 // Simple hash for pseudo-random modulation
@@ -226,7 +294,8 @@ fn graphCoupling(i: u32, t: f32, cols: u32, rows: u32) -> vec2<f32> {
         let idx = graph_neighbors[base + j];
         let theta_j = loadThetaByIndex(idx, cols, rows);
         let w = graph_weights[base + j];
-        sum = sum + w * sin(theta_j - t);
+        let a_ij = select(0.0, graph_gauge[base + j], gauge_params.enabled > 0.5);
+        sum = sum + w * covSin(theta_j, t, a_ij);
         norm = norm + abs(w);
     }
     if (norm < 0.0001) { norm = f32(count); }
@@ -244,7 +313,8 @@ fn graphCouplingDelayed(i: u32, t: f32, cols: u32, rows: u32) -> vec2<f32> {
         let idx = graph_neighbors[base + j];
         let theta_j = theta_delayed[idx];
         let w = graph_weights[base + j];
-        sum = sum + w * sin(theta_j - t);
+        let a_ij = select(0.0, graph_gauge[base + j], gauge_params.enabled > 0.5);
+        sum = sum + w * covSin(theta_j, t, a_ij);
         norm = norm + abs(w);
     }
     if (norm < 0.0001) { norm = f32(count); }
@@ -262,7 +332,8 @@ fn graphHarmonics(i: u32, t: f32, cols: u32, rows: u32) -> vec4<f32> {
         let idx = graph_neighbors[base + j];
         let theta_j = loadThetaByIndex(idx, cols, rows);
         let w = graph_weights[base + j];
-        let d = theta_j - t;
+        let a_ij = select(0.0, graph_gauge[base + j], gauge_params.enabled > 0.5);
+        let d = theta_j - t - gauge_params.charge * a_ij;
         s1 = s1 + w * sin(d);
         s2 = s2 + w * sin(2.0 * d);
         s3 = s3 + w * sin(3.0 * d);
@@ -308,13 +379,14 @@ fn localOrderGlobal(i: u32, cols: u32, rows: u32, layer: u32) -> f32 {
 }
 
 // Spatial coupling helper (shared-memory neighborhood)
-fn spatialCoupling(local_c: i32, local_r: i32, rng: i32, t: f32) -> vec2<f32> {
+fn spatialCoupling(local_c: i32, local_r: i32, global_c: i32, global_r: i32, layer: i32, cols: i32, rows: i32, rng: i32, t: f32) -> vec2<f32> {
     var sum = 0.0; var cnt = 0.0;
     for (var dr = -rng; dr <= rng; dr = dr + 1) {
         for (var dc = -rng; dc <= rng; dc = dc + 1) {
             if (dr == 0 && dc == 0) { continue; }
             let theta_j = loadThetaShared(local_c + dc, local_r + dr);
-            sum = sum + sin(theta_j - t);
+            let a_ij = gaugePath(global_c, global_r, dc, dr, layer, cols, rows);
+            sum = sum + covSin(theta_j, t, a_ij);
             cnt = cnt + 1.0;
         }
     }
@@ -531,7 +603,7 @@ fn kernelCouplingLayer(global_c: u32, global_r: u32, cols: u32, rows: u32, sourc
     return sum / wtotal;
 }
 
-fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
+fn rule_classic(local_c: i32, local_r: i32, global_c: i32, global_r: i32, layer: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -545,14 +617,14 @@ fn rule_classic(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32,
         sum = res.x;
         cnt = res.y;
     } else {
-        let res = spatialCoupling(local_c, local_r, rng, t);
+        let res = spatialCoupling(local_c, local_r, global_c, global_r, layer, i32(cols), i32(rows), rng, t);
         sum = res.x;
         cnt = res.y;
     }
     return lp.K0 * (sum / max(cnt, 1e-5));
 }
 
-fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, ri: f32, lp: LayerParams) -> f32 {
+fn rule_coherence(local_c: i32, local_r: i32, global_c: i32, global_r: i32, layer: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, ri: f32, lp: LayerParams) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -566,7 +638,7 @@ fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         sum = res.x;
         cnt = res.y;
     } else {
-        let res = spatialCoupling(local_c, local_r, rng, t);
+        let res = spatialCoupling(local_c, local_r, global_c, global_r, layer, i32(cols), i32(rows), rng, t);
         sum = res.x;
         cnt = res.y;
     }
@@ -574,7 +646,7 @@ fn rule_coherence(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
     return Ki * (sum / max(cnt, 1e-5));
 }
 
-fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
+fn rule_curvature(local_c: i32, local_r: i32, global_c: i32, global_r: i32, layer: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
     var sum = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -588,7 +660,7 @@ fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
         sum = res.x;
         cnt = res.y;
     } else {
-        let res = spatialCoupling(local_c, local_r, rng, t);
+        let res = spatialCoupling(local_c, local_r, global_c, global_r, layer, i32(cols), i32(rows), rng, t);
         sum = res.x;
         cnt = res.y;
     }
@@ -596,7 +668,7 @@ fn rule_curvature(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
     return lp.K0 * min(1.0, abs(lap) * 2.0) * lap;
 }
 
-fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
+fn rule_harmonics(local_c: i32, local_r: i32, global_c: i32, global_r: i32, layer: i32, rng: i32, t: f32, i: u32, cols: u32, rows: u32, lp: LayerParams) -> f32 {
     var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var cnt = 0.0;
     
     if (params.global_coupling > 0.5) {
@@ -619,7 +691,8 @@ fn rule_harmonics(local_c: i32, local_r: i32, rng: i32, t: f32, i: u32, cols: u3
             for (var dc = -rng; dc <= rng; dc = dc + 1) {
                 if (dr == 0 && dc == 0) { continue; }
                 let theta_j = loadThetaShared(local_c + dc, local_r + dr);
-                let d = theta_j - t;
+                let a_ij = gaugePath(global_c, global_r, dc, dr, layer, i32(cols), i32(rows));
+                let d = theta_j - t - gauge_params.charge * a_ij;
                 s1 = s1 + sin(d);
                 s2 = s2 + sin(2.0 * d);
                 s3 = s3 + sin(3.0 * d);
@@ -648,7 +721,8 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
                 if (dr == 0 && dc == 0) { continue; }
                 let theta_j = loadThetaShared(local_c + dc, local_r + dr);
                 let w = mexhat_weight(f32(dc), f32(dr), lp);
-                sum = sum + w * sin(theta_j - t);
+                let a_ij = gaugePath(global_c, global_r, dc, dr, layer, cols, rows);
+                sum = sum + w * covSin(theta_j, t, a_ij);
                 wtotal = wtotal + abs(w);
             }
         }
@@ -659,7 +733,8 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
                 if (dr == 0 && dc == 0) { continue; }
                 let theta_j = loadThetaGlobal(global_c + dc, global_r + dr, layer, cols, rows);
                 let w = mexhat_weight(f32(dc), f32(dr), lp);
-                sum = sum + w * sin(theta_j - t);
+                let a_ij = gaugePath(global_c, global_r, dc, dr, layer, cols, rows);
+                sum = sum + w * covSin(theta_j, t, a_ij);
                 wtotal = wtotal + abs(w);
             }
         }
@@ -671,7 +746,7 @@ fn rule_kernel(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i
     return 0.0;
 }
 
-fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u32, rows: u32, rng: i32, t: f32, i: u32, lp: LayerParams) -> f32 {
+fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, layer: i32, cols: u32, rows: u32, rng: i32, t: f32, i: u32, lp: LayerParams) -> f32 {
     // Delay mode uses storage buffer for delayed theta values, not shared memory
     var sum = 0.0; var cnt = 0.0;
     
@@ -690,7 +765,8 @@ fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, cols: u3
             if (rr < 0) { rr = rr + i32(rows); }
             if (cc < 0) { cc = cc + i32(cols); }
             let j = u32(rr) * cols + u32(cc);
-            sum = sum + sin(theta_delayed[j] - t);
+            let a_ij = gaugePath(i32(global_c), i32(global_r), dc, dr, layer, i32(cols), i32(rows));
+            sum = sum + covSin(theta_delayed[j], t, a_ij);
             cnt = cnt + 1.0;
         }
     }
@@ -741,12 +817,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     
     var dtheta = 0.0;
     let mode = i32(lp.rule_mode);
-    if (mode == 0) { dtheta = rule_classic(local_c, local_r, rng, t, i, cols, rows, lp); }
-    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, rng, t, i, cols, rows, ri, lp); }
-    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, rng, t, i, cols, rows, lp); }
-    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, rng, t, i, cols, rows, lp); }
+    if (mode == 0) { dtheta = rule_classic(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, lp); }
+    else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, ri, lp); }
+    else if (mode == 2) { dtheta = rule_curvature(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, lp); }
+    else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, lp); }
     else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, i, lp); }
-    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, cols, rows, rng, t, i, lp); }
+    else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, i32(layer), cols, rows, rng, t, i, lp); }
 
     // Inter-layer coupling (same-cell or kernel-based)
     var inter_sum = 0.0;
@@ -838,6 +914,157 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
     if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
     textureStore(theta_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(newTheta, 0.0, 0.0, 1.0));
+}
+`;
+
+export const GAUGE_UPDATE_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
+}
+
+struct GaugeParams {
+    enabled: f32,
+    mode_dynamic: f32,
+    charge: f32,
+    matter_coupling: f32,
+    stiffness: f32,
+    damping: f32,
+    noise: f32,
+    dt_scale: f32,
+}
+
+@group(0) @binding(0) var theta_in: texture_2d_array<f32>;
+@group(0) @binding(1) var<uniform> params: Params;
+@group(0) @binding(2) var<uniform> gauge_params: GaugeParams;
+@group(0) @binding(3) var gauge_x_in: texture_2d_array<f32>;
+@group(0) @binding(4) var gauge_y_in: texture_2d_array<f32>;
+@group(0) @binding(5) var gauge_x_out: texture_storage_2d_array<r32float, write>;
+@group(0) @binding(6) var gauge_y_out: texture_storage_2d_array<r32float, write>;
+
+fn wrap_pi(v: f32) -> f32 {
+    var x = v;
+    let two_pi = 6.28318530718;
+    while (x <= -3.14159265359) { x = x + two_pi; }
+    while (x > 3.14159265359) { x = x - two_pi; }
+    return x;
+}
+
+fn hash11(n: u32) -> f32 {
+    var x = (n ^ 61u) ^ (n >> 16u);
+    x = x + (x << 3u);
+    x = x ^ (x >> 4u);
+    x = x * 0x27d4eb2du;
+    x = x ^ (x >> 15u);
+    return f32(x) / 4294967296.0;
+}
+
+fn loadTheta(c: i32, r: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    var x = c % cols;
+    var y = r % rows;
+    if (x < 0) { x = x + cols; }
+    if (y < 0) { y = y + rows; }
+    return textureLoad(theta_in, vec2<i32>(x, y), layer, 0).r;
+}
+
+fn loadAx(c: i32, r: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    var x = c % cols;
+    var y = r % rows;
+    if (x < 0) { x = x + cols; }
+    if (y < 0) { y = y + rows; }
+    return textureLoad(gauge_x_in, vec2<i32>(x, y), layer, 0).r;
+}
+
+fn loadAy(c: i32, r: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    var x = c % cols;
+    var y = r % rows;
+    if (x < 0) { x = x + cols; }
+    if (y < 0) { y = y + rows; }
+    return textureLoad(gauge_y_in, vec2<i32>(x, y), layer, 0).r;
+}
+
+fn plaquette(c: i32, r: i32, layer: i32, cols: i32, rows: i32) -> f32 {
+    let ax = loadAx(c, r, layer, cols, rows);
+    let ay_right = loadAy(c + 1, r, layer, cols, rows);
+    let ax_up = loadAx(c, r + 1, layer, cols, rows);
+    let ay = loadAy(c, r, layer, cols, rows);
+    return wrap_pi(ax + ay_right - ax_up - ay);
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3<u32>,
+        @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let cols = i32(params.cols);
+    let rows = i32(params.rows);
+    let layer = i32(wg_id.z);
+    if (layer >= i32(params.layer_count)) { return; }
+    if (i32(id.x) >= cols || i32(id.y) >= rows) { return; }
+
+    let c = i32(id.x);
+    let r = i32(id.y);
+    let ax = loadAx(c, r, layer, cols, rows);
+    let ay = loadAy(c, r, layer, cols, rows);
+
+    if (gauge_params.enabled < 0.5 || gauge_params.mode_dynamic < 0.5 || params.topology_mode > 0.5) {
+        textureStore(gauge_x_out, vec2<i32>(c, r), layer, vec4<f32>(ax, 0.0, 0.0, 1.0));
+        textureStore(gauge_y_out, vec2<i32>(c, r), layer, vec4<f32>(ay, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    let th = loadTheta(c, r, layer, cols, rows);
+    let th_right = loadTheta(c + 1, r, layer, cols, rows);
+    let th_up = loadTheta(c, r + 1, layer, cols, rows);
+    let q = gauge_params.charge;
+
+    let jx = sin(th_right - th - q * ax);
+    let jy = sin(th_up - th - q * ay);
+
+    let f_here = plaquette(c, r, layer, cols, rows);
+    let f_down = plaquette(c, r - 1, layer, cols, rows);
+    let f_left = plaquette(c - 1, r, layer, cols, rows);
+
+    let dE_dAx = sin(f_here) - sin(f_down);
+    let dE_dAy = -sin(f_here) + sin(f_left);
+
+    let dt = params.dt * gauge_params.dt_scale;
+    let noiseScale = gauge_params.noise;
+    let seedBase = u32(layer * cols * rows + r * cols + c) + u32(params.time * 1000.0);
+    let noiseX = (hash11(seedBase * 17u + 3u) * 2.0 - 1.0) * noiseScale;
+    let noiseY = (hash11(seedBase * 31u + 7u) * 2.0 - 1.0) * noiseScale;
+
+    let dax = gauge_params.matter_coupling * jx
+        - gauge_params.stiffness * dE_dAx
+        - gauge_params.damping * ax
+        + noiseX;
+    let day = gauge_params.matter_coupling * jy
+        - gauge_params.stiffness * dE_dAy
+        - gauge_params.damping * ay
+        + noiseY;
+
+    let ax_next = wrap_pi(ax + dt * dax);
+    let ay_next = wrap_pi(ay + dt * day);
+
+    textureStore(gauge_x_out, vec2<i32>(c, r), layer, vec4<f32>(ax_next, 0.0, 0.0, 1.0));
+    textureStore(gauge_y_out, vec2<i32>(c, r), layer, vec4<f32>(ay_next, 0.0, 0.0, 1.0));
 }
 `;
 
@@ -1036,6 +1263,232 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
 }
 `;
 
+// ============================================================================
+// S³ (3-SPHERE / QUATERNION) COMPUTE SHADER
+// Quaternion dynamics: dq/dt = 0.5 * (0, ω) ⊗ q + K * tangent_projection(mean_q)
+// ============================================================================
+export const S3_COMPUTE_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
+}
+
+struct LayerParams {
+    rule_mode: f32,
+    K0: f32,
+    range: f32,
+    harmonic_a: f32,
+    harmonic_b: f32,
+    sigma: f32,
+    sigma2: f32,
+    beta: f32,
+    noise_strength: f32,
+    leak: f32,
+    kernel_shape: f32,
+    kernel_orientation: f32,
+    kernel_aspect: f32,
+    kernel_scale2_weight: f32,
+    kernel_scale3_weight: f32,
+    kernel_asymmetry: f32,
+    kernel_rings: f32,
+    ring_width_1: f32,
+    ring_width_2: f32,
+    ring_width_3: f32,
+    ring_width_4: f32,
+    ring_width_5: f32,
+    ring_weight_1: f32,
+    ring_weight_2: f32,
+    ring_weight_3: f32,
+    ring_weight_4: f32,
+    ring_weight_5: f32,
+    kernel_composition_enabled: f32,
+    kernel_secondary: f32,
+    kernel_mix_ratio: f32,
+    kernel_asymmetric_orientation: f32,
+    kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32,
+    kernel_gabor_phase: f32,
+    scale_base: f32,
+    scale_radial: f32,
+    scale_random: f32,
+    scale_ring: f32,
+    flow_radial: f32,
+    flow_rotate: f32,
+    flow_swirl: f32,
+    flow_bubble: f32,
+    flow_ring: f32,
+    flow_vortex: f32,
+    flow_vertical: f32,
+    orient_radial: f32,
+    orient_circles: f32,
+    orient_swirl: f32,
+    orient_bubble: f32,
+    orient_linear: f32,
+    layer_coupling_up: f32,
+    layer_coupling_down: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+}
+
+@group(0) @binding(0) var s3_in: texture_2d_array<f32>;
+@group(0) @binding(1) var<storage, read> omega_vec: array<vec4<f32>>;  // (wx, wy, wz, 0) rotation axis
+@group(0) @binding(2) var<uniform> params: Params;
+@group(0) @binding(3) var<storage, read_write> order: array<f32>;
+@group(0) @binding(4) var s3_out: texture_storage_2d_array<rgba32float, write>;
+@group(0) @binding(5) var<storage, read> graph_neighbors: array<u32>;
+@group(0) @binding(6) var<storage, read> graph_weights: array<f32>;
+@group(0) @binding(7) var<storage, read> graph_counts: array<u32>;
+@group(0) @binding(8) var<uniform> layer_params: array<LayerParams, 8>;
+
+const MAX_GRAPH_DEGREE: u32 = 16u;
+
+// Hamilton product: quaternion multiplication
+// q = (x, y, z, w) where w is scalar part
+fn quat_mult(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(
+        a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,  // x
+        a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,  // y
+        a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,  // z
+        a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z   // w
+    );
+}
+
+// Project vector v onto tangent space of unit quaternion q
+// Tangent space is orthogonal to q in R^4
+fn tangent_project_s3(q: vec4<f32>, v: vec4<f32>) -> vec4<f32> {
+    return v - dot(q, v) * q;
+}
+
+fn loadQuatGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> vec4<f32> {
+    var c = col % cols;
+    var r = row % rows;
+    if (c < 0) { c = c + cols; }
+    if (r < 0) { r = r + rows; }
+    return textureLoad(s3_in, vec2<i32>(c, r), layer, 0);
+}
+
+fn loadQuatByIndex(idx: u32, cols: u32, rows: u32) -> vec4<f32> {
+    let layer_stride = cols * rows;
+    let layer = i32(idx / layer_stride);
+    let rem = idx - layer_stride * u32(layer);
+    let col = i32(rem % cols);
+    let row = i32(rem / cols);
+    return textureLoad(s3_in, vec2<i32>(col, row), layer, 0);
+}
+
+fn meanQuatGraph(i: u32, cols: u32, rows: u32) -> vec4<f32> {
+    let count = min(graph_counts[i], MAX_GRAPH_DEGREE);
+    if (count == 0u) { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }
+    let base = i * MAX_GRAPH_DEGREE;
+    var sum = vec4<f32>(0.0);
+    var norm = 0.0;
+    for (var j = 0u; j < MAX_GRAPH_DEGREE; j = j + 1u) {
+        if (j >= count) { break; }
+        let idx = graph_neighbors[base + j];
+        let w = abs(graph_weights[base + j]);
+        sum = sum + loadQuatByIndex(idx, cols, rows) * w;
+        norm = norm + max(w, 0.0001);
+    }
+    return sum / norm;
+}
+
+fn meanQuatGrid(global_c: u32, global_r: u32, layer: u32, rng: i32, cols: u32, rows: u32) -> vec4<f32> {
+    var sum = vec4<f32>(0.0);
+    var cnt = 0.0;
+    for (var dr = -rng; dr <= rng; dr = dr + 1) {
+        for (var dc = -rng; dc <= rng; dc = dc + 1) {
+            if (dr == 0 && dc == 0) { continue; }
+            let rr = i32(global_r) + dr;
+            let cc = i32(global_c) + dc;
+            sum = sum + loadQuatGlobal(cc, rr, i32(layer), i32(cols), i32(rows));
+            cnt = cnt + 1.0;
+        }
+    }
+    return sum / max(cnt, 1.0);
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3<u32>,
+        @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let cols = u32(params.cols);
+    let rows = u32(params.rows);
+    let layer = wg_id.z;
+    if (layer >= u32(params.layer_count)) { return; }
+    if (id.x >= cols || id.y >= rows) { return; }
+
+    let layer_stride = cols * rows;
+    let i = layer * layer_stride + id.y * cols + id.x;
+    let lp = layer_params[min(layer, 7u)];
+    let rng = i32(lp.range);
+
+    // Load current quaternion state (x, y, z, w)
+    let q = textureLoad(s3_in, vec2<i32>(i32(id.x), i32(id.y)), i32(layer), 0);
+
+    // Compute mean quaternion of neighbors
+    var m: vec4<f32>;
+    if (params.topology_mode > 0.5) {
+        m = meanQuatGraph(i, cols, rows);
+    } else {
+        m = meanQuatGrid(id.x, id.y, layer, rng, cols, rows);
+    }
+
+    // Local order = magnitude of mean quaternion
+    let local_r = length(m);
+    order[i] = clamp(local_r, 0.0, 1.0);
+
+    // Coupling term: project mean onto tangent space of q, scale by K
+    var y = tangent_project_s3(q, m) * lp.K0;
+
+    // Layer coupling (if enabled)
+    if (layer > 0u && abs(lp.layer_coupling_up) > 0.0001) {
+        let v = loadQuatGlobal(i32(id.x), i32(id.y), i32(layer - 1u), i32(cols), i32(rows));
+        y = y + tangent_project_s3(q, v) * lp.layer_coupling_up;
+    }
+    if (layer + 1u < u32(params.layer_count) && abs(lp.layer_coupling_down) > 0.0001) {
+        let v = loadQuatGlobal(i32(id.x), i32(id.y), i32(layer + 1u), i32(cols), i32(rows));
+        y = y + tangent_project_s3(q, v) * lp.layer_coupling_down;
+    }
+
+    // Intrinsic rotation: dq/dt = 0.5 * omega_quat * q
+    // omega_quat = (wx, wy, wz, 0) is pure imaginary quaternion
+    let omega = omega_vec[i];
+    let omega_quat = vec4<f32>(omega.xyz, 0.0);
+    let dq_intrinsic = quat_mult(omega_quat, q) * 0.5;
+
+    // Total change in quaternion
+    var dq = dq_intrinsic + y;
+    dq = dq * (1.0 - lp.leak);
+
+    // Euler integration + renormalization to stay on S³
+    let q_next = q + dq * params.dt;
+    let n = length(q_next);
+    let q_norm = select(vec4<f32>(0.0, 0.0, 0.0, 1.0), q_next / n, n > 1e-6);
+
+    textureStore(s3_out, vec2<i32>(i32(id.x), i32(id.y)), i32(layer), q_norm);
+}
+`;
+
 export const RENDER_SHADER = `
 struct Params {
     dt: f32, K0: f32, range: f32, rule_mode: f32,
@@ -1067,6 +1520,8 @@ struct Params {
 @group(0) @binding(4) var textureSampler: sampler;
 @group(0) @binding(5) var externalTexture: texture_2d<f32>;
 @group(0) @binding(6) var<uniform> render_layer: vec4<f32>;
+@group(0) @binding(7) var gauge_x_tex: texture_2d_array<f32>;
+@group(0) @binding(8) var gauge_y_tex: texture_2d_array<f32>;
 
 // Helper to load theta from texture
 fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
@@ -1077,32 +1532,69 @@ fn loadVecRender(col: u32, row: u32, layer: u32) -> vec3<f32> {
     return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), i32(layer), 0).xyz;
 }
 
+fn loadQuatRender(col: u32, row: u32, layer: u32) -> vec4<f32> {
+    return textureLoad(theta_tex, vec2<i32>(i32(col), i32(row)), i32(layer), 0);
+}
+
+fn loadGaugeXRender(col: i32, row: i32, layer: u32, cols: i32, rows: i32) -> f32 {
+    let c = (col + cols) % cols;
+    let r = (row + rows) % rows;
+    return textureLoad(gauge_x_tex, vec2<i32>(c, r), i32(layer), 0).r;
+}
+
+fn loadGaugeYRender(col: i32, row: i32, layer: u32, cols: i32, rows: i32) -> f32 {
+    let c = (col + cols) % cols;
+    let r = (row + rows) % rows;
+    return textureLoad(gauge_y_tex, vec2<i32>(c, r), i32(layer), 0).r;
+}
+
+fn wrapPhaseDiff(d: f32) -> f32 {
+    var x = d;
+    if (x > 3.14159) { x = x - 6.28318; }
+    if (x < -3.14159) { x = x + 6.28318; }
+    return x;
+}
+
 fn compute_gradient(ii: u32, cols: u32, rows: u32, layer: u32) -> f32 {
-    if (params.manifold_mode > 0.5) {
-        return 0.0;
-    }
     let c = ii % cols;
     let r = ii / cols;
-    
+
     var cr = (c + 1u) % cols;
     var cl = (c + cols - 1u) % cols;
     var ru = (r + 1u) % rows;
     var rd = (r + rows - 1u) % rows;
-    
+
+    if (params.manifold_mode > 0.5) {
+        // S² or S³: compute angular distance gradient
+        let v_center = loadVecRender(c, r, layer);
+        let v_right = loadVecRender(cr, r, layer);
+        let v_left = loadVecRender(cl, r, layer);
+        let v_up = loadVecRender(c, ru, layer);
+        let v_down = loadVecRender(c, rd, layer);
+
+        // Angular distance = 1 - dot(v1, v2) gives 0 for aligned, 2 for opposite
+        let dx = (1.0 - dot(v_center, v_left)) + (1.0 - dot(v_center, v_right));
+        let dy = (1.0 - dot(v_center, v_up)) + (1.0 - dot(v_center, v_down));
+
+        // Normalize: max value per direction is 4, so /4 gives [0,1]
+        return sqrt(dx * dx + dy * dy) * 0.25;
+    }
+
+    // S¹: compute phase gradient
     let right = loadThetaRender(cr, r, layer);
     let left = loadThetaRender(cl, r, layer);
     let up = loadThetaRender(c, ru, layer);
     let down = loadThetaRender(c, rd, layer);
-    
+
     var dx = right - left;
     var dy = up - down;
-    
+
     // Unwrap phase differences
     if (dx > 3.14159) { dx = dx - 6.28318; }
     if (dx < -3.14159) { dx = dx + 6.28318; }
     if (dy > 3.14159) { dy = dy - 6.28318; }
     if (dy < -3.14159) { dy = dy + 6.28318; }
-    
+
     return sqrt(dx * dx + dy * dy) * 0.5;
 }
 
@@ -1144,8 +1636,13 @@ fn vs_main(@location(0) pos: vec2<f32>, @builtin(instance_index) ii: u32) -> Ver
     // Sample theta/order at the cell (flat per-instance when instanced)
     let theta_val = loadThetaRender(u32(c_i), u32(r_i), active_layer);
     let vec_val = loadVecRender(u32(c_i), u32(r_i), active_layer);
-    let use_s2 = params.manifold_mode > 0.5;
-    let height_3d = select(sin(theta_val) * 2.0, vec_val.z * 2.0, use_s2);
+    let quat_val = loadQuatRender(u32(c_i), u32(r_i), active_layer);
+    let use_s2 = params.manifold_mode > 0.5 && params.manifold_mode < 1.5;
+    let use_s3 = params.manifold_mode > 1.5;
+    // S¹: sin(θ), S²: z component, S³: w component
+    var height_3d = sin(theta_val) * 2.0;
+    if (use_s2) { height_3d = vec_val.z * 2.0; }
+    if (use_s3) { height_3d = quat_val.w * 2.0; }
     let is_3d = params.view_mode < 0.5;
     let height_2d = f32(r_i) * 0.0001; // tiny offset to avoid Z-fight in 2D
     let h = select(height_2d, height_3d, is_3d);
@@ -1302,6 +1799,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (dy > 3.14159) { dy -= 6.28318; }
     if (dy < -3.14159) { dy += 6.28318; }
     let gradient = sqrt(dx * dx + dy * dy) * 0.5;
+    let ax = loadGaugeXRender(c, r, active_layer, cols, rows);
+    let ay = loadGaugeYRender(c, r, active_layer, cols, rows);
+    let ax_left = loadGaugeXRender(c - 1, r, active_layer, cols, rows);
+    let ay_down = loadGaugeYRender(c, r - 1, active_layer, cols, rows);
+    let ay_right = loadGaugeYRender(c + 1, r, active_layer, cols, rows);
+    let ax_up = loadGaugeXRender(c, r + 1, active_layer, cols, rows);
+    let cov_dx_f = wrapPhaseDiff(right - theta - ax);
+    let cov_dx_b = wrapPhaseDiff(theta - left - ax_left);
+    let cov_dy_f = wrapPhaseDiff(up - theta - ay);
+    let cov_dy_b = wrapPhaseDiff(theta - down - ay_down);
+    let cov_grad = sqrt((cov_dx_f + cov_dx_b) * (cov_dx_f + cov_dx_b) + (cov_dy_f + cov_dy_b) * (cov_dy_f + cov_dy_b)) * 0.25;
+    let flux_raw = ax + ay_right - ax_up - ay;
+    let flux_norm = clamp(0.5 + 0.5 * sin(flux_raw), 0.0, 1.0);
 
     let height = sin(theta) * 2.0;
     let t_phase = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
@@ -1332,6 +1842,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let texColor = textureSample(externalTexture, textureSampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         color = texColor * (0.7 + 0.3 * phaseMod);
+    } else if (layer_choice == 7) {
+        color = sample_palette(flux_norm, palette);
+    } else if (layer_choice == 8) {
+        let cov = clamp(cov_grad / 3.14159, 0.0, 1.0);
+        color = sample_palette(cov, palette);
     } else {
         color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     }
@@ -1534,6 +2049,183 @@ fn main() {
 }
 `;
 
+// ============================================================================
+// S³ (QUATERNION) GLOBAL ORDER REDUCTION
+// Uses 4 atomics for quaternion components (x, y, z, w)
+// ============================================================================
+export const S3_GLOBAL_ORDER_REDUCTION_SHADER = `
+@group(0) @binding(0) var<storage, read> state: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> global_order_atomic: array<atomic<i32>, 4>;
+
+var<workgroup> shared_sum: array<vec4<f32>, 256>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let local_id = lid.x;
+    let global_id = gid.x;
+    let N = arrayLength(&state);
+
+    var sum = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    if (global_id < N) {
+        sum = state[global_id];
+    }
+
+    shared_sum[local_id] = sum;
+    workgroupBarrier();
+
+    for (var offset = 128u; offset > 0u; offset = offset / 2u) {
+        if (local_id < offset) {
+            shared_sum[local_id] = shared_sum[local_id] + shared_sum[local_id + offset];
+        }
+        workgroupBarrier();
+    }
+
+    if (local_id == 0u) {
+        atomicAdd(&global_order_atomic[0], i32(shared_sum[0].x * 10000.0));
+        atomicAdd(&global_order_atomic[1], i32(shared_sum[0].y * 10000.0));
+        atomicAdd(&global_order_atomic[2], i32(shared_sum[0].z * 10000.0));
+        atomicAdd(&global_order_atomic[3], i32(shared_sum[0].w * 10000.0));
+    }
+}
+`;
+
+// S³ normalize: compute R = |mean_quaternion|
+export const S3_GLOBAL_ORDER_NORMALIZE_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> global_order_atomic: array<atomic<i32>, 4>;
+@group(0) @binding(1) var<storage, read_write> global_order: vec2<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@compute @workgroup_size(1)
+fn main() {
+    let x = atomicLoad(&global_order_atomic[0]);
+    let y = atomicLoad(&global_order_atomic[1]);
+    let z = atomicLoad(&global_order_atomic[2]);
+    let w = atomicLoad(&global_order_atomic[3]);
+
+    let N = params.cols * params.rows * max(1.0, params.layer_count);
+    let qx = (f32(x) / 10000.0) / N;
+    let qy = (f32(y) / 10000.0) / N;
+    let qz = (f32(z) / 10000.0) / N;
+    let qw = (f32(w) / 10000.0) / N;
+    let R = length(vec4<f32>(qx, qy, qz, qw));
+    global_order.x = R;
+    global_order.y = 0.0;
+}
+`;
+
+// S³ local order stats: compute local_order stats and quaternion gradient
+export const S3_LOCAL_ORDER_STATS_SHADER = `
+@group(0) @binding(0) var<storage, read> local_order: array<f32>;
+@group(0) @binding(1) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
+@group(0) @binding(2) var<storage, read_write> hist_atomic: array<atomic<i32>, 16>;
+@group(0) @binding(3) var<storage, read> s3_quats: array<vec4<f32>>;  // S³ quaternions for gradient
+@group(0) @binding(4) var<uniform> grid_size: u32;
+
+var<workgroup> shared_sums: array<vec4<f32>, 256>;
+
+// Compute quaternion gradient magnitude at a point.
+// For S³, gradient = angular distance to neighbors (using 4D dot product)
+fn quat_gradient(global_idx: u32, grid: u32) -> f32 {
+    let layer_size = grid * grid;
+    let layer = global_idx / layer_size;
+    let local = global_idx - layer * layer_size;
+    let col = local % grid;
+    let row = local / grid;
+    let base = layer * layer_size;
+
+    // Periodic boundaries (within layer)
+    let left_col = (col + grid - 1u) % grid;
+    let right_col = (col + 1u) % grid;
+    let up_row = (row + grid - 1u) % grid;
+    let down_row = (row + 1u) % grid;
+
+    let idx_center = base + row * grid + col;
+    let idx_left = base + row * grid + left_col;
+    let idx_right = base + row * grid + right_col;
+    let idx_up = base + up_row * grid + col;
+    let idx_down = base + down_row * grid + col;
+
+    let q_center = s3_quats[idx_center];
+    let q_left = s3_quats[idx_left];
+    let q_right = s3_quats[idx_right];
+    let q_up = s3_quats[idx_up];
+    let q_down = s3_quats[idx_down];
+
+    // For quaternions, angular distance = 1 - |dot(q1, q2)|
+    // Using absolute value because q and -q represent the same rotation
+    let dx = (1.0 - abs(dot(q_center, q_left))) + (1.0 - abs(dot(q_center, q_right)));
+    let dy = (1.0 - abs(dot(q_center, q_up))) + (1.0 - abs(dot(q_center, q_down)));
+
+    // Normalize: max value per direction is 2 (two orthogonal neighbors), so /2 gives [0,1]
+    return sqrt(dx * dx + dy * dy) * 0.5;
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>,
+        @builtin(local_invocation_id) lid: vec3<u32>) {
+    let local_id = lid.x;
+    let global_id = gid.x;
+    let N = arrayLength(&local_order);
+
+    var sums = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    if (global_id < N) {
+        let r = local_order[global_id];
+        let grad = quat_gradient(global_id, grid_size);
+        sums.x = r;
+        sums.y = select(0.0, 1.0, r > 0.7);
+        sums.z = grad;
+        sums.w = r * r;
+
+        var bin = i32(floor(r * 16.0));
+        if (bin < 0) { bin = 0; }
+        if (bin > 15) { bin = 15; }
+        atomicAdd(&hist_atomic[bin], 1);
+    }
+
+    shared_sums[local_id] = sums;
+    workgroupBarrier();
+
+    for (var offset = 128u; offset > 0u; offset = offset / 2u) {
+        if (local_id < offset) {
+            shared_sums[local_id] = shared_sums[local_id] + shared_sums[local_id + offset];
+        }
+        workgroupBarrier();
+    }
+
+    if (local_id == 0u) {
+        atomicAdd(&stats_atomic[0], i32(shared_sums[0].x * 10000.0));
+        atomicAdd(&stats_atomic[1], i32(shared_sums[0].y * 10000.0));
+        atomicAdd(&stats_atomic[2], i32(shared_sums[0].z * 10000.0));
+        atomicAdd(&stats_atomic[3], i32(shared_sums[0].w * 10000.0));
+    }
+}
+`;
+
 // Stage 2: Convert atomic integer sums to normalized float vector
 export const GLOBAL_ORDER_NORMALIZE_SHADER = `
 struct Params {
@@ -1677,13 +2369,52 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
 }
 `;
 
-// S2 local stats: use local_order only, no gradient
+// S2 local stats: compute local_order stats and vector gradient
 export const S2_LOCAL_ORDER_STATS_SHADER = `
 @group(0) @binding(0) var<storage, read> local_order: array<f32>;
 @group(0) @binding(1) var<storage, read_write> stats_atomic: array<atomic<i32>, 4>;
 @group(0) @binding(2) var<storage, read_write> hist_atomic: array<atomic<i32>, 16>;
+@group(0) @binding(3) var<storage, read> s2_vectors: array<vec4<f32>>;  // S² unit vectors for gradient
+@group(0) @binding(4) var<uniform> grid_size: u32;
 
 var<workgroup> shared_sums: array<vec4<f32>, 256>;
+
+// Compute vector gradient magnitude at a point.
+// For S², gradient = angular distance to neighbors
+fn vector_gradient(global_idx: u32, grid: u32) -> f32 {
+    let layer_size = grid * grid;
+    let layer = global_idx / layer_size;
+    let local = global_idx - layer * layer_size;
+    let col = local % grid;
+    let row = local / grid;
+    let base = layer * layer_size;
+
+    // Periodic boundaries (within layer)
+    let left_col = (col + grid - 1u) % grid;
+    let right_col = (col + 1u) % grid;
+    let up_row = (row + grid - 1u) % grid;
+    let down_row = (row + 1u) % grid;
+
+    let idx_center = base + row * grid + col;
+    let idx_left = base + row * grid + left_col;
+    let idx_right = base + row * grid + right_col;
+    let idx_up = base + up_row * grid + col;
+    let idx_down = base + down_row * grid + col;
+
+    let v_center = s2_vectors[idx_center].xyz;
+    let v_left = s2_vectors[idx_left].xyz;
+    let v_right = s2_vectors[idx_right].xyz;
+    let v_up = s2_vectors[idx_up].xyz;
+    let v_down = s2_vectors[idx_down].xyz;
+
+    // Angular distance = acos(dot(v1, v2)), but use 1 - dot for gradient-like measure
+    // This gives 0 for aligned vectors, 2 for opposite vectors
+    let dx = (1.0 - dot(v_center, v_left)) + (1.0 - dot(v_center, v_right));
+    let dy = (1.0 - dot(v_center, v_up)) + (1.0 - dot(v_center, v_down));
+
+    // Normalize: max value per direction is 4 (two opposite neighbors), so /4 gives [0,1]
+    return sqrt(dx * dx + dy * dy) * 0.25;
+}
 
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>,
@@ -1695,9 +2426,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>,
     var sums = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     if (global_id < N) {
         let r = local_order[global_id];
+        let grad = vector_gradient(global_id, grid_size);
         sums.x = r;
         sums.y = select(0.0, 1.0, r > 0.7);
-        sums.z = 0.0;
+        sums.z = grad;
         sums.w = r * r;
 
         var bin = i32(floor(r * 16.0));
@@ -1796,6 +2528,8 @@ struct Params {
 @group(0) @binding(2) var<storage, read> order: array<f32>;
 @group(0) @binding(3) var textureSampler: sampler;
 @group(0) @binding(4) var externalTexture: texture_2d<f32>;
+@group(0) @binding(5) var gauge_x_tex_2d: texture_2d_array<f32>;
+@group(0) @binding(6) var gauge_y_tex_2d: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -1921,6 +2655,18 @@ fn sample_theta_wrapped(x: i32, y: i32, cols: i32, rows: i32, layer: u32) -> f32
     let xw = ((x % cols) + cols) % cols;
     let yw = ((y % rows) + rows) % rows;
     return textureLoad(theta_tex, vec2<i32>(xw, yw), i32(layer), 0).r;
+}
+
+fn sample_gauge_x_wrapped(x: i32, y: i32, cols: i32, rows: i32, layer: u32) -> f32 {
+    let xw = ((x % cols) + cols) % cols;
+    let yw = ((y % rows) + rows) % rows;
+    return textureLoad(gauge_x_tex_2d, vec2<i32>(xw, yw), i32(layer), 0).r;
+}
+
+fn sample_gauge_y_wrapped(x: i32, y: i32, cols: i32, rows: i32, layer: u32) -> f32 {
+    let xw = ((x % cols) + cols) % cols;
+    let yw = ((y % rows) + rows) % rows;
+    return textureLoad(gauge_y_tex_2d, vec2<i32>(xw, yw), i32(layer), 0).r;
 }
 
 // Bicubic interpolation for smoother theta sampling
@@ -2183,32 +2929,60 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let order_val = order[idx];
     
     // Compute gradient for velocity/curvature modes (use discrete samples for accuracy)
-    let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), i32(active_layer), 0).r;
-    let left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), i32(active_layer), 0).r;
-    let up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), i32(active_layer), 0).r;
-    let down = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), i32(active_layer), 0).r;
-    
-    var dx = right - left;
-    var dy = up - down;
-    if (dx > 3.14159) { dx -= 6.28318; }
-    if (dx < -3.14159) { dx += 6.28318; }
-    if (dy > 3.14159) { dy -= 6.28318; }
-    if (dy < -3.14159) { dy += 6.28318; }
-    var gradient = sqrt(dx * dx + dy * dy) * 0.5;
-    if (use_s2) { gradient = 0.0; }
-    
-    // Compute chirality (curl) for spiral detection
-    let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
-    let tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
-    let br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
-    let bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
-    
-    var curl = (tr - tl - br + bl) * 0.25;
-    if (curl > 3.14159) { curl -= 6.28318; }
-    if (curl < -3.14159) { curl += 6.28318; }
-    // Negate curl to match 3D coordinate system (UV Y is inverted)
-    curl = -curl;
-    if (use_s2) { curl = 0.0; }
+    var gradient: f32;
+    var curl: f32;
+
+    if (use_s2) {
+        // S² or S³: compute angular distance gradient
+        let v_center = vec_val;
+        let v_right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), i32(active_layer), 0).xyz;
+        let v_left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), i32(active_layer), 0).xyz;
+        let v_up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), i32(active_layer), 0).xyz;
+        let v_down = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), i32(active_layer), 0).xyz;
+
+        // Angular distance = 1 - dot(v1, v2) gives 0 for aligned, 2 for opposite
+        let dx = (1.0 - dot(v_center, v_left)) + (1.0 - dot(v_center, v_right));
+        let dy = (1.0 - dot(v_center, v_up)) + (1.0 - dot(v_center, v_down));
+        gradient = sqrt(dx * dx + dy * dy) * 0.25;
+
+        // Compute curl for S² using cross product z-component
+        let v_tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), i32(active_layer), 0).xyz;
+        let v_tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), i32(active_layer), 0).xyz;
+        let v_br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).xyz;
+        let v_bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).xyz;
+        // Curl approximated by cross product orientations
+        let cross_tr = cross(v_center, v_tr).z;
+        let cross_tl = cross(v_center, v_tl).z;
+        let cross_br = cross(v_center, v_br).z;
+        let cross_bl = cross(v_center, v_bl).z;
+        curl = -(cross_tr - cross_tl - cross_br + cross_bl) * 0.25;
+    } else {
+        // S¹: compute phase gradient
+        let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), i32(active_layer), 0).r;
+        let left = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, r), i32(active_layer), 0).r;
+        let up = textureLoad(theta_tex, vec2<i32>(c, (r + 1) % rows), i32(active_layer), 0).r;
+        let down = textureLoad(theta_tex, vec2<i32>(c, (r + rows - 1) % rows), i32(active_layer), 0).r;
+
+        var dx = right - left;
+        var dy = up - down;
+        if (dx > 3.14159) { dx -= 6.28318; }
+        if (dx < -3.14159) { dx += 6.28318; }
+        if (dy > 3.14159) { dy -= 6.28318; }
+        if (dy < -3.14159) { dy += 6.28318; }
+        gradient = sqrt(dx * dx + dy * dy) * 0.5;
+
+        // Compute chirality (curl) for spiral detection
+        let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
+        let tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
+        let br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
+        let bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
+
+        curl = (tr - tl - br + bl) * 0.25;
+        if (curl > 3.14159) { curl -= 6.28318; }
+        if (curl < -3.14159) { curl += 6.28318; }
+        // Negate curl to match 3D coordinate system (UV Y is inverted)
+        curl = -curl;
+    }
     
     // Use sin(theta) mapping to match 3D shader's height-based coloring
     let height = sin(theta) * 2.0;
@@ -2218,6 +2992,23 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let layer_choice = i32(params.colormap);
     let palette = i32(params.colormap_palette);
     var col3: vec3<f32>;
+    let ax = sample_gauge_x_wrapped(c, r, cols, rows, active_layer);
+    let ay = sample_gauge_y_wrapped(c, r, cols, rows, active_layer);
+    let ax_left = sample_gauge_x_wrapped(c - 1, r, cols, rows, active_layer);
+    let ay_down = sample_gauge_y_wrapped(c, r - 1, cols, rows, active_layer);
+    let ay_right = sample_gauge_y_wrapped(c + 1, r, cols, rows, active_layer);
+    let ax_up = sample_gauge_x_wrapped(c, r + 1, cols, rows, active_layer);
+    let right_phase = sample_theta_wrapped(c + 1, r, cols, rows, active_layer);
+    let left_phase = sample_theta_wrapped(c - 1, r, cols, rows, active_layer);
+    let up_phase = sample_theta_wrapped(c, r + 1, cols, rows, active_layer);
+    let down_phase = sample_theta_wrapped(c, r - 1, cols, rows, active_layer);
+    let cov_dx_f = wrap_diff(right_phase - theta - ax);
+    let cov_dx_b = wrap_diff(theta - left_phase - ax_left);
+    let cov_dy_f = wrap_diff(up_phase - theta - ay);
+    let cov_dy_b = wrap_diff(theta - down_phase - ay_down);
+    let cov_grad = sqrt((cov_dx_f + cov_dx_b) * (cov_dx_f + cov_dx_b) + (cov_dy_f + cov_dy_b) * (cov_dy_f + cov_dy_b)) * 0.25;
+    let flux_raw = ax + ay_right - ax_up - ay;
+    let flux_norm = clamp(0.5 + 0.5 * sin(flux_raw), 0.0, 1.0);
 
     if (layer_choice == 0) {
         // Phase
@@ -2247,6 +3038,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let texColor = presampled_tex_color;
         let phaseMod = 0.5 + 0.5 * sin(theta);
         col3 = texColor * (0.7 + 0.3 * phaseMod);
+    } else if (layer_choice == 7) {
+        // Gauge flux (plaquette)
+        col3 = sample_palette_2d(flux_norm, palette);
+    } else if (layer_choice == 8) {
+        // Covariant gradient magnitude
+        let cov = clamp(cov_grad / 3.14159, 0.0, 1.0);
+        col3 = sample_palette_2d(cov, palette);
     } else {
         col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     }

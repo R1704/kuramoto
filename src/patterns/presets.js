@@ -67,6 +67,64 @@ export const Presets = {
         sim.writeOmega(omega);
     },
 
+    flux_lattice: (state, sim, rng = null) => {
+        state.manifoldMode = 's1';
+        state.topologyMode = 'grid';
+        state.ruleMode = 0;
+        state.K0 = 1.1;
+        state.range = 2;
+        state.globalCoupling = false;
+        state.dt = 0.03;
+        state.gaugeEnabled = true;
+        state.gaugeMode = 'static';
+        state.gaugeCharge = 1.0;
+        state.gaugeMatterCoupling = 1.0;
+        state.gaugeStiffness = 0.2;
+        state.gaugeDamping = 0.05;
+        state.gaugeNoise = 0.0;
+        state.gaugeDtScale = 1.0;
+        state.gaugeInitPattern = 'uniform_flux';
+        state.gaugeFluxBias = 0.8;
+
+        const rand = rng ? rng.float : Math.random;
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        for (let i = 0; i < sim.N; i++) {
+            theta[i] = rand() * 2 * Math.PI;
+            omega[i] = 0.1 * (rand() - 0.5);
+        }
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+
+        const grid = sim.gridSize;
+        const layers = sim.layers || 1;
+        const layerSize = grid * grid;
+        const ax = new Float32Array(sim.N);
+        const ay = new Float32Array(sim.N);
+        const wrapPi = (value) => {
+            let v = value;
+            while (v <= -Math.PI) v += 2 * Math.PI;
+            while (v > Math.PI) v -= 2 * Math.PI;
+            return v;
+        };
+        for (let layer = 0; layer < layers; layer++) {
+            const offset = layer * layerSize;
+            for (let r = 0; r < grid; r++) {
+                for (let c = 0; c < grid; c++) {
+                    const idx = offset + r * grid + c;
+                    ax[idx] = 0.0;
+                    ay[idx] = wrapPi(state.gaugeFluxBias * ((c / Math.max(1, grid - 1)) - 0.5));
+                }
+            }
+        }
+        if (typeof sim.writeGaugeField === 'function') {
+            sim.writeGaugeField(ax, ay);
+        }
+        if (typeof sim.writeGraphGauge === 'function') {
+            sim.writeGraphGauge(new Float32Array(sim.N * (sim.maxGraphDegree || 16)));
+        }
+    },
+
     plane_wave: (state, sim) => {
         state.ruleMode = 0;
         state.K0 = 1.0;

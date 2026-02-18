@@ -935,7 +935,7 @@
                 <button class="tab-btn" data-tab="dynamics">Dynamics</button>
                 <button class="tab-btn" data-tab="visualization">Visualization</button>
                 <button class="tab-btn" data-tab="analysis">Analysis</button>
-                <button class="tab-btn" data-tab="reservoir">Reservoir</button>
+                <button class="tab-btn" data-tab="reservoir" id="reservoir-tab-btn">Reservoir</button>
             </div>
 
             <div class="tab-pane active" data-tab-pane="simulation">
@@ -1017,7 +1017,7 @@
 
                     <div class="panel-card" id="coupling-panel">
                         <div class="section-title">Coupling & Rules</div>
-                        <div class="control-group">
+                        <div class="control-group" id="rule-mode-container">
                             <div class="control-label">
                                 <span>Coupling Mode</span>
                             </div>
@@ -1089,6 +1089,98 @@
                                 <input type="checkbox" id="layer-kernel-toggle" style="width:auto;">
                             </label>
                             <div style="font-size: 10px; color: #888; margin-top: 4px;">Uses the active layer's kernel parameters.</div>
+                        </div>
+                    </div>
+
+                    <div class="panel-card" id="gauge-panel">
+                        <div class="section-title">Gauge Field (U(1))</div>
+                        <div class="control-group">
+                            <label class="control-label" style="align-items:center; gap:8px;">
+                                <span>Enable Gauge Field</span>
+                                <input type="checkbox" id="gauge-enabled-toggle" style="width:auto;">
+                            </label>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Gauge Mode</span>
+                            </div>
+                            <select id="gauge-mode-select">
+                                <option value="static">Static</option>
+                                <option value="dynamic">Dynamic</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Charge q</span>
+                                <span class="control-value" id="gauge-charge-value">1.00</span>
+                            </div>
+                            <input type="range" id="gauge-charge-slider" min="0" max="4" step="0.05" value="1.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Matter Coupling g_J</span>
+                                <span class="control-value" id="gauge-matter-coupling-value">1.00</span>
+                            </div>
+                            <input type="range" id="gauge-matter-coupling-slider" min="0" max="4" step="0.05" value="1.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Magnetic Stiffness κ_B</span>
+                                <span class="control-value" id="gauge-stiffness-value">0.20</span>
+                            </div>
+                            <input type="range" id="gauge-stiffness-slider" min="0" max="2" step="0.01" value="0.2">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Gauge Damping γ_A</span>
+                                <span class="control-value" id="gauge-damping-value">0.05</span>
+                            </div>
+                            <input type="range" id="gauge-damping-slider" min="0" max="2" step="0.01" value="0.05">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Gauge Noise</span>
+                                <span class="control-value" id="gauge-noise-value">0.00</span>
+                            </div>
+                            <input type="range" id="gauge-noise-slider" min="0" max="1" step="0.01" value="0.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Gauge dt Scale</span>
+                                <span class="control-value" id="gauge-dt-scale-value">1.00</span>
+                            </div>
+                            <input type="range" id="gauge-dt-scale-slider" min="0" max="4" step="0.05" value="1.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Init Pattern</span>
+                            </div>
+                            <select id="gauge-init-pattern-select">
+                                <option value="zero">Zero</option>
+                                <option value="uniform_flux">Uniform Flux</option>
+                                <option value="random_link">Random Link</option>
+                                <option value="pure_gauge">Pure Gauge</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Init Amplitude</span>
+                                <span class="control-value" id="gauge-init-amplitude-value">0.50</span>
+                            </div>
+                            <input type="range" id="gauge-init-amplitude-slider" min="0" max="3.14159" step="0.01" value="0.5">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Flux Bias B0</span>
+                                <span class="control-value" id="gauge-flux-bias-value">0.00</span>
+                            </div>
+                            <input type="range" id="gauge-flux-bias-slider" min="-3.14159" max="3.14159" step="0.01" value="0.0">
+                        </div>
+                        <div class="control-group">
+                            <button id="apply-gauge-init-btn">Apply Gauge Init</button>
+                        </div>
+                        <div id="gauge-status" style="font-size: 10px; color: #888;">
+                            S1 only. Dynamic gauge requires grid topology.
                         </div>
                     </div>
 
@@ -2274,6 +2366,7 @@
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Special</div>
                     <div class="button-group">
                         <button class="preset-btn" data-preset="reservoir" style="background: linear-gradient(135deg, #1a5a2c, #2d1a5a);">🧠 Reservoir</button>
+                        <button class="preset-btn" data-preset="flux_lattice">🧲 Flux Lattice</button>
                     </div>
                     
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Complex Patterns</div>
@@ -2369,6 +2462,10 @@
                             <span>Include omega</span>
                         </label>
                         <label style="display:flex; align-items:center; gap:8px; font-size: 12px; color:#bbb;">
+                            <input type="checkbox" id="snapshot-gauge-toggle" checked>
+                            <span>Include gauge field</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size: 12px; color:#bbb;">
                             <input type="checkbox" id="snapshot-active-layer-only-toggle">
                             <span>Active layer only</span>
                         </label>
@@ -2380,7 +2477,7 @@
                             </label>
                         </div>
                         <div style="font-size: 9px; color: #666; margin-top: 4px;">
-                            Saves theta/omega + params with versioning. Large grids can produce big files.
+                            Saves theta/omega/gauge + params with versioning. Large grids can produce big files.
                         </div>
                     </div>
                      
@@ -2409,6 +2506,8 @@
                             <option value="4">Chirality (spirals)</option>
                             <option value="5">Phase + Gradient</option>
                             <option value="6">Image Texture</option>
+                            <option value="7">Gauge Flux (F)</option>
+                            <option value="8">Covariant Gradient (|Dθ|)</option>
                         </select>
                     </div>
                     
@@ -2671,7 +2770,7 @@
                         </div>
                     </div>
 
-                    <div class="panel-card">
+                    <div class="panel-card" id="lyapunov-section">
                         <div class="section-title">Lyapunov Exponent</div>
                         <div class="viz-section">
                             <div class="viz-title">λ Lyapunov Exponent</div>
@@ -2727,7 +2826,7 @@
                 </div>
             </div>
 
-            <div class="tab-pane" data-tab-pane="reservoir">
+            <div class="tab-pane" data-tab-pane="reservoir" id="reservoir-tab-pane">
                 <div class="panel-grid">
                     <div class="panel-card">
                         <div class="section-title">Reservoir Computing</div>

@@ -84,6 +84,20 @@ export const INITIAL_STATE = {
     noiseStrength: 0.0,
     leak: 0.0,
     
+    // Gauge-field (U(1), S1 only)
+    gaugeEnabled: false,
+    gaugeMode: 'static',
+    gaugeCharge: 1.0,
+    gaugeMatterCoupling: 1.0,
+    gaugeStiffness: 0.2,
+    gaugeDamping: 0.05,
+    gaugeNoise: 0.0,
+    gaugeDtScale: 1.0,
+    gaugeInitPattern: 'zero',
+    gaugeInitAmplitude: 0.5,
+    gaugeFluxBias: 0.0,
+    gaugeGraphSeed: 1,
+    
     // Interaction modifiers
     drawMode: 'draw',
     scaleBase: 1.0,

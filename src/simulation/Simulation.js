@@ -1,15 +1,48 @@
-import {
-    COMPUTE_SHADER,
-    GLOBAL_ORDER_REDUCTION_SHADER,
-    GLOBAL_ORDER_NORMALIZE_SHADER,
-    LOCAL_ORDER_STATS_SHADER,
-    LOCAL_ORDER_STATS_NORMALIZE_SHADER,
-    S2_COMPUTE_SHADER,
-    S2_GLOBAL_ORDER_REDUCTION_SHADER,
-    S2_GLOBAL_ORDER_NORMALIZE_SHADER,
-    S2_LOCAL_ORDER_STATS_SHADER
-} from '../shaders/index.js';
 import { MAX_GRAPH_DEGREE } from '../topology/index.js';
+import {
+    initBuffers as initBuffersFn,
+    writeLayerParams as writeLayerParamsFn,
+    writeTopology as writeTopologyFn,
+    writeTheta as writeThetaFn,
+    writeS2 as writeS2Fn,
+    writeS3 as writeS3Fn,
+    writeOmega as writeOmegaFn,
+    writeOmegaVec as writeOmegaVecFn,
+    writeGaugeField as writeGaugeFieldFn,
+    writeGraphGauge as writeGraphGaugeFn,
+    writeInputWeights as writeInputWeightsFn,
+    setInputSignal as setInputSignalFn,
+    setGaugeParams as setGaugeParamsFn
+} from './buffers.js';
+import {
+    initPipeline as initPipelineFn,
+    initReductionPipeline as initReductionPipelineFn,
+    getBindGroup as getBindGroupFn,
+    getS2BindGroup as getS2BindGroupFn,
+    getS3BindGroup as getS3BindGroupFn,
+    getGaugeUpdateBindGroup as getGaugeUpdateBindGroupFn
+} from './pipelines.js';
+import {
+    requestGlobalOrderReadback as requestGlobalOrderReadbackFn,
+    processReadback as processReadbackFn,
+    getLastGlobalOrder as getLastGlobalOrderFn,
+    getLastLocalStats as getLastLocalStatsFn,
+    readTheta as readThetaFn,
+    readS2 as readS2Fn,
+    readS3 as readS3Fn,
+    readGaugeField as readGaugeFieldFn,
+    getOmega as getOmegaFn,
+    storeOmega as storeOmegaFn
+} from './readback.js';
+import {
+    interpolateScalar as interpolateScalarFn,
+    interpolateTheta as interpolateThetaFn,
+    interpolateThetaLayers as interpolateThetaLayersFn,
+    resizePreservingState as resizePreservingStateFn,
+    waitForIdle as waitForIdleFn,
+    destroy as destroyFn,
+    resize as resizeFn
+} from './resize.js';
 
 export class Simulation {
     constructor(device, gridSize, layerCount = 1) {
@@ -23,461 +56,50 @@ export class Simulation {
         this.delayBufferIndex = 0;
         this.delayBuffers = [];
         this.paramsManifoldMode = 's1';
-        
+        this.topologyModeValue = 0;
+        this.gaugeEnabled = false;
+        this.gaugeDynamic = false;
+
         this.initBuffers();
         this.initPipeline();
         this.initReductionPipeline();
     }
 
     initBuffers() {
-        const bufferUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
-        
-        const makeThetaTexture = () => this.device.createTexture({
-            size: [this.gridSize, this.gridSize, this.layers],
-            format: 'r32float',
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-        });
-
-        // Using array textures for theta to support multiple layers
-        this.thetaTextures = [makeThetaTexture(), makeThetaTexture()];
-        this.thetaIndex = 0;
-        this.thetaTexture = this.thetaTextures[this.thetaIndex];
-        
-        // Staging buffer for reading back texture data (for delay buffers and reduction)
-        this.thetaStagingBuf = this.device.createBuffer({
-            size: this.N * 4,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-        });
-        
-        this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        // Params buffer: padded to 320 bytes (80 floats, 16-byte aligned)
-        this.paramsBuf = this.device.createBuffer({ size: 320, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-
-        // Global order parameter buffer (stores complex mean field Z = (cos, sin) as vec2)
-        this.globalOrderBuf = this.device.createBuffer({ 
-            size: 8, // vec2<f32> = 2 * 4 bytes
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
-        });
-        
-        // Atomic accumulator for reduction (scaled integers for thread safety)
-        this.globalOrderAtomicBuf = this.device.createBuffer({
-            size: 12, // 3 * i32 = 3 * 4 bytes (S2 needs xyz)
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        
-        // Staging buffer for reading back global order parameter (for statistics)
-        this.globalOrderReadbackBuf = this.device.createBuffer({
-            size: 8,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-        });
-        
-        // Track if readback is pending
-        this.readbackPending = false;
-        this.mappingInProgress = false;  // Guard against concurrent mapAsync calls
-        this.thetaReadPending = false; // Guard for RC theta reads
-        this.lastGlobalOrder = { cos: 0, sin: 0, R: 0, Psi: 0 };
-        this.lastLocalStats = { meanR: 0, syncFraction: 0, gradient: 0, variance: 0 };
-        
-        this.device.queue.writeBuffer(this.globalOrderBuf, 0, new Float32Array([0, 0]));
-
-        // Initialize order buffer
-        this.device.queue.writeBuffer(this.orderBuf, 0, new Float32Array(this.N).fill(0.5));
-
-        const makeS2Texture = () => this.device.createTexture({
-            size: [this.gridSize, this.gridSize, this.layers],
-            format: 'rgba32float',
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-        });
-
-        this.s2Textures = [makeS2Texture(), makeS2Texture()];
-        this.s2Index = 0;
-        this.s2Texture = this.s2Textures[this.s2Index];
-        this.s2StagingBuf = this.device.createBuffer({
-            size: this.N * 16,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        });
-        this.s2ReadbackBuf = null;
-
-        this.omegaVecBuf = this.device.createBuffer({ size: this.N * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        this.omegaVecData = null;
-
-        // Initialize S2 textures to +Z
-        const s2Init = new Float32Array(this.N * 4);
-        for (let i = 0; i < this.N; i++) {
-            const base = i * 4;
-            s2Init[base] = 0;
-            s2Init[base + 1] = 0;
-            s2Init[base + 2] = 1;
-            s2Init[base + 3] = 1;
-        }
-        this.writeS2(s2Init);
-
-        // ============= LOCAL ORDER STATISTICS BUFFERS =============
-        // Atomic accumulator for local order stats (4 values: sum_r, sync_count, sum_grad, sum_r2)
-        this.localStatsAtomicBuf = this.device.createBuffer({
-            size: 4 * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        
-        // Histogram atomic buffer (16 bins)
-        this.localHistAtomicBuf = this.device.createBuffer({
-            size: 16 * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        
-        // Output buffer for normalized statistics (5 floats + 16-bin histogram)
-        this.localStatsBuf = this.device.createBuffer({
-            size: (5 + 16) * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-        });
-        
-        // Staging buffer for reading back local stats
-        this.localStatsReadbackBuf = this.device.createBuffer({
-            size: (5 + 16) * 4,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-        });
-        
-        // Uniform for grid size (needed by local stats shader)
-        this.gridSizeUniformBuf = this.device.createBuffer({
-            size: 4, // u32
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.gridSizeUniformBuf, 0, new Uint32Array([this.gridSize]));
-        
-        // Uniform for N (needed by normalize shader)
-        this.nUniformBuf = this.device.createBuffer({
-            size: 4, // u32
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.nUniformBuf, 0, new Uint32Array([this.N]));
-
-        // ============= GRAPH TOPOLOGY BUFFERS =============
-        const neighborSlots = this.N * this.maxGraphDegree;
-        this.graphNeighborsBuf = this.device.createBuffer({
-            size: neighborSlots * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        this.graphWeightsBuf = this.device.createBuffer({
-            size: neighborSlots * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        this.graphCountsBuf = this.device.createBuffer({
-            size: this.N * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-
-        this.layerParamsBuf = this.device.createBuffer({
-            size: 56 * 4 * 8,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.layerParamsBuf, 0, new Float32Array(56 * 8).fill(0));
-        
-        // ============= RESERVOIR COMPUTING BUFFERS =============
-        // Input weights: how strongly each oscillator receives input signal
-        this.inputWeightsBuf = this.device.createBuffer({
-            size: this.N * 4, // N * f32
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        // Initialize to zero (no input by default)
-        this.device.queue.writeBuffer(this.inputWeightsBuf, 0, new Float32Array(this.N));
-        
-        // Current input signal value (scalar uniform)
-        this.inputSignalBuf = this.device.createBuffer({
-            size: 4, // f32
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.inputSignalBuf, 0, new Float32Array([0]));
-
-        // Delay buffers (still use storage buffers - not on critical path)
-        for (let i = 0; i < this.delayBufferSize; i++) {
-            this.delayBuffers.push(this.device.createBuffer({ size: this.N * 4, usage: bufferUsage }));
-        }
+        return initBuffersFn.call(this);
     }
 
     initPipeline() {
-        const module = this.device.createShaderModule({ code: COMPUTE_SHADER });
-        this.pipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module, entryPoint: 'main' }
-        });
-
-        const s2Module = this.device.createShaderModule({ code: S2_COMPUTE_SHADER });
-        this.s2Pipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: s2Module, entryPoint: 'main' }
-        });
-        
-        // Cache bind groups for each delay step
-        this.bindGroupCache = new Map();
-        this.s2BindGroupCache = new Map();
+        return initPipelineFn.call(this);
     }
 
     initReductionPipeline() {
-        // Stage 1: Parallel reduction with atomic accumulation
-        const reductionModule = this.device.createShaderModule({ code: GLOBAL_ORDER_REDUCTION_SHADER });
-        this.reductionPipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: reductionModule, entryPoint: 'main' }
-        });
-
-        const s2ReductionModule = this.device.createShaderModule({ code: S2_GLOBAL_ORDER_REDUCTION_SHADER });
-        this.s2ReductionPipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: s2ReductionModule, entryPoint: 'main' }
-        });
-        
-        // Stage 2: Normalize the accumulated sum
-        const normalizeModule = this.device.createShaderModule({ code: GLOBAL_ORDER_NORMALIZE_SHADER });
-        this.normalizePipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: normalizeModule, entryPoint: 'main' }
-        });
-
-        const s2NormalizeModule = this.device.createShaderModule({ code: S2_GLOBAL_ORDER_NORMALIZE_SHADER });
-        this.s2NormalizePipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: s2NormalizeModule, entryPoint: 'main' }
-        });
-        
-        // Bind groups for reduction stage (per theta buffer)
-        this.reductionBindGroups = [null, null];
-        this.s2ReductionBindGroups = [null, null];
-        
-        // Bind group for normalize stage
-        this.normalizeBindGroup = this.device.createBindGroup({
-            layout: this.normalizePipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.globalOrderAtomicBuf } },
-                { binding: 1, resource: { buffer: this.globalOrderBuf } },
-                { binding: 2, resource: { buffer: this.paramsBuf } }, // For N
-            ],
-        });
-
-        this.s2NormalizeBindGroup = this.device.createBindGroup({
-            layout: this.s2NormalizePipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.globalOrderAtomicBuf } },
-                { binding: 1, resource: { buffer: this.globalOrderBuf } },
-                { binding: 2, resource: { buffer: this.paramsBuf } },
-            ],
-        });
-        
-        // ============= LOCAL ORDER STATISTICS PIPELINES =============
-        const localStatsModule = this.device.createShaderModule({ code: LOCAL_ORDER_STATS_SHADER });
-        this.localStatsPipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: localStatsModule, entryPoint: 'main' }
-        });
-
-        const s2LocalStatsModule = this.device.createShaderModule({ code: S2_LOCAL_ORDER_STATS_SHADER });
-        this.s2LocalStatsPipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: s2LocalStatsModule, entryPoint: 'main' }
-        });
-        
-        const localStatsNormalizeModule = this.device.createShaderModule({ code: LOCAL_ORDER_STATS_NORMALIZE_SHADER });
-        this.localStatsNormalizePipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: localStatsNormalizeModule, entryPoint: 'main' }
-        });
-        
-        // Create bind groups for local stats
-        this.localStatsBindGroup = this.device.createBindGroup({
-            layout: this.localStatsPipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.orderBuf } },          // local order values
-                { binding: 1, resource: { buffer: this.thetaStagingBuf } },   // theta for gradient
-                { binding: 2, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 3, resource: { buffer: this.localHistAtomicBuf } },
-                { binding: 4, resource: { buffer: this.gridSizeUniformBuf } },
-            ],
-        });
-
-        this.s2LocalStatsBindGroup = this.device.createBindGroup({
-            layout: this.s2LocalStatsPipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.orderBuf } },
-                { binding: 1, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 2, resource: { buffer: this.localHistAtomicBuf } },
-            ],
-        });
-        
-        this.localStatsNormalizeBindGroup = this.device.createBindGroup({
-            layout: this.localStatsNormalizePipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 1, resource: { buffer: this.localHistAtomicBuf } },
-                { binding: 2, resource: { buffer: this.localStatsBuf } },
-                { binding: 3, resource: { buffer: this.nUniformBuf } },
-            ],
-        });
-
+        return initReductionPipelineFn.call(this);
     }
 
     getBindGroup(delaySteps) {
-        const delayIdx = (this.delayBufferIndex - delaySteps + this.delayBufferSize) % this.delayBufferSize;
-        const currentIdx = this.thetaIndex;
-        const nextIdx = currentIdx ^ 1;
-        
-        // Cache key based on delay index and active theta texture
-        const cacheKey = `${delayIdx}:${currentIdx}`;
-        if (!this.bindGroupCache.has(cacheKey)) {
-            this.bindGroupCache.set(cacheKey, this.device.createBindGroup({
-                layout: this.pipeline.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: this.thetaTextures[currentIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 1, resource: { buffer: this.omegaBuf } },
-                    { binding: 2, resource: { buffer: this.paramsBuf } },
-                    { binding: 3, resource: { buffer: this.orderBuf } },
-                    { binding: 4, resource: { buffer: this.delayBuffers[delayIdx] } },
-                    { binding: 5, resource: { buffer: this.globalOrderBuf } },
-                    { binding: 6, resource: this.thetaTextures[nextIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 7, resource: { buffer: this.inputWeightsBuf } },
-                    { binding: 8, resource: { buffer: this.inputSignalBuf } },
-                    { binding: 9, resource: { buffer: this.graphNeighborsBuf } },
-                    { binding: 10, resource: { buffer: this.graphWeightsBuf } },
-                    { binding: 11, resource: { buffer: this.graphCountsBuf } },
-                    { binding: 12, resource: { buffer: this.layerParamsBuf } },
-                ],
-            }));
-        }
-        return this.bindGroupCache.get(cacheKey);
+        return getBindGroupFn.call(this, delaySteps);
     }
 
     getS2BindGroup() {
-        const currentIdx = this.s2Index;
-        const nextIdx = currentIdx ^ 1;
-        const cacheKey = `${currentIdx}`;
-        if (!this.s2BindGroupCache.has(cacheKey)) {
-            this.s2BindGroupCache.set(cacheKey, this.device.createBindGroup({
-                layout: this.s2Pipeline.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: this.s2Textures[currentIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 1, resource: { buffer: this.omegaVecBuf } },
-                    { binding: 2, resource: { buffer: this.paramsBuf } },
-                    { binding: 3, resource: { buffer: this.orderBuf } },
-                    { binding: 4, resource: this.s2Textures[nextIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 5, resource: { buffer: this.graphNeighborsBuf } },
-                    { binding: 6, resource: { buffer: this.graphWeightsBuf } },
-                    { binding: 7, resource: { buffer: this.graphCountsBuf } },
-                    { binding: 8, resource: { buffer: this.layerParamsBuf } },
-                ],
-            }));
-        }
-        return this.s2BindGroupCache.get(cacheKey);
+        return getS2BindGroupFn.call(this);
+    }
+
+    getS3BindGroup() {
+        return getS3BindGroupFn.call(this);
+    }
+
+    getGaugeUpdateBindGroup() {
+        return getGaugeUpdateBindGroupFn.call(this);
     }
 
     writeLayerParams(layers) {
-        const count = Math.max(1, this.layers || 1);
-        const stride = 56;  // Must match WGSL struct size (56 floats = 224 bytes, 16-byte aligned)
-        const data = new Float32Array(stride * 8);
-        for (let i = 0; i < Math.min(8, count); i++) {
-            const lp = Array.isArray(layers) ? layers[i] : null;
-            const base = i * stride;
-            data[base] = lp?.ruleMode ?? 0;
-            data[base + 1] = lp?.K0 ?? 1.0;
-            data[base + 2] = lp?.range ?? 2;
-            data[base + 3] = lp?.harmonicA ?? 0.4;
-            data[base + 4] = lp?.harmonicB ?? 0.0;
-            data[base + 5] = lp?.sigma ?? 1.2;
-            data[base + 6] = lp?.sigma2 ?? 1.2;
-            data[base + 7] = lp?.beta ?? 0.6;
-            data[base + 8] = lp?.noiseStrength ?? 0.0;
-            data[base + 9] = lp?.leak ?? 0.0;
-            data[base + 10] = lp?.kernelShape ?? 0;
-            data[base + 11] = lp?.kernelOrientation ?? 0.0;
-            data[base + 12] = lp?.kernelAspect ?? 1.0;
-            data[base + 13] = lp?.kernelScale2Weight ?? 0.0;
-            data[base + 14] = lp?.kernelScale3Weight ?? 0.0;
-            data[base + 15] = lp?.kernelAsymmetry ?? 0.0;
-            data[base + 16] = lp?.kernelRings ?? 3;
-            data[base + 17] = lp?.kernelRingWidths?.[0] ?? 0.2;
-            data[base + 18] = lp?.kernelRingWidths?.[1] ?? 0.4;
-            data[base + 19] = lp?.kernelRingWidths?.[2] ?? 0.6;
-            data[base + 20] = lp?.kernelRingWidths?.[3] ?? 0.8;
-            data[base + 21] = lp?.kernelRingWidths?.[4] ?? 1.0;
-            data[base + 22] = lp?.kernelRingWeights?.[0] ?? 1.0;
-            data[base + 23] = lp?.kernelRingWeights?.[1] ?? -0.6;
-            data[base + 24] = lp?.kernelRingWeights?.[2] ?? 0.8;
-            data[base + 25] = lp?.kernelRingWeights?.[3] ?? -0.4;
-            data[base + 26] = lp?.kernelRingWeights?.[4] ?? 0.5;
-            data[base + 27] = lp?.kernelCompositionEnabled ? 1.0 : 0.0;
-            data[base + 28] = lp?.kernelSecondary ?? 0;
-            data[base + 29] = lp?.kernelMixRatio ?? 0.5;
-            data[base + 30] = lp?.kernelAsymmetricOrientation ?? 0.0;
-            data[base + 31] = lp?.kernelSpatialFreqMag ?? 2.0;
-            data[base + 32] = lp?.kernelSpatialFreqAngle ?? 0.0;
-            data[base + 33] = lp?.kernelGaborPhase ?? 0.0;
-            // Interaction modifiers (per-layer)
-            data[base + 34] = lp?.scaleBase ?? 1.0;
-            data[base + 35] = lp?.scaleRadial ?? 0.0;
-            data[base + 36] = lp?.scaleRandom ?? 0.0;
-            data[base + 37] = lp?.scaleRing ?? 0.0;
-            data[base + 38] = lp?.flowRadial ?? 0.0;
-            data[base + 39] = lp?.flowRotate ?? 0.0;
-            data[base + 40] = lp?.flowSwirl ?? 0.0;
-            data[base + 41] = lp?.flowBubble ?? 0.0;
-            data[base + 42] = lp?.flowRing ?? 0.0;
-            data[base + 43] = lp?.flowVortex ?? 0.0;
-            data[base + 44] = lp?.flowVertical ?? 0.0;
-            data[base + 45] = lp?.orientRadial ?? 0.0;
-            data[base + 46] = lp?.orientCircles ?? 0.0;
-            data[base + 47] = lp?.orientSwirl ?? 0.0;
-            data[base + 48] = lp?.orientBubble ?? 0.0;
-            data[base + 49] = lp?.orientLinear ?? 0.0;
-            data[base + 50] = lp?.layerCouplingUp ?? 0.0;
-            data[base + 51] = lp?.layerCouplingDown ?? 0.0;
-            // Padding to 56 floats (224 bytes, 16-byte aligned for WGSL array)
-            data[base + 52] = 0;
-            data[base + 53] = 0;
-            data[base + 54] = 0;
-            data[base + 55] = 0;
-        }
-        this.device.queue.writeBuffer(this.layerParamsBuf, 0, data);
+        return writeLayerParamsFn.call(this, layers);
     }
 
     writeTopology(topology) {
-        if (!topology) return;
-        const expectedSlots = this.N * this.maxGraphDegree;
-        const singleLayerSlots = this.layerSize * this.maxGraphDegree;
-        let neighbors = topology.neighbors;
-        let weights = topology.weights;
-        let counts = topology.counts;
-
-        // If a single-layer topology is provided but we have multiple layers,
-        // replicate it across layers so graph mode still works.
-        if (this.layers > 1 &&
-            neighbors?.length === singleLayerSlots &&
-            weights?.length === singleLayerSlots &&
-            counts?.length === this.layerSize) {
-            const tiledNeighbors = new Uint32Array(expectedSlots);
-            const tiledWeights = new Float32Array(expectedSlots);
-            const tiledCounts = new Uint32Array(this.N);
-            for (let layer = 0; layer < this.layers; layer++) {
-                const dstNodeOffset = layer * this.layerSize;
-                const dstEdgeOffset = layer * singleLayerSlots;
-                tiledNeighbors.set(neighbors, dstEdgeOffset);
-                tiledWeights.set(weights, dstEdgeOffset);
-                tiledCounts.set(counts, dstNodeOffset);
-            }
-            neighbors = tiledNeighbors;
-            weights = tiledWeights;
-            counts = tiledCounts;
-        }
-
-        if (neighbors?.length !== expectedSlots ||
-            weights?.length !== expectedSlots ||
-            counts?.length !== this.N) {
-            console.warn('Topology buffers have unexpected length; skipping upload');
-            return;
-        }
-        this.device.queue.writeBuffer(this.graphNeighborsBuf, 0, neighbors);
-        this.device.queue.writeBuffer(this.graphWeightsBuf, 0, weights);
-        this.device.queue.writeBuffer(this.graphCountsBuf, 0, counts);
-        this.topologyInfo = { ...topology, neighbors, weights, counts };
+        return writeTopologyFn.call(this, topology);
     }
-
     updateParams(p) {
         // Only update frequently changing parameters to reduce bandwidth
         // Write dt and time at their offsets (0 and 15*4 bytes)
@@ -492,7 +114,7 @@ export class Simulation {
         // Only write full params if something other than dt/time changed
         // (This will be called explicitly when params change via updateFullParams)
     }
-    
+
     updateFullParams(p) {
         // Pack all parameters - called only when user changes settings
         // Layout matches shader structs (80 floats = 320 bytes)
@@ -511,12 +133,13 @@ export class Simulation {
         })();
         const layerCount = this.layers || 1;
         const activeLayer = Math.min(layerCount - 1, Math.max(0, Math.floor(p.activeLayer ?? 0)));
+        const globalCouplingEnabled = !!p.globalCoupling && !(p.manifoldMode === 's1' && p.gaugeEnabled);
         this.paramsManifoldMode = p.manifoldMode || 's1';
         const data = new Float32Array([
             // 0-3
             p.dt * p.timeScale * (p.paused ? 0 : 1), p.K0, p.range, p.ruleMode,
             // 4-7
-            this.gridSize, this.gridSize, p.harmonicA, p.globalCoupling ? 1.0 : 0.0,
+            this.gridSize, this.gridSize, p.harmonicA, globalCouplingEnabled ? 1.0 : 0.0,
             // 8-11
             p.delaySteps, p.sigma, p.sigma2, p.beta,
             // 12-15
@@ -559,41 +182,59 @@ export class Simulation {
             layerCount, 0, 0, activeLayer
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
+        this.topologyModeValue = topoMode;
+        const gaugeState = (p.manifoldMode === 's1')
+            ? p
+            : { ...p, gaugeEnabled: false, gaugeMode: 'static' };
+        setGaugeParamsFn.call(this, gaugeState);
     }
 
     setManifoldMode(mode) {
         const next = mode || 's1';
         if (this.paramsManifoldMode === next) return;
         this.paramsManifoldMode = next;
-        if (next === 's2') {
+        if (next === 's2' || next === 's3') {
             this.thetaTexture = null;
         }
     }
 
-    /**
-     * Run one simulation step
-     * @param {GPUCommandEncoder} commandEncoder
-     * @param {number} delaySteps
-     * @param {boolean} globalCoupling
-     * @param {boolean} computeStats - If true, compute statistics this frame (can be throttled)
-     */
     step(commandEncoder, delaySteps, globalCoupling, computeStats = true) {
         const useS2 = this.paramsManifoldMode === 's2';
+        const useS3 = this.paramsManifoldMode === 's3';
+        const useVectorManifold = useS2 || useS3;
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
         const currentThetaTex = this.thetaTextures[currentIdx];
-        
+        const gaugeDynamic = (!useVectorManifold) && this.gaugeEnabled && this.gaugeDynamic && (this.topologyModeValue === 0);
+
+        if (gaugeDynamic) {
+            const gaugePass = commandEncoder.beginComputePass();
+            gaugePass.setPipeline(this.gaugeUpdatePipeline);
+            gaugePass.setBindGroup(0, this.getGaugeUpdateBindGroup());
+            const gaugeWg = Math.ceil(this.gridSize / 16);
+            gaugePass.dispatchWorkgroups(gaugeWg, gaugeWg, this.layers);
+            gaugePass.end();
+
+            this.gaugeIndex = this.gaugeIndex ^ 1;
+            this.gaugeXTexture = this.gaugeXTextures[this.gaugeIndex];
+            this.gaugeYTexture = this.gaugeYTextures[this.gaugeIndex];
+        }
+
         // Only compute statistics if requested (allows throttling for performance)
         if (computeStats) {
             // Reset atomic accumulators to zero
-            if (!useS2) {
+            if (!useVectorManifold) {
                 commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 8);
+            } else if (useS2) {
+                commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 12);  // 3 atomics for S²
+            } else {
+                commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 16);  // 4 atomics for S³
             }
             commandEncoder.clearBuffer(this.localStatsAtomicBuf, 0, 16);
             commandEncoder.clearBuffer(this.localHistAtomicBuf, 0, 64);
-            
+
             const workgroups = Math.ceil(this.N / 256);
-            if (!useS2) {
+            if (!useVectorManifold) {
                 // Copy current theta texture to staging buffer for reduction shader
                 commandEncoder.copyTextureToBuffer(
                     { texture: currentThetaTex },
@@ -640,50 +281,80 @@ export class Simulation {
                 localStatsNormalizePass.dispatchWorkgroups(1);
                 localStatsNormalizePass.end();
             } else {
-                commandEncoder.clearBuffer(this.globalOrderAtomicBuf, 0, 12);
-
+                // S² or S³: use vector manifold statistics
                 commandEncoder.copyTextureToBuffer(
                     { texture: this.s2Texture },
                     { buffer: this.s2StagingBuf, bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize },
                     [this.gridSize, this.gridSize, this.layers]
                 );
 
-                if (!this.s2ReductionBindGroups[this.s2Index]) {
-                    this.s2ReductionBindGroups[this.s2Index] = this.device.createBindGroup({
-                        layout: this.s2ReductionPipeline.getBindGroupLayout(0),
-                        entries: [
-                            { binding: 0, resource: { buffer: this.s2StagingBuf } },
-                            { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
-                        ],
-                    });
+                if (useS3) {
+                    // S³: 4-component quaternion reduction
+                    if (!this.s3ReductionBindGroups[this.s2Index]) {
+                        this.s3ReductionBindGroups[this.s2Index] = this.device.createBindGroup({
+                            layout: this.s3ReductionPipeline.getBindGroupLayout(0),
+                            entries: [
+                                { binding: 0, resource: { buffer: this.s2StagingBuf } },
+                                { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
+                            ],
+                        });
+                    }
+                    const s3ReductionPass = commandEncoder.beginComputePass();
+                    s3ReductionPass.setPipeline(this.s3ReductionPipeline);
+                    s3ReductionPass.setBindGroup(0, this.s3ReductionBindGroups[this.s2Index]);
+                    s3ReductionPass.dispatchWorkgroups(workgroups);
+                    s3ReductionPass.end();
+
+                    const s3NormalizePass = commandEncoder.beginComputePass();
+                    s3NormalizePass.setPipeline(this.s3NormalizePipeline);
+                    s3NormalizePass.setBindGroup(0, this.s3NormalizeBindGroup);
+                    s3NormalizePass.dispatchWorkgroups(1);
+                    s3NormalizePass.end();
+
+                    const s3LocalPass = commandEncoder.beginComputePass();
+                    s3LocalPass.setPipeline(this.s3LocalStatsPipeline);
+                    s3LocalPass.setBindGroup(0, this.s3LocalStatsBindGroup);
+                    s3LocalPass.dispatchWorkgroups(workgroups);
+                    s3LocalPass.end();
+                } else {
+                    // S²: 3-component vector reduction
+                    if (!this.s2ReductionBindGroups[this.s2Index]) {
+                        this.s2ReductionBindGroups[this.s2Index] = this.device.createBindGroup({
+                            layout: this.s2ReductionPipeline.getBindGroupLayout(0),
+                            entries: [
+                                { binding: 0, resource: { buffer: this.s2StagingBuf } },
+                                { binding: 1, resource: { buffer: this.globalOrderAtomicBuf } },
+                            ],
+                        });
+                    }
+                    const s2ReductionPass = commandEncoder.beginComputePass();
+                    s2ReductionPass.setPipeline(this.s2ReductionPipeline);
+                    s2ReductionPass.setBindGroup(0, this.s2ReductionBindGroups[this.s2Index]);
+                    s2ReductionPass.dispatchWorkgroups(workgroups);
+                    s2ReductionPass.end();
+
+                    const s2NormalizePass = commandEncoder.beginComputePass();
+                    s2NormalizePass.setPipeline(this.s2NormalizePipeline);
+                    s2NormalizePass.setBindGroup(0, this.s2NormalizeBindGroup);
+                    s2NormalizePass.dispatchWorkgroups(1);
+                    s2NormalizePass.end();
+
+                    const s2LocalPass = commandEncoder.beginComputePass();
+                    s2LocalPass.setPipeline(this.s2LocalStatsPipeline);
+                    s2LocalPass.setBindGroup(0, this.s2LocalStatsBindGroup);
+                    s2LocalPass.dispatchWorkgroups(workgroups);
+                    s2LocalPass.end();
                 }
-                const s2ReductionPass = commandEncoder.beginComputePass();
-                s2ReductionPass.setPipeline(this.s2ReductionPipeline);
-                s2ReductionPass.setBindGroup(0, this.s2ReductionBindGroups[this.s2Index]);
-                s2ReductionPass.dispatchWorkgroups(workgroups);
-                s2ReductionPass.end();
 
-                const s2NormalizePass = commandEncoder.beginComputePass();
-                s2NormalizePass.setPipeline(this.s2NormalizePipeline);
-                s2NormalizePass.setBindGroup(0, this.s2NormalizeBindGroup);
-                s2NormalizePass.dispatchWorkgroups(1);
-                s2NormalizePass.end();
-
-                const s2LocalPass = commandEncoder.beginComputePass();
-                s2LocalPass.setPipeline(this.s2LocalStatsPipeline);
-                s2LocalPass.setBindGroup(0, this.s2LocalStatsBindGroup);
-                s2LocalPass.dispatchWorkgroups(workgroups);
-                s2LocalPass.end();
-
-                const s2LocalNormPass = commandEncoder.beginComputePass();
-                s2LocalNormPass.setPipeline(this.localStatsNormalizePipeline);
-                s2LocalNormPass.setBindGroup(0, this.localStatsNormalizeBindGroup);
-                s2LocalNormPass.dispatchWorkgroups(1);
-                s2LocalNormPass.end();
+                const localNormPass = commandEncoder.beginComputePass();
+                localNormPass.setPipeline(this.localStatsNormalizePipeline);
+                localNormPass.setBindGroup(0, this.localStatsNormalizeBindGroup);
+                localNormPass.dispatchWorkgroups(1);
+                localNormPass.end();
             }
         }
-        
-        if (!useS2) {
+
+        if (!useVectorManifold) {
             // Copy current theta texture to delay buffer history (via staging buffer)
             // Only do this if we haven't already copied for stats, or if stats were skipped
             if (!computeStats) {
@@ -706,7 +377,19 @@ export class Simulation {
             // Swap textures
             this.thetaIndex = nextIdx;
             this.thetaTexture = this.thetaTextures[this.thetaIndex];
+        } else if (useS3) {
+            // S³ compute pass
+            const pass = commandEncoder.beginComputePass();
+            pass.setPipeline(this.s3Pipeline);
+            pass.setBindGroup(0, this.getS3BindGroup());
+            const wgCount = Math.ceil(this.gridSize / 16);
+            pass.dispatchWorkgroups(wgCount, wgCount, this.layers);
+            pass.end();
+
+            this.s2Index = this.s2Index ^ 1;
+            this.s2Texture = this.s2Textures[this.s2Index];
         } else {
+            // S² compute pass
             const pass = commandEncoder.beginComputePass();
             pass.setPipeline(this.s2Pipeline);
             pass.setBindGroup(0, this.getS2BindGroup());
@@ -719,607 +402,111 @@ export class Simulation {
         }
     }
 
-    // Helper to write data directly to theta textures
     writeTheta(data) {
-        this.thetaData = new Float32Array(data);
-        const layout = { bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize };
-        const size = [this.gridSize, this.gridSize, this.layers];
-        for (const tex of this.thetaTextures) {
-            this.device.queue.writeTexture(
-                { texture: tex },
-                data,
-                layout,
-                size
-            );
-        }
-        this.thetaTexture = this.thetaTextures[this.thetaIndex];
-        // Sync delay buffers (storage buffers)
-        for (let buf of this.delayBuffers) {
-            this.device.queue.writeBuffer(buf, 0, data);
-        }
+        return writeThetaFn.call(this, data);
     }
 
     writeS2(data) {
-        this.s2Data = new Float32Array(data);
-        const layout = { bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize };
-        const size = [this.gridSize, this.gridSize, this.layers];
-        for (const tex of this.s2Textures) {
-            this.device.queue.writeTexture(
-                { texture: tex },
-                data,
-                layout,
-                size
-            );
-        }
-        this.s2Texture = this.s2Textures[this.s2Index];
+        return writeS2Fn.call(this, data);
     }
-    
+
+    writeS3(data) {
+        return writeS3Fn.call(this, data);
+    }
+
     writeOmega(data) {
-        this.omegaData = new Float32Array(data);
-        this.device.queue.writeBuffer(this.omegaBuf, 0, data);
+        return writeOmegaFn.call(this, data);
     }
 
     writeOmegaVec(data) {
-        this.omegaVecData = new Float32Array(data);
-        this.device.queue.writeBuffer(this.omegaVecBuf, 0, data);
+        return writeOmegaVecFn.call(this, data);
     }
-    
-    /**
-     * Write input weights for reservoir computing
-     * @param {Float32Array} weights - Input weight for each oscillator
-     */
+
+    writeGaugeField(ax, ay) {
+        return writeGaugeFieldFn.call(this, ax, ay);
+    }
+
+    writeGraphGauge(data) {
+        return writeGraphGaugeFn.call(this, data);
+    }
+
+    setGaugeParams(state) {
+        return setGaugeParamsFn.call(this, state);
+    }
+
     writeInputWeights(weights) {
-        this.device.queue.writeBuffer(this.inputWeightsBuf, 0, weights);
+        return writeInputWeightsFn.call(this, weights);
     }
-    
-    /**
-     * Set current input signal value for reservoir computing
-     * @param {number} signal - Input signal value
-     */
+
     setInputSignal(signal) {
-        this.device.queue.writeBuffer(this.inputSignalBuf, 0, new Float32Array([signal]));
+        return setInputSignalFn.call(this, signal);
     }
-    
-    /**
-     * Request readback of global order parameter (async, non-blocking)
-     * Call this after step() and the result will be available via getLastGlobalOrder()
-     */
+
     requestGlobalOrderReadback(commandEncoder) {
-        if (this.readbackPending) return; // Don't queue multiple readbacks
-        
-        // Copy global order to staging buffer
-        commandEncoder.copyBufferToBuffer(
-            this.globalOrderBuf, 0,
-            this.globalOrderReadbackBuf, 0,
-            8
-        );
-        
-        // Also copy local stats to staging buffer
-        commandEncoder.copyBufferToBuffer(
-            this.localStatsBuf, 0,
-            this.localStatsReadbackBuf, 0,
-            (5 + 16) * 4
-        );
-        
-        this.readbackPending = true;
+        return requestGlobalOrderReadbackFn.call(this, commandEncoder);
     }
-    
-    /**
-     * Process any pending readback (call once per frame after queue.submit)
-     * Returns promise that resolves with {cos, sin, R, Psi, localStats} or null if no readback pending
-     */
+
     async processReadback() {
-        if (!this.readbackPending) return null;
-        if (this.mappingInProgress) return null;  // Don't start new mapping while one is in progress
-        
-        this.mappingInProgress = true;
-        
-        try {
-            // Read global order
-            await this.globalOrderReadbackBuf.mapAsync(GPUMapMode.READ);
-            const globalData = new Float32Array(this.globalOrderReadbackBuf.getMappedRange().slice(0));
-            this.globalOrderReadbackBuf.unmap();
-            
-            const cosSum = globalData[0];
-            const sinSum = globalData[1];
-            const R = Math.sqrt(cosSum * cosSum + sinSum * sinSum);
-            const Psi = Math.atan2(sinSum, cosSum);
-            
-            this.lastGlobalOrder = { cos: cosSum, sin: sinSum, R, Psi };
-            
-            // Read local stats
-            await this.localStatsReadbackBuf.mapAsync(GPUMapMode.READ);
-            const localData = new Float32Array(this.localStatsReadbackBuf.getMappedRange().slice(0));
-            this.localStatsReadbackBuf.unmap();
-            
-            const hist = localData.slice(5, 21);
-            this.lastLocalStats = {
-                meanR: localData[0],        // Mean local R - better measure of organization
-                syncFraction: localData[1], // Fraction with R > 0.7
-                gradient: localData[2],     // Mean phase gradient - high = waves/spirals
-                variance: localData[3],     // Variance of local R
-                histogram: hist,
-            };
-            
-            this.readbackPending = false;
-            this.mappingInProgress = false;
-            
-            return { ...this.lastGlobalOrder, localStats: this.lastLocalStats };
-        } catch (e) {
-            console.warn('Readback failed:', e);
-            this.readbackPending = false;
-            this.mappingInProgress = false;
-            return null;
-        }
+        return processReadbackFn.call(this);
     }
-    
-    /**
-     * Get the most recent global order parameter (synchronous)
-     */
+
     getLastGlobalOrder() {
-        return this.lastGlobalOrder;
+        return getLastGlobalOrderFn.call(this);
     }
-    
-    /**
-     * Get the most recent local order statistics (synchronous)
-     */
+
     getLastLocalStats() {
-        return this.lastLocalStats;
+        return getLastLocalStatsFn.call(this);
     }
-    
-    /**
-     * Read theta values from GPU (async)
-     * This reads directly from the theta texture, ensuring we get current values
-     * @returns {Promise<Float32Array>} Current theta values
-     */
+
     async readTheta() {
-        // Guard against overlapping reads
-        if (this.thetaReadPending) {
-            return null;
-        }
-        this.thetaReadPending = true;
-        
-        try {
-            // First, copy from texture to staging buffer to ensure we have latest data
-            const encoder = this.device.createCommandEncoder();
-            encoder.copyTextureToBuffer(
-                { texture: this.thetaTexture },
-                { buffer: this.thetaStagingBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
-                [this.gridSize, this.gridSize, this.layers]
-            );
-            this.device.queue.submit([encoder.finish()]);
-            
-            // Create readback buffer if needed (or if size changed)
-            if (!this.thetaReadbackBuf || this.thetaReadbackBuf.size !== this.N * 4) {
-                if (this.thetaReadbackBuf) {
-                    this.thetaReadbackBuf.destroy();
-                }
-                this.thetaReadbackBuf = this.device.createBuffer({
-                    size: this.N * 4,
-                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-                });
-            }
-            
-            // Copy from staging buffer to readback buffer
-            const encoder2 = this.device.createCommandEncoder();
-            encoder2.copyBufferToBuffer(this.thetaStagingBuf, 0, this.thetaReadbackBuf, 0, this.N * 4);
-            this.device.queue.submit([encoder2.finish()]);
-            
-            // Map and read
-            await this.thetaReadbackBuf.mapAsync(GPUMapMode.READ);
-            const data = new Float32Array(this.thetaReadbackBuf.getMappedRange().slice(0));
-            this.thetaReadbackBuf.unmap();
-            
-            return data;
-        } catch (e) {
-            console.warn('readTheta failed:', e);
-            return null;
-        } finally {
-            this.thetaReadPending = false;
-        }
+        return readThetaFn.call(this);
     }
 
     async readS2() {
-        if (this.thetaReadPending) {
-            return null;
-        }
-        this.thetaReadPending = true;
-
-        try {
-            const encoder = this.device.createCommandEncoder();
-            encoder.copyTextureToBuffer(
-                { texture: this.s2Texture },
-                { buffer: this.s2StagingBuf, bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize },
-                [this.gridSize, this.gridSize, this.layers]
-            );
-            this.device.queue.submit([encoder.finish()]);
-
-            if (!this.s2ReadbackBuf || this.s2ReadbackBuf.size !== this.N * 16) {
-                if (this.s2ReadbackBuf) {
-                    this.s2ReadbackBuf.destroy();
-                }
-                this.s2ReadbackBuf = this.device.createBuffer({
-                    size: this.N * 16,
-                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-                });
-            }
-
-            const encoder2 = this.device.createCommandEncoder();
-            encoder2.copyBufferToBuffer(this.s2StagingBuf, 0, this.s2ReadbackBuf, 0, this.N * 16);
-            this.device.queue.submit([encoder2.finish()]);
-
-            await this.s2ReadbackBuf.mapAsync(GPUMapMode.READ);
-            const data = new Float32Array(this.s2ReadbackBuf.getMappedRange().slice(0));
-            this.s2ReadbackBuf.unmap();
-
-            return data;
-        } catch (e) {
-            console.warn('readS2 failed:', e);
-            return null;
-        } finally {
-            this.thetaReadPending = false;
-        }
+        return readS2Fn.call(this);
     }
-    
-    /**
-     * Get the current omega (natural frequency) values
-     * Note: This requires storing omega on CPU side since we only have GPU buffer
-     */
+
+    async readS3() {
+        return readS3Fn.call(this);
+    }
+
+    async readGaugeField() {
+        return readGaugeFieldFn.call(this);
+    }
+
     getOmega() {
-        return this.omegaData; // Will be set during initialization
+        return getOmegaFn.call(this);
     }
-    
-    /**
-     * Store omega data for CPU-side access
-     */
+
     storeOmega(data) {
-        this.omegaData = new Float32Array(data);
+        return storeOmegaFn.call(this, data);
     }
 
-    /**
-     * Interpolate a scalar array from one grid size to another using bilinear interpolation
-     * This is for non-phase values like omega (no phase wrapping)
-     * @param {Float32Array} data - Source values
-     * @param {number} srcSize - Source grid dimension
-     * @param {number} dstSize - Destination grid dimension
-     * @returns {Float32Array} Interpolated values
-     */
     static interpolateScalar(data, srcSize, dstSize, layers = 1) {
-        const layerSizeSrc = srcSize * srcSize;
-        const layerSizeDst = dstSize * dstSize;
-        const result = new Float32Array(layerSizeDst * layers);
-        
-        for (let layer = 0; layer < layers; layer++) {
-            const srcOffset = layer * layerSizeSrc;
-            const dstOffset = layer * layerSizeDst;
-            for (let dstY = 0; dstY < dstSize; dstY++) {
-                for (let dstX = 0; dstX < dstSize; dstX++) {
-                    // Map destination coords to source coords
-                    const srcXf = (dstX + 0.5) * srcSize / dstSize - 0.5;
-                    const srcYf = (dstY + 0.5) * srcSize / dstSize - 0.5;
-                    
-                    // Get integer coordinates and fractions
-                    const x0 = Math.floor(srcXf);
-                    const y0 = Math.floor(srcYf);
-                    const fx = srcXf - x0;
-                    const fy = srcYf - y0;
-                    
-                    // Wrap for periodic boundaries
-                    const x0w = ((x0 % srcSize) + srcSize) % srcSize;
-                    const x1w = ((x0 + 1) % srcSize + srcSize) % srcSize;
-                    const y0w = ((y0 % srcSize) + srcSize) % srcSize;
-                    const y1w = ((y0 + 1) % srcSize + srcSize) % srcSize;
-                    
-                    // Sample 4 corners
-                    const v00 = data[srcOffset + y0w * srcSize + x0w];
-                    const v10 = data[srcOffset + y0w * srcSize + x1w];
-                    const v01 = data[srcOffset + y1w * srcSize + x0w];
-                    const v11 = data[srcOffset + y1w * srcSize + x1w];
-                    
-                    // Standard bilinear interpolation (no phase wrapping)
-                    const value = v00 * (1 - fx) * (1 - fy) +
-                                  v10 * fx * (1 - fy) +
-                                  v01 * (1 - fx) * fy +
-                                  v11 * fx * fy;
-                    
-                    result[dstOffset + dstY * dstSize + dstX] = value;
-                }
-            }
-        }
-        
-        return result;
+        return interpolateScalarFn(data, srcSize, dstSize, layers);
     }
 
-    /**
-     * Interpolate theta array from one grid size to another using bilinear interpolation
-     * Handles phase wrapping correctly
-     * @param {Float32Array} theta - Source theta values
-     * @param {number} srcSize - Source grid dimension
-     * @param {number} dstSize - Destination grid dimension
-     * @returns {Float32Array} Interpolated theta values
-     */
     static interpolateTheta(theta, srcSize, dstSize) {
-        return Simulation.interpolateThetaLayers(theta, srcSize, dstSize, 1);
+        return interpolateThetaFn(theta, srcSize, dstSize);
     }
 
-    /**
-     * Interpolate theta for multiple layers (contiguous layout per layer)
-     */
     static interpolateThetaLayers(theta, srcSize, dstSize, layers) {
-        const layerSizeSrc = srcSize * srcSize;
-        const layerSizeDst = dstSize * dstSize;
-        const result = new Float32Array(layerSizeDst * layers);
-        const PI = Math.PI;
-        const TWO_PI = 2 * PI;
-        
-        for (let layer = 0; layer < layers; layer++) {
-            const srcOffset = layer * layerSizeSrc;
-            const dstOffset = layer * layerSizeDst;
-            for (let dstY = 0; dstY < dstSize; dstY++) {
-                for (let dstX = 0; dstX < dstSize; dstX++) {
-                    // Map destination coords to source coords (0 to srcSize)
-                    const srcXf = (dstX + 0.5) * srcSize / dstSize - 0.5;
-                    const srcYf = (dstY + 0.5) * srcSize / dstSize - 0.5;
-                    
-                    // Get integer coordinates and fractions
-                    const x0 = Math.floor(srcXf);
-                    const y0 = Math.floor(srcYf);
-                    const fx = srcXf - x0;
-                    const fy = srcYf - y0;
-                    
-                    // Wrap for periodic boundaries
-                    const x0w = ((x0 % srcSize) + srcSize) % srcSize;
-                    const x1w = ((x0 + 1) % srcSize + srcSize) % srcSize;
-                    const y0w = ((y0 % srcSize) + srcSize) % srcSize;
-                    const y1w = ((y0 + 1) % srcSize + srcSize) % srcSize;
-                    
-                    // Sample 4 corners
-                    const t00 = theta[srcOffset + y0w * srcSize + x0w];
-                    const t10 = theta[srcOffset + y0w * srcSize + x1w];
-                    const t01 = theta[srcOffset + y1w * srcSize + x0w];
-                    const t11 = theta[srcOffset + y1w * srcSize + x1w];
-                    
-                    // Phase-aware interpolation: compute differences relative to t00
-                    let d10 = t10 - t00;
-                    let d01 = t01 - t00;
-                    let d11 = t11 - t00;
-                    
-                    // Wrap differences to [-π, π]
-                    if (d10 > PI) d10 -= TWO_PI;
-                    if (d10 < -PI) d10 += TWO_PI;
-                    if (d01 > PI) d01 -= TWO_PI;
-                    if (d01 < -PI) d01 += TWO_PI;
-                    if (d11 > PI) d11 -= TWO_PI;
-                    if (d11 < -PI) d11 += TWO_PI;
-                    
-                    // Bilinear interpolation of differences
-                    const interpDiff = d10 * fx * (1 - fy) + 
-                                       d01 * (1 - fx) * fy + 
-                                       d11 * fx * fy;
-                    
-                    // Add back base value and wrap to [0, 2π]
-                    let value = t00 + interpDiff;
-                    while (value < 0) value += TWO_PI;
-                    while (value >= TWO_PI) value -= TWO_PI;
-                    
-                    result[dstOffset + dstY * dstSize + dstX] = value;
-                }
-            }
-        }
-        
-        return result;
+        return interpolateThetaLayersFn(theta, srcSize, dstSize, layers);
     }
 
-    /**
-     * Resize simulation while preserving theta state through interpolation
-     * @param {number} newGridSize - New grid dimension
-     * @returns {Promise<Float32Array>} The interpolated theta (for applying after resize)
-     */
     async resizePreservingState(newGridSize) {
-        const oldSize = this.gridSize;
-
-        while (this.thetaReadPending) {
-            await new Promise(resolve => setTimeout(resolve, 5));
-        }
-        
-        // Read current theta
-        const oldTheta = await this.readTheta();
-        if (!oldTheta || oldTheta.length === 0) {
-            throw new Error('Theta readback unavailable for resize');
-        }
-        
-        // Interpolate to new size
-        const newTheta = Simulation.interpolateThetaLayers(oldTheta, oldSize, newGridSize, this.layers);
-        
-        // Do the resize (destroys old buffers, creates new)
-        this.resize(newGridSize);
-        
-        // Return interpolated theta for caller to apply
-        return newTheta;
+        return resizePreservingStateFn.call(this, newGridSize);
     }
 
     async waitForIdle(maxMs = 200) {
-        const start = performance.now();
-        while (this.thetaReadPending || this.mappingInProgress) {
-            if (performance.now() - start > maxMs) {
-                break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 5));
-        }
+        return waitForIdleFn.call(this, maxMs);
     }
 
     destroy() {
-        for (const tex of this.thetaTextures) {
-            tex.destroy();
-        }
-        if (this.s2Textures) {
-            for (const tex of this.s2Textures) {
-                tex.destroy();
-            }
-        }
-        if (this.thetaStagingBuf) {
-            this.thetaStagingBuf.destroy();
-        }
-        if (this.s2StagingBuf) {
-            this.s2StagingBuf.destroy();
-        }
-        if (this.thetaReadbackBuf) {
-            this.thetaReadbackBuf.destroy();
-            this.thetaReadbackBuf = null;
-        }
-        if (this.s2ReadbackBuf) {
-            this.s2ReadbackBuf.destroy();
-            this.s2ReadbackBuf = null;
-        }
-        if (this.omegaBuf) this.omegaBuf.destroy();
-        if (this.omegaVecBuf) this.omegaVecBuf.destroy();
-        if (this.orderBuf) this.orderBuf.destroy();
-        if (this.paramsBuf) this.paramsBuf.destroy();
-        if (this.globalOrderBuf) this.globalOrderBuf.destroy();
-        if (this.globalOrderAtomicBuf) this.globalOrderAtomicBuf.destroy();
-        if (this.globalOrderReadbackBuf) this.globalOrderReadbackBuf.destroy();
-        if (this.localStatsAtomicBuf) this.localStatsAtomicBuf.destroy();
-        if (this.localHistAtomicBuf) this.localHistAtomicBuf.destroy();
-        if (this.localStatsBuf) this.localStatsBuf.destroy();
-        if (this.localStatsReadbackBuf) this.localStatsReadbackBuf.destroy();
-        if (this.gridSizeUniformBuf) this.gridSizeUniformBuf.destroy();
-        if (this.nUniformBuf) this.nUniformBuf.destroy();
-        for (const buf of this.delayBuffers) {
-            buf.destroy();
-        }
-        this.delayBuffers = [];
-        if (this.inputWeightsBuf) this.inputWeightsBuf.destroy();
-        if (this.inputSignalBuf) this.inputSignalBuf.destroy();
-        if (this.graphNeighborsBuf) this.graphNeighborsBuf.destroy();
-        if (this.graphWeightsBuf) this.graphWeightsBuf.destroy();
-        if (this.graphCountsBuf) this.graphCountsBuf.destroy();
-        if (this.layerParamsBuf) this.layerParamsBuf.destroy();
-        this.bindGroupCache.clear();
-        if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
+        return destroyFn.call(this);
     }
 
-    // Resize the simulation grid
     resize(newGridSize) {
-        // Destroy old textures and buffers
-        for (const tex of this.thetaTextures) {
-            tex.destroy();
-        }
-        if (this.s2Textures) {
-            for (const tex of this.s2Textures) {
-                tex.destroy();
-            }
-        }
-        if (this.thetaStagingBuf) {
-            this.thetaStagingBuf.destroy();
-        }
-        if (this.s2StagingBuf) {
-            this.s2StagingBuf.destroy();
-        }
-        if (this.thetaReadbackBuf) {
-            this.thetaReadbackBuf.destroy();
-            this.thetaReadbackBuf = null;
-        }
-        if (this.s2ReadbackBuf) {
-            this.s2ReadbackBuf.destroy();
-            this.s2ReadbackBuf = null;
-        }
-        this.omegaBuf.destroy();
-        this.omegaVecBuf.destroy();
-        this.orderBuf.destroy();
-        this.paramsBuf.destroy();
-        this.globalOrderBuf.destroy();
-        this.globalOrderAtomicBuf.destroy();
-        if (this.globalOrderReadbackBuf) {
-            this.globalOrderReadbackBuf.destroy();
-        }
-        // Destroy local stats buffers
-        if (this.localStatsAtomicBuf) {
-            this.localStatsAtomicBuf.destroy();
-        }
-        if (this.localHistAtomicBuf) {
-            this.localHistAtomicBuf.destroy();
-        }
-        if (this.localStatsBuf) {
-            this.localStatsBuf.destroy();
-        }
-        if (this.localStatsReadbackBuf) {
-            this.localStatsReadbackBuf.destroy();
-        }
-        if (this.gridSizeUniformBuf) {
-            this.gridSizeUniformBuf.destroy();
-        }
-        if (this.nUniformBuf) {
-            this.nUniformBuf.destroy();
-        }
-        for (let buf of this.delayBuffers) {
-            buf.destroy();
-        }
-        this.delayBuffers = [];
-        
-        // Destroy reservoir computing buffers
-        if (this.inputWeightsBuf) {
-            this.inputWeightsBuf.destroy();
-        }
-        if (this.inputSignalBuf) {
-            this.inputSignalBuf.destroy();
-        }
-        if (this.graphNeighborsBuf) {
-            this.graphNeighborsBuf.destroy();
-        }
-        if (this.graphWeightsBuf) {
-            this.graphWeightsBuf.destroy();
-        }
-        if (this.graphCountsBuf) {
-            this.graphCountsBuf.destroy();
-        }
-        
-        // Clear bind group cache since textures/buffers changed
-        this.bindGroupCache.clear();
-        if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
-        
-        // Update size
-        this.gridSize = newGridSize;
-        this.layerSize = newGridSize * newGridSize;
-        this.N = this.layerSize * this.layers;
-        this.delayBufferIndex = 0;
-        
-        // Recreate textures and buffers
-        this.initBuffers();
-        
-        // Recreate reduction bind groups with new buffers
-        this.reductionBindGroups = [null, null];
-        
-        this.normalizeBindGroup = this.device.createBindGroup({
-            layout: this.normalizePipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.globalOrderAtomicBuf } },
-                { binding: 1, resource: { buffer: this.globalOrderBuf } },
-                { binding: 2, resource: { buffer: this.paramsBuf } },
-            ],
-        });
-        
-        // Recreate local stats bind groups
-        this.localStatsBindGroup = this.device.createBindGroup({
-            layout: this.localStatsPipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.orderBuf } },
-                { binding: 1, resource: { buffer: this.thetaStagingBuf } },
-                { binding: 2, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 3, resource: { buffer: this.localHistAtomicBuf } },
-                { binding: 4, resource: { buffer: this.gridSizeUniformBuf } },
-            ],
-        });
-        
-        this.localStatsNormalizeBindGroup = this.device.createBindGroup({
-            layout: this.localStatsNormalizePipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: this.localStatsAtomicBuf } },
-                { binding: 1, resource: { buffer: this.localHistAtomicBuf } },
-                { binding: 2, resource: { buffer: this.localStatsBuf } },
-                { binding: 3, resource: { buffer: this.nUniformBuf } },
-            ],
-        });
-        
-        // Note: Pipeline doesn't need to be recreated as it's size-independent
+        return resizeFn.call(this, newGridSize);
     }
 }

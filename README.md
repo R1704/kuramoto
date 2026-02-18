@@ -86,10 +86,19 @@ Switch rules using **keyboard 0-5** or the dropdown menu.
 ### Data Layers + Palettes
 
 Visualization now separates **data layers** from **palettes**:
-- Layers: Phase, Velocity, Curvature, Order, Chirality, Phase+Gradient, Image Texture.
+- Layers: Phase, Velocity, Curvature, Order, Chirality, Phase+Gradient, Image Texture, Gauge Flux, Covariant Gradient.
 - Palettes: Rainbow, Viridis, Plasma, Inferno, Twilight (cyclic), Greyscale.
 
 Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
+
+### U(1) Gauge Field (S1)
+
+S1 dynamics support a local U(1) gauge modifier:
+
+- Covariant coupling uses `sin(θ_j - θ_i - qA_ij)` instead of raw phase difference.
+- Grid mode supports link fields `A_x, A_y` and visualizes plaquette flux `F`.
+- Gauge can be `Static` or `Dynamic` (dynamic mode is grid-only).
+- Global coupling is automatically disabled when gauge is enabled in v1.
 
 ### 3D Surface Modes
 - **Continuous Mesh** (default) for smooth height fields.
@@ -461,14 +470,23 @@ Click preset buttons to load fascinating patterns:
 kuramoto/
 ├── index.html              # Main application entry
 ├── src/
-│   ├── main.js            # Application initialization & control
-│   ├── simulation.js      # Compute shader setup & buffer management
-│   ├── renderer.js        # Render pipeline & texture handling
-│   ├── shaders.js         # WGSL shader code (compute + render)
-│   ├── ui.js              # UI controls & event handling
-│   ├── presets.js         # Preset configurations
-│   ├── kernel.js          # Spatial kernel visualization (1D/2D)
-│   └── common.js          # Camera & math utilities
+│   ├── main.js             # Thin bootstrap wrapper
+│   ├── app/
+│   │   ├── bootstrap.js    # App runtime initialization/orchestration
+│   │   ├── defaultState.js # Initial runtime STATE/sparkline defaults
+│   │   ├── stateAdapter.js # Stateful URL-sync adapter over raw STATE
+│   │   ├── controllers/    # Experiment/snapshot/analysis/RC controller helpers
+│   │   ├── presets/loadPreset.js
+│   │   ├── render/frameLoop.js
+│   │   └── view/           # Stats view updater + drawing input wiring
+│   ├── simulation/         # Simulation orchestration + buffers/pipelines/readback/resize helpers
+│   ├── rendering/          # Render pipeline & texture handling
+│   ├── shaders/            # WGSL shader code (compute + render)
+│   ├── ui/                 # UI shell + split bindings/view/external-input modules
+│   ├── statistics/         # Tracker + plot + Lyapunov modules
+│   ├── reservoir/          # IO/learner/tasks/computer modules
+│   ├── patterns/           # Preset configurations + kernel visualization
+│   └── utils/              # Camera/math/state/url helpers
 ├── DOCUMENTATION.md        # Comprehensive mathematical documentation
 ├── ROADMAP.md             # Research roadmap (canonical)
 └── README.md              # This file

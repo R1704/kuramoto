@@ -9,6 +9,13 @@ import { makeRng } from '../utils/index.js';
 
 const TWO_PI = 6.28318;
 
+function wrapToPi(value) {
+    let v = value;
+    while (v <= -Math.PI) v += 2 * Math.PI;
+    while (v > Math.PI) v -= 2 * Math.PI;
+    return v;
+}
+
 /**
  * Reset simulation to initial state based on current pattern selections.
  * @param {Object} sim - Simulation instance
@@ -20,6 +27,11 @@ export function resetSimulation(sim, STATE, lastExternalCanvas = null) {
     const omegaPattern = document.getElementById('omega-pattern-select')?.value || 'random';
     const omegaAmp = parseFloat(document.getElementById('omega-amplitude-slider')?.value || 0.4);
 
+    if (STATE.manifoldMode === 's3') {
+        applyS3Pattern(sim, thetaPattern, null, null, makeRng(STATE.seed, `s3:${thetaPattern}`));
+        applyOmega3Pattern(sim, omegaPattern, omegaAmp, null, null, makeRng(STATE.seed, `s3omega:${omegaPattern}`));
+        return;
+    }
     if (STATE.manifoldMode === 's2') {
         applyS2Pattern(sim, thetaPattern, null, null, makeRng(STATE.seed, `s2:${thetaPattern}`));
         applyOmegaVecPattern(sim, omegaPattern, omegaAmp, null, null, makeRng(STATE.seed, `s2omega:${omegaPattern}`));
@@ -222,12 +234,142 @@ export function applyOmegaPattern(sim, pattern, amp, targetLayers = null, omegaB
 }
 
 /**
+ * Apply gauge-link initialization pattern (U(1), S1 manifold).
+ * Returns generated gauge arrays for callers that need them.
+ * @param {Object} sim - Simulation instance
+ * @param {string} pattern - 'zero' | 'uniform_flux' | 'random_link' | 'pure_gauge'
+ * @param {Object} options - { amplitude, fluxBias, graphSeed }
+ * @param {number[]|null} targetLayers - Layer indices to apply; null => all
+ * @param {Object|null} baseGauge - Optional base fields { ax, ay, graph }
+ * @param {Object|null} rng - Deterministic RNG
+ * @returns {{ax: Float32Array, ay: Float32Array, graph: Float32Array|null}}
+ */
+export function applyGaugePattern(sim, pattern, options = {}, targetLayers = null, baseGauge = null, rng = null) {
+    const grid = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = grid * grid;
+    const N = sim.N;
+    const amp = Number.isFinite(options.amplitude) ? options.amplitude : 0.5;
+    const fluxBias = Number.isFinite(options.fluxBias) ? options.fluxBias : 0.0;
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
+    const rand = rng ? rng.float : Math.random;
+    const graphSeed = Number.isFinite(options.graphSeed) ? Math.floor(options.graphSeed) : null;
+    const graphRng = graphSeed !== null ? makeRng(graphSeed, `gauge-graph:${pattern}`) : null;
+    const graphRand = graphRng ? graphRng.float : rand;
+
+    const ax = baseGauge?.ax && baseGauge.ax.length === N ? new Float32Array(baseGauge.ax) : new Float32Array(N);
+    const ay = baseGauge?.ay && baseGauge.ay.length === N ? new Float32Array(baseGauge.ay) : new Float32Array(N);
+
+    if (pattern === 'uniform_flux') {
+        const B0 = wrapToPi(fluxBias);
+        for (const layer of targets) {
+            const layerOffset = layer * layerSize;
+            for (let r = 0; r < grid; r++) {
+                for (let c = 0; c < grid; c++) {
+                    const idx = layerOffset + r * grid + c;
+                    ax[idx] = 0.0;
+                    ay[idx] = wrapToPi(B0 * ((c / Math.max(1, grid - 1)) - 0.5));
+                }
+            }
+        }
+    } else if (pattern === 'random_link') {
+        for (const layer of targets) {
+            const layerOffset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const idx = layerOffset + i;
+                ax[idx] = (rand() * 2 - 1) * amp;
+                ay[idx] = (rand() * 2 - 1) * amp;
+            }
+        }
+    } else if (pattern === 'pure_gauge') {
+        const chi = new Float32Array(N);
+        for (const layer of targets) {
+            const layerOffset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                chi[layerOffset + i] = (rand() * 2 - 1) * amp;
+            }
+            for (let r = 0; r < grid; r++) {
+                for (let c = 0; c < grid; c++) {
+                    const idx = layerOffset + r * grid + c;
+                    const right = layerOffset + r * grid + ((c + 1) % grid);
+                    const up = layerOffset + ((r + 1) % grid) * grid + c;
+                    ax[idx] = wrapToPi(chi[right] - chi[idx]);
+                    ay[idx] = wrapToPi(chi[up] - chi[idx]);
+                }
+            }
+        }
+    } else {
+        // zero
+        for (const layer of targets) {
+            const layerOffset = layer * layerSize;
+            ax.fill(0, layerOffset, layerOffset + layerSize);
+            ay.fill(0, layerOffset, layerOffset + layerSize);
+        }
+    }
+
+    let graphGauge = null;
+    const topo = sim.topologyInfo;
+    const maxDegree = sim.maxGraphDegree || 16;
+    if (topo?.neighbors && topo?.counts) {
+        const expected = N * maxDegree;
+        graphGauge = baseGauge?.graph && baseGauge.graph.length === expected
+            ? new Float32Array(baseGauge.graph)
+            : new Float32Array(expected);
+        const edgePhase = new Map();
+        const nodePhase = pattern === 'pure_gauge' ? new Float32Array(N) : null;
+        if (nodePhase) {
+            for (let i = 0; i < N; i++) nodePhase[i] = (graphRand() * 2 - 1) * amp;
+        }
+        for (let i = 0; i < N; i++) {
+            const count = Math.min(topo.counts[i], maxDegree);
+            const base = i * maxDegree;
+            for (let k = 0; k < count; k++) {
+                const j = topo.neighbors[base + k];
+                const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+                let phi = edgePhase.get(key);
+                if (phi === undefined) {
+                    if (pattern === 'random_link') {
+                        phi = (graphRand() * 2 - 1) * amp;
+                    } else if (pattern === 'uniform_flux') {
+                        phi = wrapToPi(fluxBias);
+                    } else if (pattern === 'pure_gauge' && nodePhase) {
+                        phi = wrapToPi(nodePhase[j] - nodePhase[i]);
+                    } else {
+                        phi = 0.0;
+                    }
+                    edgePhase.set(key, phi);
+                }
+                graphGauge[base + k] = i < j ? phi : -phi;
+            }
+            for (let k = count; k < maxDegree; k++) {
+                graphGauge[base + k] = 0.0;
+            }
+        }
+    }
+
+    if (typeof sim.writeGaugeField === 'function') {
+        sim.writeGaugeField(ax, ay);
+    }
+    if (graphGauge && typeof sim.writeGraphGauge === 'function') {
+        sim.writeGraphGauge(graphGauge);
+    }
+
+    return { ax, ay, graph: graphGauge };
+}
+
+/**
  * Randomize theta values.
  * @param {Object} sim - Simulation instance
  * @param {number} seed - Random seed
- * @param {string} manifoldMode - Current manifold mode ('s1' or 's2')
+ * @param {string} manifoldMode - Current manifold mode ('s1', 's2', or 's3')
  */
 export function randomizeTheta(sim, seed, manifoldMode = 's1') {
+    if (manifoldMode === 's3') {
+        applyS3Pattern(sim, 'random', null, null, makeRng(seed, 's3:randomize'));
+        return;
+    }
     if (manifoldMode === 's2') {
         applyS2Pattern(sim, 'random', null, null, makeRng(seed, 's2:randomize'));
         return;
@@ -302,8 +444,57 @@ export function applyS2Pattern(sim, pattern, targetLayers = null, vecBase = null
                 }
             }
         });
+    } else if (pattern === 'spiral') {
+        // Vectors rotate around Z-axis based on angle from center
+        const cx = GRID / 2;
+        const cy = GRID / 2;
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const angle = Math.atan2(r - cy, c - cx);
+                    // Vector lies in XY plane, rotated by angle
+                    const x = Math.cos(angle);
+                    const y = Math.sin(angle);
+                    const z = 0;
+                    const base = (offset + r * GRID + c) * 4;
+                    data[base] = x;
+                    data[base + 1] = y;
+                    data[base + 2] = z;
+                    data[base + 3] = 1;
+                }
+            }
+        });
+    } else if (pattern === 'target') {
+        // Latitude bands: z varies with radial distance from center
+        const cx = GRID / 2;
+        const cy = GRID / 2;
+        const maxDist = Math.sqrt(cx * cx + cy * cy);
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const dx = c - cx;
+                    const dy = r - cy;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    // Map distance to elevation: center is north pole, edges are south
+                    const el = (1 - dist / maxDist) * Math.PI - Math.PI / 2;
+                    // Azimuth from position angle
+                    const az = Math.atan2(dy, dx);
+                    const cosEl = Math.cos(el);
+                    const x = cosEl * Math.cos(az);
+                    const y = cosEl * Math.sin(az);
+                    const z = Math.sin(el);
+                    const base = (offset + r * GRID + c) * 4;
+                    data[base] = x;
+                    data[base + 1] = y;
+                    data[base + 2] = z;
+                    data[base + 3] = 1;
+                }
+            }
+        });
     } else {
-        // random / target / image -> random on sphere
+        // random / image -> random on sphere
         targets.forEach(layer => {
             const offset = layer * layerSize;
             for (let i = 0; i < layerSize; i++) {
@@ -354,7 +545,58 @@ export function applyOmegaVecPattern(sim, pattern, amp, targetLayers = null, ome
                 omega[base + 3] = 0;
             }
         });
+    } else if (pattern === 'gradient') {
+        // Rotation magnitude varies by row
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const t = r / Math.max(1, GRID - 1);
+                    const magnitude = (t * 2 - 1) * amp;
+                    const base = (offset + r * GRID + c) * 4;
+                    omega[base] = 0;
+                    omega[base + 1] = 0;
+                    omega[base + 2] = magnitude;
+                    omega[base + 3] = 0;
+                }
+            }
+        });
+    } else if (pattern === 'checkerboard') {
+        // Alternating ±Z rotation axes
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const sign = ((r + c) % 2 === 0) ? 1 : -1;
+                    const base = (offset + r * GRID + c) * 4;
+                    omega[base] = 0;
+                    omega[base + 1] = 0;
+                    omega[base + 2] = sign * amp;
+                    omega[base + 3] = 0;
+                }
+            }
+        });
+    } else if (pattern === 'center_fast') {
+        // Gaussian-weighted rotation magnitude from center
+        const cx = GRID / 2;
+        const cy = GRID / 2;
+        const sigma = GRID / 4;
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const d2 = (c - cx) ** 2 + (r - cy) ** 2;
+                    const magnitude = amp * Math.exp(-d2 / (2 * sigma * sigma));
+                    const base = (offset + r * GRID + c) * 4;
+                    omega[base] = 0;
+                    omega[base + 1] = 0;
+                    omega[base + 2] = magnitude;
+                    omega[base + 3] = 0;
+                }
+            }
+        });
     } else {
+        // random pattern
         targets.forEach(layer => {
             const offset = layer * layerSize;
             for (let i = 0; i < layerSize; i++) {
@@ -378,6 +620,158 @@ export function applyOmegaVecPattern(sim, pattern, amp, targetLayers = null, ome
     }
 
     sim.writeOmegaVec(omega);
+}
+
+/**
+ * Apply S3 (3-sphere/quaternion) manifold pattern.
+ * @param {Object} sim - Simulation instance
+ * @param {string} pattern - Pattern type ('synchronized', 'gradient', 'random')
+ * @param {number[]|null} targetLayers - Array of layer indices to apply, or null for all
+ * @param {Float32Array|null} quatBase - Base quaternion values to modify, or null for new array
+ * @param {Object|null} rng - Random number generator
+ */
+export function applyS3Pattern(sim, pattern, targetLayers = null, quatBase = null, rng = null) {
+    const N = sim.N;
+    const GRID = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = GRID * GRID;
+    const data = quatBase ? new Float32Array(quatBase) : new Float32Array(N * 4);
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
+
+    const rand = rng ? rng.float : Math.random;
+    const normal = rng ? rng.normal : null;
+
+    if (pattern === 'synchronized') {
+        // All quaternions = (0, 0, 0, 1) - identity rotation
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const base = (offset + i) * 4;
+                data[base] = 0;      // x
+                data[base + 1] = 0;  // y
+                data[base + 2] = 0;  // z
+                data[base + 3] = 1;  // w
+            }
+        });
+    } else if (pattern === 'gradient') {
+        // Interpolate quaternions across grid using rotation around Z-axis
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    // Angle varies across grid
+                    const t = (c + r) / Math.max(1, (GRID - 1) * 2);
+                    const angle = t * Math.PI * 2;
+                    // Quaternion for rotation around Z-axis: (0, 0, sin(θ/2), cos(θ/2))
+                    const halfAngle = angle / 2;
+                    const base = (offset + r * GRID + c) * 4;
+                    data[base] = 0;                     // x
+                    data[base + 1] = 0;                 // y
+                    data[base + 2] = Math.sin(halfAngle);  // z
+                    data[base + 3] = Math.cos(halfAngle);  // w
+                }
+            }
+        });
+    } else {
+        // random pattern: uniform random on S³ using normalized 4D Gaussian
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                let x, y, z, w;
+                if (normal) {
+                    x = normal(0, 1);
+                    y = normal(0, 1);
+                    z = normal(0, 1);
+                    w = normal(0, 1);
+                } else {
+                    // Box-Muller for 4 Gaussian samples
+                    const u1 = rand(), u2 = rand(), u3 = rand(), u4 = rand();
+                    const r1 = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10)));
+                    const r2 = Math.sqrt(-2 * Math.log(Math.max(u3, 1e-10)));
+                    x = r1 * Math.cos(2 * Math.PI * u2);
+                    y = r1 * Math.sin(2 * Math.PI * u2);
+                    z = r2 * Math.cos(2 * Math.PI * u4);
+                    w = r2 * Math.sin(2 * Math.PI * u4);
+                }
+                // Normalize to unit quaternion
+                const len = Math.sqrt(x * x + y * y + z * z + w * w);
+                const base = (offset + i) * 4;
+                data[base] = x / len;
+                data[base + 1] = y / len;
+                data[base + 2] = z / len;
+                data[base + 3] = w / len;
+            }
+        });
+    }
+
+    sim.writeS3(data);
+}
+
+/**
+ * Apply omega pattern for S3 manifold.
+ * Omega is a 3D angular velocity vector (rotation axis × speed).
+ * @param {Object} sim - Simulation instance
+ * @param {string} pattern - Pattern type ('uniform', 'random')
+ * @param {number} amp - Amplitude
+ * @param {number[]|null} targetLayers - Array of layer indices to apply, or null for all
+ * @param {Float32Array|null} omegaBase - Base omega values to modify, or null for new array
+ * @param {Object|null} rng - Random number generator
+ */
+export function applyOmega3Pattern(sim, pattern, amp, targetLayers = null, omegaBase = null, rng = null) {
+    const N = sim.N;
+    const GRID = sim.gridSize;
+    const layers = sim.layers || 1;
+    const layerSize = GRID * GRID;
+    const omega = omegaBase ? new Float32Array(omegaBase) : new Float32Array(N * 4);
+    const targets = Array.isArray(targetLayers) && targetLayers.length > 0
+        ? targetLayers
+        : Array.from({ length: layers }, (_, i) => i);
+    const normal = rng ? rng.normal : null;
+    const rand = rng ? rng.float : Math.random;
+
+    if (pattern === 'uniform') {
+        // All oscillators rotate around Z-axis with same speed
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                const base = (offset + i) * 4;
+                omega[base] = 0;
+                omega[base + 1] = 0;
+                omega[base + 2] = amp;
+                omega[base + 3] = 0;
+            }
+        });
+    } else {
+        // random pattern: 3D Gaussian-distributed rotation vectors
+        targets.forEach(layer => {
+            const offset = layer * layerSize;
+            for (let i = 0; i < layerSize; i++) {
+                let x, y, z;
+                if (normal) {
+                    x = normal(0, amp);
+                    y = normal(0, amp);
+                    z = normal(0, amp);
+                } else {
+                    // Box-Muller
+                    const u1 = rand(), u2 = rand(), u3 = rand(), u4 = rand();
+                    const r1 = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10)));
+                    const r2 = Math.sqrt(-2 * Math.log(Math.max(u3, 1e-10)));
+                    x = r1 * Math.cos(2 * Math.PI * u2) * amp;
+                    y = r1 * Math.sin(2 * Math.PI * u2) * amp;
+                    z = r2 * Math.cos(2 * Math.PI * u4) * amp;
+                }
+                const base = (offset + i) * 4;
+                omega[base] = x;
+                omega[base + 1] = y;
+                omega[base + 2] = z;
+                omega[base + 3] = 0;
+            }
+        });
+    }
+
+    sim.writeOmegaVec(omega);  // S³ uses same buffer as S²
 }
 
 /**

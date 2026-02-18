@@ -11,11 +11,14 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 - **Minimal confounding**: add one capability at a time with clear acceptance tests.
 
 ## Current system snapshot
-- Core simulation: `src/simulation.js` + WGSL in `src/shaders.js` (rules 0-5, kernels, topology mode).
-- Rendering: `src/renderer.js` (fast 2D triangle path + 3D mesh/instanced).
-- UI/state: `index.html` + `src/ui.js` + `src/urlstate.js`.
-- Analysis: `src/statistics.js` (Local/Global order, χ proxy, K-scan, LLE heuristic, FSS).
-- Reservoir: `src/reservoir.js` (input injection modes + sparse readout + online RLS).
+- Runtime bootstrap: `src/main.js` + `src/app/bootstrap.js` + `src/app/{defaultState,stateAdapter}.js` + `src/app/render/frameLoop.js`.
+- Core simulation: `src/simulation/Simulation.js` + `src/simulation/{buffers,pipelines,readback,resize}.js` + WGSL in `src/shaders/shaders.js` (rules 0-5, kernels, topology mode).
+- Gauge extension (S1): local U(1) link fields (`A_x`, `A_y`, graph edge phases), static/dynamic gauge modes, gauge-aware layers (flux and covariant gradient).
+- Rendering: `src/rendering/Renderer.js` (fast 2D triangle path + 3D mesh/instanced).
+- UI/state: `index.html` + `src/ui/UIManager.js` + `src/ui/{bindings,view}/*` + `src/utils/urlstate.js`.
+- Controllers: `src/app/controllers/{experimentController,snapshotController,analysisController,rcController}.js`.
+- Analysis: `src/statistics/{StatisticsTracker,LyapunovCalculator,TimeSeriesPlot,PhaseDiagramPlot,PhaseSpacePlot}.js` + `src/app/view/{updateStatsView,initDrawing}.js` (Local/Global order, χ proxy, K-scan, LLE heuristic, FSS).
+- Reservoir: `src/reservoir/{ReservoirComputer,ReservoirIO,OnlineLearner,RidgeRegression,RCTasks}.js` (input injection modes + sparse readout + online RLS).
 
 ## Interaction primer (what exists today)
 - Draw/erase: Cmd+drag draws random phase seeds; Cmd+Shift+drag erases.
@@ -38,6 +41,7 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 - **Spatiotemporal benchmark polish**: moving-dot task is exposed in UI and rendered with dot/ghost/trail HUD.
 - **Input-mode comparison**: injection mode compare runner + plot + export for `freq_mod` / `phase_drive` / `coupling_mod` under shared seed.
 - **Order-history sparkline**: implemented as control-panel sparklines with pause + export.
+- **Gauge validation sweep**: add deterministic covariance and stability checks to the experiment runner outputs.
 
 ### Phase 0 — Make outputs trustworthy
 Goal: you can rely on displayed numbers and exported files.

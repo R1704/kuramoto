@@ -10,9 +10,12 @@ export {
     resetSimulation,
     applyThetaPattern,
     applyOmegaPattern,
+    applyGaugePattern,
     randomizeTheta,
     applyS2Pattern,
     applyOmegaVecPattern,
+    applyS3Pattern,
+    applyOmega3Pattern,
     applyExternalInput,
     rgbToHue
 } from './patterns.js';

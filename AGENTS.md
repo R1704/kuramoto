@@ -64,9 +64,12 @@ any sizable change. Prefer concise, verifiable guidance over speculation.
 
 ## Repo Snapshot
 - App type: static WebGPU app (ES modules, no bundler)
-- Entry points: `index.html`, `src/main.js`
-- UI wiring: `src/ui.js` manages DOM and state changes
-- Core compute: `src/simulation.js` + WGSL in `src/shaders.js`
+- Entry points: `index.html`, `src/main.js` (thin wrapper), `src/app/bootstrap.js`
+- Runtime defaults/input helpers: `src/app/defaultState.js`, `src/app/view/initDrawing.js`
+- UI wiring: `src/ui/UIManager.js` composes `src/ui/bindings/*`, `src/ui/view/*`, and `src/ui/externalInput.js`
+- Bootstrap controllers: `src/app/controllers/{experimentController,snapshotController,analysisController,rcController}.js`
+- Core compute: `src/simulation/Simulation.js` orchestrates `src/simulation/{buffers,pipelines,readback,resize}.js` + WGSL in `src/shaders/shaders.js`
+- Gauge extension: S1 U(1) link fields in `src/simulation/{buffers,pipelines}.js` + gauge patterns in `src/patterns/patterns.js`
 
 ## Build / Lint / Test
 - Run locally: `python -m http.server 8000` or `npx serve`
@@ -111,6 +114,7 @@ Use after any change to equations, buffers, or shader parameters.
 - Confirm parameter ranges in UI match shader expectations
 - Check uniform indexing and buffer layout alignment (JS <-> WGSL)
 - Verify normalization factors (N, gridSize, range) remain consistent
+- Verify gauge conventions (link orientation, plaquette flux sign, phase wrapping to (-pi, pi])
 - Re-check order parameter, local order, and gradient formulas
 
 ## Debugger Checklist (after large edit)
