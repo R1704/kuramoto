@@ -46,6 +46,12 @@ let lastExternalCanvas = null;
 let gridResizeInProgress = false;
 let APP_RUNTIME = null;
 
+function clampGaugeLayerSelection(state) {
+    if (state.manifoldMode !== 's1' && state.colormap >= 7) {
+        state.colormap = 0;
+    }
+}
+
 async function init() {
     // Check WebGPU support
     if (!navigator.gpu) {
@@ -121,6 +127,7 @@ async function init() {
 
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
+    clampGaugeLayerSelection(STATE);
 
     // Normalize/initialize seed for reproducible experiments
     if (STATE.seed === undefined || STATE.seed === null) {
@@ -431,6 +438,7 @@ async function init() {
             if (STATE.gaugeEnabled && STATE.globalCoupling) {
                 STATE.globalCoupling = false;
             }
+            clampGaugeLayerSelection(STATE);
             if (STATE.manifoldMode === 's2' || STATE.manifoldMode === 's3') {
                 if (STATE.thetaPattern !== 'random' && STATE.thetaPattern !== 'synchronized') {
                     STATE.thetaPattern = 'random';
@@ -1888,6 +1896,7 @@ async function init() {
 function handlePopState() {
     try {
         loadStateFromURL(STATE);
+        clampGaugeLayerSelection(STATE);
         if (APP_RUNTIME?.sim) {
             APP_RUNTIME.sim.updateFullParams(STATE);
             APP_RUNTIME.sim.setManifoldMode(STATE.manifoldMode);

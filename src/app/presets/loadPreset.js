@@ -35,6 +35,9 @@ export async function loadPreset({ name, sim, ui, state, lastExternalCanvas }) {
 
     const rng = makeRng(state.seed, `preset:${name}`);
     Presets[name](state, sim, rng);
+    if (state.manifoldMode !== 's1' && state.colormap >= 7) {
+        state.colormap = 0;
+    }
 
     syncStateToLayerParams(state, targets);
     sim.writeLayerParams(state.layerParams);

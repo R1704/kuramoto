@@ -87,6 +87,7 @@ Switch rules using **keyboard 0-5** or the dropdown menu.
 
 Visualization now separates **data layers** from **palettes**:
 - Layers: Phase, Velocity, Curvature, Order, Chirality, Phase+Gradient, Image Texture, Gauge Flux, Covariant Gradient.
+  - `Gauge Flux` and `Covariant Gradient` are available on **S1 only**.
 - Palettes: Rainbow, Viridis, Plasma, Inferno, Twilight (cyclic), Greyscale.
 
 Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
@@ -99,6 +100,24 @@ S1 dynamics support a local U(1) gauge modifier:
 - Grid mode supports link fields `A_x, A_y` and visualizes plaquette flux `F`.
 - Gauge can be `Static` or `Dynamic` (dynamic mode is grid-only).
 - Global coupling is automatically disabled when gauge is enabled in v1.
+- UI location: **Dynamics → Coupling → Gauge Field (U(1))** panel.
+
+Gauge controls and effects:
+
+| Parameter | Effect |
+|---|---|
+| Enable Gauge Field | Activates covariant coupling; introduces frustration/defects under nonzero gauge fields |
+| Gauge Mode | `Static`: fixed links, `Dynamic`: links co-evolve with oscillator currents |
+| Charge `q` | Scales gauge phase shift `qA_ij`; larger `q` increases gauge influence |
+| Matter Coupling `g_J` | Dynamic mode current-to-field feedback strength |
+| Magnetic Stiffness `κ_B` | Smooths plaquette flux by penalizing sharp magnetic curvature |
+| Gauge Damping `γ_A` | Relaxes links toward zero when not sustained |
+| Gauge Noise | Adds stochastic forcing to gauge links |
+| Gauge dt Scale | Speeds up/slows down gauge integration relative to oscillator dt |
+| Init Pattern | `zero`, `uniform_flux`, `random_link`, `pure_gauge` |
+| Init Amplitude | Magnitude for random-link and pure-gauge initialization |
+| Flux Bias `B0` | Target uniform plaquette flux (uniform-flux init) |
+| Gauge Graph Seed | Deterministic graph-link initialization seed |
 
 ### 3D Surface Modes
 - **Continuous Mesh** (default) for smooth height fields.

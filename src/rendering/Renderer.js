@@ -62,6 +62,11 @@ export class Renderer {
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
                 },
+                {
+                    binding: 9,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
             ],
         });
         this.pipelineLayout = device.createPipelineLayout({
@@ -192,6 +197,7 @@ export class Renderer {
                         { binding: 6, resource: { buffer: this.renderLayerBuf, offset: layer * this.renderLayerStride, size: 16 } },
                         { binding: 7, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
                         { binding: 8, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
+                        { binding: 9, resource: { buffer: sim.gaugeParamsBuf } },
                     ],
                 }));
             }
@@ -354,6 +360,7 @@ export class Renderer {
                     { binding: 4, resource: this.externalTexture.createView() },
                     { binding: 5, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
                     { binding: 6, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
+                    { binding: 7, resource: { buffer: sim.gaugeParamsBuf } },
                 ],
             });
             this.bindGroups2D.set(keyTexture, bindGroup);

@@ -137,6 +137,11 @@ export function updateDisplay() {
         if (gaugeModeSelect) gaugeModeSelect.value = this.state.gaugeMode || 'static';
         const gaugeInitPatternSelect = document.getElementById('gauge-init-pattern-select');
         if (gaugeInitPatternSelect) gaugeInitPatternSelect.value = this.state.gaugeInitPattern || 'zero';
+        const gaugeGraphSeedInput = document.getElementById('gauge-graph-seed-input');
+        const gaugeGraphSeedVal = document.getElementById('gauge-graph-seed-value');
+        const gaugeGraphSeed = Math.max(1, Math.floor(this.state.gaugeGraphSeed ?? 1));
+        if (gaugeGraphSeedInput) gaugeGraphSeedInput.value = gaugeGraphSeed;
+        if (gaugeGraphSeedVal) gaugeGraphSeedVal.textContent = gaugeGraphSeed;
         const gaugeStatus = document.getElementById('gauge-status');
         if (gaugeStatus) {
             if (this.state.manifoldMode !== 's1') {
@@ -166,7 +171,15 @@ export function updateDisplay() {
         update('kernel-gabor-phase-slider', this.state.kernelGaborPhase);
 
         const layerSelect = document.getElementById('data-layer-select');
-        if (layerSelect) layerSelect.value = this.state.colormap;
+        if (layerSelect) {
+            const showGaugeLayers = this.state.manifoldMode === 's1';
+            const gaugeFluxOption = document.getElementById('data-layer-gauge-flux');
+            const covGradOption = document.getElementById('data-layer-cov-gradient');
+            if (gaugeFluxOption) gaugeFluxOption.hidden = !showGaugeLayers;
+            if (covGradOption) covGradOption.hidden = !showGaugeLayers;
+            const safeLayer = showGaugeLayers ? this.state.colormap : Math.min(this.state.colormap, 6);
+            layerSelect.value = safeLayer;
+        }
         const paletteSelect = document.getElementById('palette-select');
         if (paletteSelect) paletteSelect.value = this.state.colormapPalette;
         
@@ -404,7 +417,8 @@ export function updateDisplay() {
             'gauge-dt-scale-slider',
             'gauge-init-pattern-select',
             'gauge-init-amplitude-slider',
-            'gauge-flux-bias-slider'
+            'gauge-flux-bias-slider',
+            'gauge-graph-seed-input'
         ];
         gaugeControlIds.forEach((id) => {
             const el = document.getElementById(id);

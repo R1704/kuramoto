@@ -130,6 +130,17 @@ export function bindControls() {
                 if (this.cb.onApplyGaugeInit) this.cb.onApplyGaugeInit();
             });
         }
+        const gaugeGraphSeedInput = document.getElementById('gauge-graph-seed-input');
+        if (gaugeGraphSeedInput) {
+            gaugeGraphSeedInput.addEventListener('change', () => {
+                const next = Math.max(1, parseInt(gaugeGraphSeedInput.value, 10) || 1);
+                this.state.gaugeGraphSeed = next;
+                const disp = document.getElementById('gauge-graph-seed-value');
+                if (disp) disp.textContent = `${next}`;
+                gaugeGraphSeedInput.value = `${next}`;
+                this.cb.onParamChange();
+            });
+        }
         const wsKSlider = document.getElementById('ws-k-slider');
         if (wsKSlider) {
             wsKSlider.addEventListener('change', () => {

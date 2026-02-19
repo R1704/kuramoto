@@ -1513,6 +1513,17 @@ struct Params {
     topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
     layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
+
+struct GaugeParams {
+    enabled: f32,
+    mode_dynamic: f32,
+    charge: f32,
+    matter_coupling: f32,
+    stiffness: f32,
+    damping: f32,
+    noise: f32,
+    dt_scale: f32,
+}
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<uniform> viewProj: mat4x4<f32>;
@@ -1522,6 +1533,7 @@ struct Params {
 @group(0) @binding(6) var<uniform> render_layer: vec4<f32>;
 @group(0) @binding(7) var gauge_x_tex: texture_2d_array<f32>;
 @group(0) @binding(8) var gauge_y_tex: texture_2d_array<f32>;
+@group(0) @binding(9) var<uniform> gauge_params: GaugeParams;
 
 // Helper to load theta from texture
 fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
@@ -1805,10 +1817,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let ay_down = loadGaugeYRender(c, r - 1, active_layer, cols, rows);
     let ay_right = loadGaugeYRender(c + 1, r, active_layer, cols, rows);
     let ax_up = loadGaugeXRender(c, r + 1, active_layer, cols, rows);
-    let cov_dx_f = wrapPhaseDiff(right - theta - ax);
-    let cov_dx_b = wrapPhaseDiff(theta - left - ax_left);
-    let cov_dy_f = wrapPhaseDiff(up - theta - ay);
-    let cov_dy_b = wrapPhaseDiff(theta - down - ay_down);
+    let q = gauge_params.charge;
+    let cov_dx_f = wrapPhaseDiff(right - theta - q * ax);
+    let cov_dx_b = wrapPhaseDiff(theta - left - q * ax_left);
+    let cov_dy_f = wrapPhaseDiff(up - theta - q * ay);
+    let cov_dy_b = wrapPhaseDiff(theta - down - q * ay_down);
     let cov_grad = sqrt((cov_dx_f + cov_dx_b) * (cov_dx_f + cov_dx_b) + (cov_dy_f + cov_dy_b) * (cov_dy_f + cov_dy_b)) * 0.25;
     let flux_raw = ax + ay_right - ax_up - ay;
     let flux_norm = clamp(0.5 + 0.5 * sin(flux_raw), 0.0, 1.0);
@@ -2523,6 +2536,17 @@ struct Params {
     layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
 }
 
+struct GaugeParams {
+    enabled: f32,
+    mode_dynamic: f32,
+    charge: f32,
+    matter_coupling: f32,
+    stiffness: f32,
+    damping: f32,
+    noise: f32,
+    dt_scale: f32,
+}
+
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<storage, read> order: array<f32>;
@@ -2530,6 +2554,7 @@ struct Params {
 @group(0) @binding(4) var externalTexture: texture_2d<f32>;
 @group(0) @binding(5) var gauge_x_tex_2d: texture_2d_array<f32>;
 @group(0) @binding(6) var gauge_y_tex_2d: texture_2d_array<f32>;
+@group(0) @binding(7) var<uniform> gauge_params_2d: GaugeParams;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -3002,10 +3027,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let left_phase = sample_theta_wrapped(c - 1, r, cols, rows, active_layer);
     let up_phase = sample_theta_wrapped(c, r + 1, cols, rows, active_layer);
     let down_phase = sample_theta_wrapped(c, r - 1, cols, rows, active_layer);
-    let cov_dx_f = wrap_diff(right_phase - theta - ax);
-    let cov_dx_b = wrap_diff(theta - left_phase - ax_left);
-    let cov_dy_f = wrap_diff(up_phase - theta - ay);
-    let cov_dy_b = wrap_diff(theta - down_phase - ay_down);
+    let q = gauge_params_2d.charge;
+    let cov_dx_f = wrap_diff(right_phase - theta - q * ax);
+    let cov_dx_b = wrap_diff(theta - left_phase - q * ax_left);
+    let cov_dy_f = wrap_diff(up_phase - theta - q * ay);
+    let cov_dy_b = wrap_diff(theta - down_phase - q * ay_down);
     let cov_grad = sqrt((cov_dx_f + cov_dx_b) * (cov_dx_f + cov_dx_b) + (cov_dy_f + cov_dy_b) * (cov_dy_f + cov_dy_b)) * 0.25;
     let flux_raw = ax + ay_right - ax_up - ay;
     let flux_norm = clamp(0.5 + 0.5 * sin(flux_raw), 0.0, 1.0);

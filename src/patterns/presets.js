@@ -113,7 +113,7 @@ export const Presets = {
                 for (let c = 0; c < grid; c++) {
                     const idx = offset + r * grid + c;
                     ax[idx] = 0.0;
-                    ay[idx] = wrapPi(state.gaugeFluxBias * ((c / Math.max(1, grid - 1)) - 0.5));
+                    ay[idx] = wrapPi(state.gaugeFluxBias * c);
                 }
             }
         }

@@ -87,6 +87,25 @@ $$F(x,y)=A_x(x,y)+A_y(x+1,y)-A_x(x,y+1)-A_y(x,y).$$
 
 Dynamic gauge evolution is available for grid topology; WS/BA topologies currently support static per-edge gauge links.
 
+UI placement: the gauge controls live in **Dynamics → Coupling → Gauge Field (U(1))**.
+
+Gauge parameter reference:
+
+| Parameter | Mathematical role | Expected qualitative effect |
+|---|---|---|
+| Enable Gauge Field | Enables covariant phase difference `θ_j-θ_i-qA_ij` | More frustration and defect structure vs plain S1 Kuramoto |
+| Gauge Mode | Static field vs dynamic field evolution | Static background experiments vs co-evolving matter+gauge dynamics |
+| Charge `q` | Multiplies link phase shift | Larger `q` strengthens gauge impact on phase locking |
+| Matter Coupling `g_J` | Weights current term in gauge update | Faster gauge response to matter currents |
+| Magnetic Stiffness `κ_B` | Penalizes plaquette-flux curvature | Smoother, less noisy flux textures |
+| Gauge Damping `γ_A` | Linear damping of links | Pulls links toward zero when undriven |
+| Gauge Noise | Additive stochastic forcing | Increased flux fluctuations and noisier covariant gradients |
+| Gauge dt Scale | Multiplier on gauge integration step | Faster/slower gauge evolution; high values can destabilize |
+| Init Pattern | Chooses initial link-field configuration | Controls initial frustration/disorder class |
+| Init Amplitude | Link magnitude scale for random/pure-gauge init | Stronger initial gauge imprint |
+| Flux Bias `B0` | Target mean plaquette flux in uniform-flux init | Stronger chiral/frustrated lattice patterns |
+| Gauge Graph Seed | RNG seed for graph-link initialization | Reproducible graph-gauge realizations |
+
 ### Physical Intuition
 
 ```

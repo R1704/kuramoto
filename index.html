@@ -1093,7 +1093,33 @@
                     </div>
 
                     <div class="panel-card" id="gauge-panel">
-                        <div class="section-title">Gauge Field (U(1))</div>
+                        <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span>Gauge Field (U(1))</span>
+                            <button class="help-btn" data-help="gauge">?</button>
+                        </div>
+                        <div class="help-tooltip" id="gauge-help">
+                            <strong>Gauge Field (U(1), S1 only)</strong><br>
+                            Coupling uses <code>sin(θ_j - θ_i - qA_ij)</code>, invariant under local phase shifts compensated by link-field shifts.<br><br>
+                            <strong>Modes</strong><br>
+                            • <strong>Static</strong>: fixed background links<br>
+                            • <strong>Dynamic</strong>: links co-evolve with oscillator currents (grid-only)<br><br>
+                            <strong>Parameters</strong><br>
+                            • <strong>Enable Gauge Field</strong>: turn covariant coupling on/off<br>
+                            • <strong>Gauge Mode</strong>: static vs dynamic field evolution<br>
+                            • <strong>Charge q</strong>: scales phase shift by qA; larger q amplifies gauge frustration<br>
+                            • <strong>Matter Coupling g_J</strong>: current-to-field feedback strength in dynamic mode<br>
+                            • <strong>Magnetic Stiffness κ_B</strong>: smooths plaquette flux by penalizing sharp curvature<br>
+                            • <strong>Gauge Damping γ_A</strong>: relaxes links toward zero when undriven<br>
+                            • <strong>Gauge Noise</strong>: stochastic forcing on links<br>
+                            • <strong>Gauge dt Scale</strong>: relative integration speed of gauge dynamics<br>
+                            • <strong>Init Pattern</strong>: zero / uniform flux / random links / pure gauge<br>
+                            • <strong>Init Amplitude</strong>: magnitude for random-link and pure-gauge init<br>
+                            • <strong>Flux Bias B0</strong>: target uniform plaquette flux in uniform-flux init<br>
+                            • <strong>Gauge Graph Seed</strong>: deterministic graph-link initialization seed<br><br>
+                            <strong>Starter Settings</strong><br>
+                            • Static: <code>q=1</code>, <code>B0≈0.5–1.0</code>, random θ<br>
+                            • Dynamic: <code>g_J≈0.5–1.5</code>, <code>κ_B≈0.1–0.5</code>, <code>γ_A≈0.05–0.2</code>, low noise
+                        </div>
                         <div class="control-group">
                             <label class="control-label" style="align-items:center; gap:8px;">
                                 <span>Enable Gauge Field</span>
@@ -1175,6 +1201,13 @@
                                 <span class="control-value" id="gauge-flux-bias-value">0.00</span>
                             </div>
                             <input type="range" id="gauge-flux-bias-slider" min="-3.14159" max="3.14159" step="0.01" value="0.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Gauge Graph Seed</span>
+                                <span class="control-value" id="gauge-graph-seed-value">1</span>
+                            </div>
+                            <input type="number" id="gauge-graph-seed-input" min="1" step="1" value="1">
                         </div>
                         <div class="control-group">
                             <button id="apply-gauge-init-btn">Apply Gauge Init</button>
@@ -2506,8 +2539,8 @@
                             <option value="4">Chirality (spirals)</option>
                             <option value="5">Phase + Gradient</option>
                             <option value="6">Image Texture</option>
-                            <option value="7">Gauge Flux (F)</option>
-                            <option value="8">Covariant Gradient (|Dθ|)</option>
+                            <option value="7" id="data-layer-gauge-flux">Gauge Flux (F)</option>
+                            <option value="8" id="data-layer-cov-gradient">Covariant Gradient (|Dθ|)</option>
                         </select>
                     </div>
                     
@@ -3050,7 +3083,7 @@
             const moveDynamicsContent = () => {
             const couplingGrid = document.getElementById('dyn-coupling-grid');
             if (couplingGrid) {
-                ['coupling-panel', 'kernel-panel-row']
+                ['coupling-panel', 'gauge-panel', 'kernel-panel-row']
                     .map(id => document.getElementById(id))
                     .filter(Boolean)
                     .forEach(node => couplingGrid.appendChild(node));

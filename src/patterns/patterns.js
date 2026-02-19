@@ -258,6 +258,7 @@ export function applyGaugePattern(sim, pattern, options = {}, targetLayers = nul
     const graphSeed = Number.isFinite(options.graphSeed) ? Math.floor(options.graphSeed) : null;
     const graphRng = graphSeed !== null ? makeRng(graphSeed, `gauge-graph:${pattern}`) : null;
     const graphRand = graphRng ? graphRng.float : rand;
+    const targetLayerSet = new Set(targets);
 
     const ax = baseGauge?.ax && baseGauge.ax.length === N ? new Float32Array(baseGauge.ax) : new Float32Array(N);
     const ay = baseGauge?.ay && baseGauge.ay.length === N ? new Float32Array(baseGauge.ay) : new Float32Array(N);
@@ -270,7 +271,7 @@ export function applyGaugePattern(sim, pattern, options = {}, targetLayers = nul
                 for (let c = 0; c < grid; c++) {
                     const idx = layerOffset + r * grid + c;
                     ax[idx] = 0.0;
-                    ay[idx] = wrapToPi(B0 * ((c / Math.max(1, grid - 1)) - 0.5));
+                    ay[idx] = wrapToPi(B0 * c);
                 }
             }
         }
@@ -323,6 +324,10 @@ export function applyGaugePattern(sim, pattern, options = {}, targetLayers = nul
             for (let i = 0; i < N; i++) nodePhase[i] = (graphRand() * 2 - 1) * amp;
         }
         for (let i = 0; i < N; i++) {
+            const layerIdx = Math.floor(i / layerSize);
+            if (!targetLayerSet.has(layerIdx)) {
+                continue;
+            }
             const count = Math.min(topo.counts[i], maxDegree);
             const base = i * maxDegree;
             for (let k = 0; k < count; k++) {
