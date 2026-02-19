@@ -22,9 +22,12 @@ export function initBuffers() {
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         // Params buffer: padded to 320 bytes (80 floats, 16-byte aligned)
         this.paramsBuf = this.device.createBuffer({ size: 320, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        // Gauge params buffer (8 floats, 32 bytes)
-        this.gaugeParamsBuf = this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        this.device.queue.writeBuffer(this.gaugeParamsBuf, 0, new Float32Array([0, 0, 1, 1, 0.2, 0.05, 0, 1]));
+        // Gauge + visualization params buffer (12 floats, 48 bytes)
+        this.gaugeParamsBuf = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.device.queue.writeBuffer(this.gaugeParamsBuf, 0, new Float32Array([
+            0, 0, 1, 1, 0.2, 0.05, 0, 1,
+            1, 1, 1, 0
+        ]));
 
         const makeGaugeTexture = () => this.device.createTexture({
             size: [this.gridSize, this.gridSize, this.layers],
@@ -265,10 +268,27 @@ export function setGaugeParams(state) {
         const damping = state?.gaugeDamping ?? 0.05;
         const noise = state?.gaugeNoise ?? 0.0;
         const dtScale = state?.gaugeDtScale ?? 1.0;
+        const vizFluxGain = Math.max(0, state?.vizFluxGain ?? 1.0);
+        const vizCovGradGain = Math.max(0, state?.vizCovGradGain ?? 1.0);
+        const vizAutoNormalize = state?.vizGaugeAutoNormalize === false ? 0.0 : 1.0;
+        const vizSignedFlux = state?.vizGaugeSignedFlux ? 1.0 : 0.0;
         this.device.queue.writeBuffer(
             this.gaugeParamsBuf,
             0,
-            new Float32Array([enabled, modeDynamic, charge, matter, stiffness, damping, noise, dtScale])
+            new Float32Array([
+                enabled,
+                modeDynamic,
+                charge,
+                matter,
+                stiffness,
+                damping,
+                noise,
+                dtScale,
+                vizFluxGain,
+                vizCovGradGain,
+                vizAutoNormalize,
+                vizSignedFlux
+            ])
         );
         this.gaugeEnabled = enabled > 0.5;
         this.gaugeDynamic = this.gaugeEnabled && modeDynamic > 0.5;

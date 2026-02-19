@@ -106,6 +106,29 @@ Gauge parameter reference:
 | Flux Bias `B0` | Target mean plaquette flux in uniform-flux init | Stronger chiral/frustrated lattice patterns |
 | Gauge Graph Seed | RNG seed for graph-link initialization | Reproducible graph-gauge realizations |
 
+### Discovery-First Tooling (v1.2)
+
+To speed up interpretation without changing equations:
+
+1. **Status strips** in Dynamics and Visualization report active manifold/topology/rule/gauge mode/layer and gating notes.
+2. **Render-only gauge visibility controls** were added to Visualization:
+   - `vizFluxGain`
+   - `vizCovGradGain`
+   - `vizGaugeAutoNormalize`
+   - `vizGaugeSignedFlux`
+3. **2D interpretability overlays**:
+   - `overlayGaugeLinks`
+   - `overlayPlaquetteSign`
+   - `overlayProbeEnabled`
+4. **Analysis parameter sweep mini-tool**:
+   - Sweep one parameter (`q`, `g_J`, `κ_B`, `K0`, `range`) over a configurable interval.
+   - Outputs per-step thumbnail + `R`, local `R`, `χ`.
+   - Export JSON/CSV.
+5. **A/B compare capture/restore** in Analysis:
+   - Capture two full states (`A`, `B`) and restore either for direct visual comparison.
+
+These features are additive and keep URL/snapshot compatibility.
+
 ### Physical Intuition
 
 ```

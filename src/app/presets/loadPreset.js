@@ -69,7 +69,18 @@ export async function loadPreset({ name, sim, ui, state, lastExternalCanvas }) {
         }
     }
 
-    if (name === 'flux_lattice' && !applyAll && baseGauge && sim.gaugeXData && sim.gaugeYData && typeof sim.writeGaugeField === 'function') {
+    const gaugePresets = new Set([
+        'flux_lattice',
+        'discovery_flux_low',
+        'discovery_flux_mid',
+        'discovery_flux_high',
+        'discovery_dynamic_soft',
+        'discovery_dynamic_strong',
+        'discovery_stiffness_low',
+        'discovery_stiffness_high',
+        'discovery_graph_static',
+    ]);
+    if (gaugePresets.has(name) && !applyAll && baseGauge && sim.gaugeXData && sim.gaugeYData && typeof sim.writeGaugeField === 'function') {
         const layerSize = sim.gridSize * sim.gridSize;
         const combinedAx = (baseGauge.ax && baseGauge.ax.length === sim.N) ? new Float32Array(baseGauge.ax) : new Float32Array(sim.N);
         const combinedAy = (baseGauge.ay && baseGauge.ay.length === sim.N) ? new Float32Array(baseGauge.ay) : new Float32Array(sim.N);

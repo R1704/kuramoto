@@ -92,6 +92,29 @@ Visualization now separates **data layers** from **palettes**:
 
 Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
 
+### Visual Discovery Workflow
+
+This build adds a discovery-first workflow for faster interpretation:
+
+- **Status strips** in Dynamics and Visualization show active manifold/topology/rule/gauge/layer and gating notes.
+- **Render-only gauge visibility controls** (Visualization tab):
+  - `Flux Gain`
+  - `Covariant Gain`
+  - `Gauge Auto Normalize`
+  - `Signed Flux Coloring`
+- **Interpretability overlays** (2D, S1):
+  - `Overlay Gauge Links`
+  - `Overlay Flux Sign`
+  - `Probe Tooltip`
+- **Analysis mini-sweep** (Analysis tab):
+  - Sweep one parameter (`q`, `g_J`, `κ_B`, `K0`, `range`) over a range.
+  - Records per-step thumbnail + `R`, local `R`, and `χ`.
+  - Exports JSON/CSV.
+- **A/B compare panel**:
+  - Capture `A` and `B` states (including fields), restore either, compare metrics visually.
+
+All of the above are additive and backward-compatible with existing URLs/snapshots.
+
 ### U(1) Gauge Field (S1)
 
 S1 dynamics support a local U(1) gauge modifier:

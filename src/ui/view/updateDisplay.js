@@ -28,6 +28,8 @@ export function updateDisplay() {
         update('gauge-dt-scale-slider', this.state.gaugeDtScale ?? 1.0);
         update('gauge-init-amplitude-slider', this.state.gaugeInitAmplitude ?? 0.5);
         update('gauge-flux-bias-slider', this.state.gaugeFluxBias ?? 0.0);
+        update('viz-flux-gain-slider', this.state.vizFluxGain ?? 1.0);
+        update('viz-cov-grad-gain-slider', this.state.vizCovGradGain ?? 1.0);
         update('layer-coupling-up-slider', this.state.layerCouplingUp ?? 0);
         update('layer-coupling-down-slider', this.state.layerCouplingDown ?? 0);
         update('omega-amplitude-slider', this.state.omegaAmplitude);
@@ -137,6 +139,16 @@ export function updateDisplay() {
         if (gaugeModeSelect) gaugeModeSelect.value = this.state.gaugeMode || 'static';
         const gaugeInitPatternSelect = document.getElementById('gauge-init-pattern-select');
         if (gaugeInitPatternSelect) gaugeInitPatternSelect.value = this.state.gaugeInitPattern || 'zero';
+        const vizAutoNormToggle = document.getElementById('viz-gauge-autonorm-toggle');
+        if (vizAutoNormToggle) vizAutoNormToggle.checked = this.state.vizGaugeAutoNormalize !== false;
+        const vizSignedFluxToggle = document.getElementById('viz-gauge-signed-flux-toggle');
+        if (vizSignedFluxToggle) vizSignedFluxToggle.checked = !!this.state.vizGaugeSignedFlux;
+        const overlayGaugeLinksToggle = document.getElementById('overlay-gauge-links-toggle');
+        if (overlayGaugeLinksToggle) overlayGaugeLinksToggle.checked = !!this.state.overlayGaugeLinks;
+        const overlayPlaquetteSignToggle = document.getElementById('overlay-plaquette-sign-toggle');
+        if (overlayPlaquetteSignToggle) overlayPlaquetteSignToggle.checked = !!this.state.overlayPlaquetteSign;
+        const overlayProbeToggle = document.getElementById('overlay-probe-toggle');
+        if (overlayProbeToggle) overlayProbeToggle.checked = this.state.overlayProbeEnabled !== false;
         const gaugeGraphSeedInput = document.getElementById('gauge-graph-seed-input');
         const gaugeGraphSeedVal = document.getElementById('gauge-graph-seed-value');
         const gaugeGraphSeed = Math.max(1, Math.floor(this.state.gaugeGraphSeed ?? 1));
@@ -151,6 +163,18 @@ export function updateDisplay() {
             } else {
                 gaugeStatus.textContent = 'S1 only. Dynamic gauge requires grid topology.';
             }
+        }
+
+        const dynStatus = document.getElementById('discovery-dynamics-status');
+        if (dynStatus) {
+            const mode = this.state.manifoldMode || 's1';
+            const topo = this.state.topologyMode || 'grid';
+            const gaugeModeTxt = this.state.gaugeEnabled ? (this.state.gaugeMode || 'static') : 'off';
+            const layer = this.state.colormap ?? 0;
+            const inactive = [];
+            if (mode !== 's1') inactive.push('gauge off');
+            if (this.state.gaugeEnabled && (this.state.gaugeMode || 'static') === 'dynamic' && topo !== 'grid') inactive.push('dynamic gauge gated');
+            dynStatus.textContent = `manifold:${mode} | topology:${topo} | rule:${this.state.ruleMode} | gauge:${gaugeModeTxt} | layer:${layer}${inactive.length ? ` | inactive: ${inactive.join(', ')}` : ''}`;
         }
         
         // Update kernel shape controls
@@ -182,6 +206,17 @@ export function updateDisplay() {
         }
         const paletteSelect = document.getElementById('palette-select');
         if (paletteSelect) paletteSelect.value = this.state.colormapPalette;
+        const vizStatus = document.getElementById('discovery-viz-status');
+        if (vizStatus) {
+            const layer = this.state.colormap ?? 0;
+            const mode = this.state.manifoldMode || 's1';
+            const extra = [];
+            if (layer >= 7 && mode !== 's1') extra.push('gauge layers hidden on S2/S3');
+            if ((this.state.overlayGaugeLinks || this.state.overlayPlaquetteSign || this.state.overlayProbeEnabled) && this.state.viewMode !== 1) {
+                extra.push('overlays visible in 2D only');
+            }
+            vizStatus.textContent = `layer:${layer} | palette:${this.state.colormapPalette ?? 0} | fluxGain:${(this.state.vizFluxGain ?? 1).toFixed(2)} | covGain:${(this.state.vizCovGradGain ?? 1).toFixed(2)}${extra.length ? ` | note: ${extra.join(', ')}` : ''}`;
+        }
         
         // Update kernel orientation display to show degrees
         const orientationDisp = document.getElementById('kernel-orientation-value');
@@ -420,15 +455,40 @@ export function updateDisplay() {
             'gauge-flux-bias-slider',
             'gauge-graph-seed-input'
         ];
+        const dynamicOnlyGaugeIds = ['gauge-matter-coupling-slider', 'gauge-stiffness-slider', 'gauge-damping-slider', 'gauge-noise-slider', 'gauge-dt-scale-slider'];
         gaugeControlIds.forEach((id) => {
             const el = document.getElementById(id);
             if (!el) return;
-            if (id === 'gauge-stiffness-slider' || id === 'gauge-damping-slider' || id === 'gauge-noise-slider' || id === 'gauge-dt-scale-slider') {
-                el.disabled = !gaugeEnabled || (gaugeMode === 'dynamic' && this.state.topologyMode !== 'grid');
+            const needsDynamic = dynamicOnlyGaugeIds.includes(id);
+            if (needsDynamic) {
+                el.disabled = !gaugeEnabled || gaugeMode !== 'dynamic' || this.state.topologyMode !== 'grid';
             } else {
                 el.disabled = !gaugeEnabled;
             }
         });
+        const vizFluxGain = document.getElementById('viz-flux-gain-slider');
+        if (vizFluxGain) vizFluxGain.disabled = this.state.manifoldMode !== 's1';
+        const vizCovGain = document.getElementById('viz-cov-grad-gain-slider');
+        if (vizCovGain) vizCovGain.disabled = this.state.manifoldMode !== 's1';
+        const vizAuto = document.getElementById('viz-gauge-autonorm-toggle');
+        if (vizAuto) vizAuto.disabled = this.state.manifoldMode !== 's1';
+        const vizSigned = document.getElementById('viz-gauge-signed-flux-toggle');
+        if (vizSigned) vizSigned.disabled = this.state.manifoldMode !== 's1';
+        const overlayGauge = document.getElementById('overlay-gauge-links-toggle');
+        if (overlayGauge) overlayGauge.disabled = this.state.manifoldMode !== 's1';
+        const overlayPlaquette = document.getElementById('overlay-plaquette-sign-toggle');
+        if (overlayPlaquette) overlayPlaquette.disabled = this.state.manifoldMode !== 's1';
+
+        const sweepParamSelect = document.getElementById('sweep-param-select');
+        if (sweepParamSelect) sweepParamSelect.value = this.state.sweepParam || 'gaugeCharge';
+        const sweepFromInput = document.getElementById('sweep-from-input');
+        if (sweepFromInput) sweepFromInput.value = this.state.sweepFrom ?? 0;
+        const sweepToInput = document.getElementById('sweep-to-input');
+        if (sweepToInput) sweepToInput.value = this.state.sweepTo ?? 2;
+        const sweepStepsInput = document.getElementById('sweep-steps-input');
+        if (sweepStepsInput) sweepStepsInput.value = this.state.sweepSteps ?? 5;
+        const sweepSettleInput = document.getElementById('sweep-settle-frames-input');
+        if (sweepSettleInput) sweepSettleInput.value = this.state.sweepSettleFrames ?? 180;
         
         const thetaSelect = document.getElementById('theta-pattern-select');
         if (thetaSelect) thetaSelect.value = this.state.thetaPattern;

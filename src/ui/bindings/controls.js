@@ -72,6 +72,8 @@ export function bindControls() {
         bind('gauge-dt-scale-slider', 'gaugeDtScale');
         bind('gauge-init-amplitude-slider', 'gaugeInitAmplitude');
         bind('gauge-flux-bias-slider', 'gaugeFluxBias');
+        bind('viz-flux-gain-slider', 'vizFluxGain');
+        bind('viz-cov-grad-gain-slider', 'vizCovGradGain');
         bind('layer-coupling-up-slider', 'layerCouplingUp');
         bind('layer-coupling-down-slider', 'layerCouplingDown');
         bind('layer-z-offset-slider', 'layerZOffset');
@@ -139,6 +141,46 @@ export function bindControls() {
                 if (disp) disp.textContent = `${next}`;
                 gaugeGraphSeedInput.value = `${next}`;
                 this.cb.onParamChange();
+            });
+        }
+        const vizAutoNormToggle = document.getElementById('viz-gauge-autonorm-toggle');
+        if (vizAutoNormToggle) {
+            vizAutoNormToggle.addEventListener('change', () => {
+                this.state.vizGaugeAutoNormalize = vizAutoNormToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const vizSignedFluxToggle = document.getElementById('viz-gauge-signed-flux-toggle');
+        if (vizSignedFluxToggle) {
+            vizSignedFluxToggle.addEventListener('change', () => {
+                this.state.vizGaugeSignedFlux = vizSignedFluxToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const overlayGaugeLinksToggle = document.getElementById('overlay-gauge-links-toggle');
+        if (overlayGaugeLinksToggle) {
+            overlayGaugeLinksToggle.addEventListener('change', () => {
+                this.state.overlayGaugeLinks = overlayGaugeLinksToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const overlayPlaquetteSignToggle = document.getElementById('overlay-plaquette-sign-toggle');
+        if (overlayPlaquetteSignToggle) {
+            overlayPlaquetteSignToggle.addEventListener('change', () => {
+                this.state.overlayPlaquetteSign = overlayPlaquetteSignToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const overlayProbeToggle = document.getElementById('overlay-probe-toggle');
+        if (overlayProbeToggle) {
+            overlayProbeToggle.addEventListener('change', () => {
+                this.state.overlayProbeEnabled = overlayProbeToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
             });
         }
         const wsKSlider = document.getElementById('ws-k-slider');
@@ -837,4 +879,80 @@ export function bindControls() {
                 }
             };
         }
+
+        const sweepParamSelect = document.getElementById('sweep-param-select');
+        const sweepFromInput = document.getElementById('sweep-from-input');
+        const sweepToInput = document.getElementById('sweep-to-input');
+        const sweepStepsInput = document.getElementById('sweep-steps-input');
+        const sweepSettleInput = document.getElementById('sweep-settle-frames-input');
+        const sweepRunBtn = document.getElementById('sweep-run-btn');
+        const sweepCancelBtn = document.getElementById('sweep-cancel-btn');
+        const sweepExportJsonBtn = document.getElementById('sweep-export-json-btn');
+        const sweepExportCsvBtn = document.getElementById('sweep-export-csv-btn');
+        const sweepRangeFrustrationBtn = document.getElementById('sweep-range-frustration-btn');
+        const sweepRangeFeedbackBtn = document.getElementById('sweep-range-feedback-btn');
+        const sweepRangeStiffnessBtn = document.getElementById('sweep-range-stiffness-btn');
+
+        const onSweepConfig = () => {
+            this.state.sweepParam = sweepParamSelect?.value || this.state.sweepParam || 'gaugeCharge';
+            this.state.sweepFrom = parseFloat(sweepFromInput?.value ?? this.state.sweepFrom ?? 0);
+            this.state.sweepTo = parseFloat(sweepToInput?.value ?? this.state.sweepTo ?? 2);
+            this.state.sweepSteps = Math.max(2, Math.min(12, parseInt(sweepStepsInput?.value ?? this.state.sweepSteps ?? 5, 10) || 5));
+            this.state.sweepSettleFrames = Math.max(30, Math.min(1200, parseInt(sweepSettleInput?.value ?? this.state.sweepSettleFrames ?? 180, 10) || 180));
+            if (sweepStepsInput) sweepStepsInput.value = `${this.state.sweepSteps}`;
+            if (sweepSettleInput) sweepSettleInput.value = `${this.state.sweepSettleFrames}`;
+            if (this.cb.onSweepConfigChange) this.cb.onSweepConfigChange();
+        };
+
+        if (sweepParamSelect) sweepParamSelect.addEventListener('change', () => { onSweepConfig(); this.updateDisplay(); });
+        if (sweepFromInput) sweepFromInput.addEventListener('change', () => { onSweepConfig(); this.updateDisplay(); });
+        if (sweepToInput) sweepToInput.addEventListener('change', () => { onSweepConfig(); this.updateDisplay(); });
+        if (sweepStepsInput) sweepStepsInput.addEventListener('change', () => { onSweepConfig(); this.updateDisplay(); });
+        if (sweepSettleInput) sweepSettleInput.addEventListener('change', () => { onSweepConfig(); this.updateDisplay(); });
+        if (sweepRunBtn) sweepRunBtn.addEventListener('click', () => { if (this.cb.onRunSweep) this.cb.onRunSweep(); });
+        if (sweepCancelBtn) sweepCancelBtn.addEventListener('click', () => { if (this.cb.onCancelSweep) this.cb.onCancelSweep(); });
+        if (sweepExportJsonBtn) sweepExportJsonBtn.addEventListener('click', () => { if (this.cb.onExportSweepJSON) this.cb.onExportSweepJSON(); });
+        if (sweepExportCsvBtn) sweepExportCsvBtn.addEventListener('click', () => { if (this.cb.onExportSweepCSV) this.cb.onExportSweepCSV(); });
+        if (sweepRangeFrustrationBtn) {
+            sweepRangeFrustrationBtn.addEventListener('click', () => {
+                if (sweepParamSelect) sweepParamSelect.value = 'gaugeCharge';
+                if (sweepFromInput) sweepFromInput.value = '0';
+                if (sweepToInput) sweepToInput.value = '2.5';
+                if (sweepStepsInput) sweepStepsInput.value = '6';
+                if (sweepSettleInput) sweepSettleInput.value = '180';
+                onSweepConfig();
+                this.updateDisplay();
+            });
+        }
+        if (sweepRangeFeedbackBtn) {
+            sweepRangeFeedbackBtn.addEventListener('click', () => {
+                if (sweepParamSelect) sweepParamSelect.value = 'gaugeMatterCoupling';
+                if (sweepFromInput) sweepFromInput.value = '0.5';
+                if (sweepToInput) sweepToInput.value = '2.5';
+                if (sweepStepsInput) sweepStepsInput.value = '6';
+                if (sweepSettleInput) sweepSettleInput.value = '220';
+                onSweepConfig();
+                this.updateDisplay();
+            });
+        }
+        if (sweepRangeStiffnessBtn) {
+            sweepRangeStiffnessBtn.addEventListener('click', () => {
+                if (sweepParamSelect) sweepParamSelect.value = 'gaugeStiffness';
+                if (sweepFromInput) sweepFromInput.value = '0.05';
+                if (sweepToInput) sweepToInput.value = '0.9';
+                if (sweepStepsInput) sweepStepsInput.value = '6';
+                if (sweepSettleInput) sweepSettleInput.value = '220';
+                onSweepConfig();
+                this.updateDisplay();
+            });
+        }
+
+        const compareCaptureABtn = document.getElementById('compare-capture-a-btn');
+        const compareCaptureBBtn = document.getElementById('compare-capture-b-btn');
+        const compareRestoreABtn = document.getElementById('compare-restore-a-btn');
+        const compareRestoreBBtn = document.getElementById('compare-restore-b-btn');
+        if (compareCaptureABtn) compareCaptureABtn.addEventListener('click', () => { if (this.cb.onCompareCapture) this.cb.onCompareCapture('a'); });
+        if (compareCaptureBBtn) compareCaptureBBtn.addEventListener('click', () => { if (this.cb.onCompareCapture) this.cb.onCompareCapture('b'); });
+        if (compareRestoreABtn) compareRestoreABtn.addEventListener('click', () => { if (this.cb.onCompareRestore) this.cb.onCompareRestore('a'); });
+        if (compareRestoreBBtn) compareRestoreBBtn.addEventListener('click', () => { if (this.cb.onCompareRestore) this.cb.onCompareRestore('b'); });
 }

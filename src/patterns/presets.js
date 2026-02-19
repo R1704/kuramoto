@@ -125,6 +125,174 @@ export const Presets = {
         }
     },
 
+    discovery_flux_low: (state, sim, rng = null) => {
+        Presets.flux_lattice(state, sim, rng);
+        state.gaugeFluxBias = 0.35;
+        state.gaugeCharge = 0.8;
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        const rand = rng ? rng.float : Math.random;
+        for (let i = 0; i < sim.N; i++) {
+            theta[i] = rand() * 2 * Math.PI;
+            omega[i] = 0.05 * (rand() - 0.5);
+        }
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+        const ax = new Float32Array(sim.N);
+        const ay = new Float32Array(sim.N);
+        const grid = sim.gridSize;
+        const layerSize = grid * grid;
+        const wrapPi = (value) => {
+            let v = value;
+            while (v <= -Math.PI) v += 2 * Math.PI;
+            while (v > Math.PI) v -= 2 * Math.PI;
+            return v;
+        };
+        for (let layer = 0; layer < (sim.layers || 1); layer++) {
+            const offset = layer * layerSize;
+            for (let r = 0; r < grid; r++) {
+                for (let c = 0; c < grid; c++) {
+                    const idx = offset + r * grid + c;
+                    ay[idx] = wrapPi(state.gaugeFluxBias * c);
+                }
+            }
+        }
+        sim.writeGaugeField(ax, ay);
+    },
+
+    discovery_flux_mid: (state, sim, rng = null) => {
+        Presets.discovery_flux_low(state, sim, rng);
+        state.gaugeFluxBias = 0.85;
+        state.gaugeCharge = 1.0;
+        const grid = sim.gridSize;
+        const layerSize = grid * grid;
+        const ax = new Float32Array(sim.N);
+        const ay = new Float32Array(sim.N);
+        const wrapPi = (value) => {
+            let v = value;
+            while (v <= -Math.PI) v += 2 * Math.PI;
+            while (v > Math.PI) v -= 2 * Math.PI;
+            return v;
+        };
+        for (let layer = 0; layer < (sim.layers || 1); layer++) {
+            const offset = layer * layerSize;
+            for (let r = 0; r < grid; r++) {
+                for (let c = 0; c < grid; c++) {
+                    const idx = offset + r * grid + c;
+                    ay[idx] = wrapPi(state.gaugeFluxBias * c);
+                }
+            }
+        }
+        sim.writeGaugeField(ax, ay);
+    },
+
+    discovery_flux_high: (state, sim, rng = null) => {
+        Presets.discovery_flux_mid(state, sim, rng);
+        state.gaugeFluxBias = 1.35;
+        state.gaugeCharge = 1.4;
+        const grid = sim.gridSize;
+        const layerSize = grid * grid;
+        const ax = new Float32Array(sim.N);
+        const ay = new Float32Array(sim.N);
+        const wrapPi = (value) => {
+            let v = value;
+            while (v <= -Math.PI) v += 2 * Math.PI;
+            while (v > Math.PI) v -= 2 * Math.PI;
+            return v;
+        };
+        for (let layer = 0; layer < (sim.layers || 1); layer++) {
+            const offset = layer * layerSize;
+            for (let r = 0; r < grid; r++) {
+                for (let c = 0; c < grid; c++) {
+                    const idx = offset + r * grid + c;
+                    ay[idx] = wrapPi(state.gaugeFluxBias * c);
+                }
+            }
+        }
+        sim.writeGaugeField(ax, ay);
+    },
+
+    discovery_dynamic_soft: (state, sim, rng = null) => {
+        state.manifoldMode = 's1';
+        state.topologyMode = 'grid';
+        state.ruleMode = 0;
+        state.K0 = 1.4;
+        state.range = 3;
+        state.globalCoupling = false;
+        state.dt = 0.04;
+        state.gaugeEnabled = true;
+        state.gaugeMode = 'dynamic';
+        state.gaugeCharge = 0.8;
+        state.gaugeMatterCoupling = 0.9;
+        state.gaugeStiffness = 0.18;
+        state.gaugeDamping = 0.10;
+        state.gaugeNoise = 0.0;
+        state.gaugeDtScale = 1.0;
+        state.gaugeInitPattern = 'pure_gauge';
+        state.gaugeInitAmplitude = 1.0;
+        const rand = rng ? rng.float : Math.random;
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        for (let i = 0; i < sim.N; i++) {
+            theta[i] = rand() * 2 * Math.PI;
+            omega[i] = 0.06 * (rand() - 0.5);
+        }
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+    },
+
+    discovery_dynamic_strong: (state, sim, rng = null) => {
+        Presets.discovery_dynamic_soft(state, sim, rng);
+        state.gaugeCharge = 2.0;
+        state.gaugeMatterCoupling = 2.2;
+        state.gaugeStiffness = 0.35;
+        state.gaugeDamping = 0.04;
+        state.gaugeDtScale = 1.8;
+        state.gaugeInitAmplitude = 1.5;
+    },
+
+    discovery_stiffness_low: (state, sim, rng = null) => {
+        Presets.discovery_dynamic_soft(state, sim, rng);
+        state.gaugeMatterCoupling = 1.2;
+        state.gaugeStiffness = 0.06;
+        state.gaugeDamping = 0.06;
+    },
+
+    discovery_stiffness_high: (state, sim, rng = null) => {
+        Presets.discovery_dynamic_soft(state, sim, rng);
+        state.gaugeMatterCoupling = 1.2;
+        state.gaugeStiffness = 0.65;
+        state.gaugeDamping = 0.14;
+    },
+
+    discovery_graph_static: (state, sim, rng = null) => {
+        state.manifoldMode = 's1';
+        state.ruleMode = 0;
+        state.K0 = 1.0;
+        state.range = 2;
+        state.globalCoupling = false;
+        state.dt = 0.03;
+        state.gaugeEnabled = true;
+        state.gaugeMode = 'static';
+        state.gaugeCharge = 1.2;
+        state.gaugeMatterCoupling = 1.0;
+        state.gaugeStiffness = 0.2;
+        state.gaugeDamping = 0.05;
+        state.gaugeNoise = 0.0;
+        state.gaugeDtScale = 1.0;
+        state.gaugeInitPattern = 'random_link';
+        state.gaugeInitAmplitude = 0.9;
+        const rand = rng ? rng.float : Math.random;
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        for (let i = 0; i < sim.N; i++) {
+            theta[i] = rand() * 2 * Math.PI;
+            omega[i] = 0.12 * (rand() - 0.5);
+        }
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+    },
+
     plane_wave: (state, sim) => {
         state.ruleMode = 0;
         state.K0 = 1.0;

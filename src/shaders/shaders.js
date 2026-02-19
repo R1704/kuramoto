@@ -95,6 +95,10 @@ struct GaugeParams {
     damping: f32,
     noise: f32,
     dt_scale: f32,
+    viz_flux_gain: f32,
+    viz_cov_grad_gain: f32,
+    viz_auto_normalize: f32,
+    viz_signed_flux: f32,
 }
 
 // Textures for theta state (array layers = hierarchical levels)
@@ -951,6 +955,10 @@ struct GaugeParams {
     damping: f32,
     noise: f32,
     dt_scale: f32,
+    viz_flux_gain: f32,
+    viz_cov_grad_gain: f32,
+    viz_auto_normalize: f32,
+    viz_signed_flux: f32,
 }
 
 @group(0) @binding(0) var theta_in: texture_2d_array<f32>;
@@ -1523,6 +1531,10 @@ struct GaugeParams {
     damping: f32,
     noise: f32,
     dt_scale: f32,
+    viz_flux_gain: f32,
+    viz_cov_grad_gain: f32,
+    viz_auto_normalize: f32,
+    viz_signed_flux: f32,
 }
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
@@ -1824,7 +1836,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let cov_dy_b = wrapPhaseDiff(theta - down - q * ay_down);
     let cov_grad = sqrt((cov_dx_f + cov_dx_b) * (cov_dx_f + cov_dx_b) + (cov_dy_f + cov_dy_b) * (cov_dy_f + cov_dy_b)) * 0.25;
     let flux_raw = ax + ay_right - ax_up - ay;
-    let flux_norm = clamp(0.5 + 0.5 * sin(flux_raw), 0.0, 1.0);
+    let use_auto_norm = gauge_params.viz_auto_normalize > 0.5;
+    let flux_scale = max(1e-4, max(abs(flux_raw), max(abs(ax), max(abs(ay), max(abs(ax_left), max(abs(ay_down), max(abs(ay_right), abs(ax_up))))))));
+    let flux_base = select(flux_raw / 3.14159, flux_raw / flux_scale, use_auto_norm);
+    let flux_vis = clamp(flux_base * max(0.01, gauge_params.viz_flux_gain), -1.0, 1.0);
+    let flux_unsigned = clamp(abs(flux_vis), 0.0, 1.0);
+    let flux_signed = clamp(0.5 + 0.5 * flux_vis, 0.0, 1.0);
+    let flux_norm = select(flux_unsigned, flux_signed, gauge_params.viz_signed_flux > 0.5);
+    let cov_scale = max(
+        1e-4,
+        max(abs(cov_dx_f), max(abs(cov_dx_b), max(abs(cov_dy_f), abs(cov_dy_b))))
+    );
+    let cov_base = select(cov_grad / 3.14159, cov_grad / cov_scale, use_auto_norm);
+    let cov_norm = clamp(cov_base * max(0.01, gauge_params.viz_cov_grad_gain), 0.0, 1.0);
 
     let height = sin(theta) * 2.0;
     let t_phase = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
@@ -1858,8 +1882,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (layer_choice == 7) {
         color = sample_palette(flux_norm, palette);
     } else if (layer_choice == 8) {
-        let cov = clamp(cov_grad / 3.14159, 0.0, 1.0);
-        color = sample_palette(cov, palette);
+        color = sample_palette(cov_norm, palette);
     } else {
         color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     }
@@ -2545,6 +2568,10 @@ struct GaugeParams {
     damping: f32,
     noise: f32,
     dt_scale: f32,
+    viz_flux_gain: f32,
+    viz_cov_grad_gain: f32,
+    viz_auto_normalize: f32,
+    viz_signed_flux: f32,
 }
 
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
@@ -3034,7 +3061,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let cov_dy_b = wrap_diff(theta - down_phase - q * ay_down);
     let cov_grad = sqrt((cov_dx_f + cov_dx_b) * (cov_dx_f + cov_dx_b) + (cov_dy_f + cov_dy_b) * (cov_dy_f + cov_dy_b)) * 0.25;
     let flux_raw = ax + ay_right - ax_up - ay;
-    let flux_norm = clamp(0.5 + 0.5 * sin(flux_raw), 0.0, 1.0);
+    let use_auto_norm = gauge_params_2d.viz_auto_normalize > 0.5;
+    let flux_scale = max(1e-4, max(abs(flux_raw), max(abs(ax), max(abs(ay), max(abs(ax_left), max(abs(ay_down), max(abs(ay_right), abs(ax_up))))))));
+    let flux_base = select(flux_raw / 3.14159, flux_raw / flux_scale, use_auto_norm);
+    let flux_vis = clamp(flux_base * max(0.01, gauge_params_2d.viz_flux_gain), -1.0, 1.0);
+    let flux_unsigned = clamp(abs(flux_vis), 0.0, 1.0);
+    let flux_signed = clamp(0.5 + 0.5 * flux_vis, 0.0, 1.0);
+    let flux_norm = select(flux_unsigned, flux_signed, gauge_params_2d.viz_signed_flux > 0.5);
+    let cov_scale = max(
+        1e-4,
+        max(abs(cov_dx_f), max(abs(cov_dx_b), max(abs(cov_dy_f), abs(cov_dy_b))))
+    );
+    let cov_base = select(cov_grad / 3.14159, cov_grad / cov_scale, use_auto_norm);
+    let cov_norm = clamp(cov_base * max(0.01, gauge_params_2d.viz_cov_grad_gain), 0.0, 1.0);
 
     if (layer_choice == 0) {
         // Phase
@@ -3069,8 +3108,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         col3 = sample_palette_2d(flux_norm, palette);
     } else if (layer_choice == 8) {
         // Covariant gradient magnitude
-        let cov = clamp(cov_grad / 3.14159, 0.0, 1.0);
-        col3 = sample_palette_2d(cov, palette);
+        col3 = sample_palette_2d(cov_norm, palette);
     } else {
         col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     }

@@ -106,13 +106,20 @@ export function createFrameLoop(ctx) {
                 rcDotTrailMax
             });
 
-            if (runtime.overlayDirty) {
+            const gaugeOverlayLive = STATE.manifoldMode === 's1'
+                && (STATE.overlayGaugeLinks || STATE.overlayPlaquetteSign || (STATE.overlayProbeEnabled && runtime.overlayMouseNorm?.inside));
+            const overlayLive = STATE.viewMode === 1
+                && (STATE.graphOverlayEnabled || gaugeOverlayLive);
+            if (runtime.overlayDirty || overlayLive) {
                 drawGraphOverlay(sim.topologyInfo, {
                     graphOverlay,
                     graphOverlayCtx,
                     STATE,
                     sim,
-                    resizeCanvasesToDisplay
+                    resizeCanvasesToDisplay,
+                    gaugeOverlayData: runtime.gaugeOverlayData,
+                    gaugeProbeData: runtime.gaugeProbeData,
+                    overlayMouseNorm: runtime.overlayMouseNorm
                 });
                 runtime.overlayDirty = false;
             }

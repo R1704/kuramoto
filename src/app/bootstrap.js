@@ -30,7 +30,7 @@ import { loadPreset } from './presets/loadPreset.js';
 import { createStatsViewUpdater } from './view/updateStatsView.js';
 import { initDrawing } from './view/initDrawing.js';
 import { createFrameLoop } from './render/frameLoop.js';
-import { extrapolateKc } from './controllers/analysisController.js';
+import { extrapolateKc, createDiscoverySweepController } from './controllers/analysisController.js';
 import { createExperimentController } from './controllers/experimentController.js';
 import { createSnapshotController } from './controllers/snapshotController.js';
 import { drawRCPlot as drawRCPredictions, renderRCKSweepPlot as renderRCKSweepChart, renderRCModeComparePlot as renderRCModeCompareChart } from './controllers/rcController.js';
@@ -154,6 +154,13 @@ async function init() {
     const rcOverlayCtx = rcOverlay ? rcOverlay.getContext('2d') : null;
     const runtime = {
         overlayDirty: true,
+        overlayMouseNorm: { x: 0.5, y: 0.5, inside: false },
+        gaugeOverlayData: null,
+        gaugeOverlayReadPending: false,
+        lastGaugeOverlayReadMs: 0,
+        gaugeProbeData: null,
+        probeReadPending: false,
+        lastProbeReadMs: 0,
         rcReadPending: false,
         lastRCReadMs: 0,
         rcTestRemaining: 0,
@@ -268,6 +275,9 @@ async function init() {
 
     let experimentRunner = null;
     let experimentController = null;
+    let discoverySweepController = null;
+    let discoverySweepLastExport = null;
+    const compareSnapshots = { a: null, b: null };
 
     const regenerateTopology = () => {
         const maxDegree = STATE.topologyMaxDegree || MAX_GRAPH_DEGREE;
@@ -396,6 +406,21 @@ async function init() {
     initDrawing({ canvas, state: STATE, getSimulation: () => sim });
     sim.writeLayerParams(STATE.layerParams);
 
+    const updateOverlayMouse = (evt, inside = true) => {
+        const rect = canvas.getBoundingClientRect();
+        const nx = (evt.clientX - rect.left) / rect.width;
+        const ny = (evt.clientY - rect.top) / rect.height;
+        runtime.overlayMouseNorm.x = Math.min(1, Math.max(0, nx));
+        runtime.overlayMouseNorm.y = Math.min(1, Math.max(0, ny));
+        runtime.overlayMouseNorm.inside = inside;
+        runtime.overlayDirty = true;
+    };
+    canvas.addEventListener('mousemove', (evt) => updateOverlayMouse(evt, true), { passive: true });
+    canvas.addEventListener('mouseleave', () => {
+        runtime.overlayMouseNorm.inside = false;
+        runtime.overlayDirty = true;
+    }, { passive: true });
+
     const rebuildLayerCount = async (newCount) => {
         const clamped = Math.max(1, Math.min(8, Math.floor(newCount)));
         if (clamped === STATE.layerCount) {
@@ -465,6 +490,7 @@ async function init() {
                 resetSimulation(sim, STATE, lastExternalCanvas);
             }
             drawKernel(STATE);
+            runtime.overlayDirty = true;
             // Reflect new parameter state into URL
             stateAdapter.syncURL(true);
         },
@@ -602,6 +628,49 @@ async function init() {
             if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
             stateAdapter.syncURL(true);
         },
+        onSweepConfigChange: () => {
+            stateAdapter.syncURL(true);
+        },
+        onRunSweep: async () => {
+            if (!discoverySweepController || discoverySweepController.isRunning()) return;
+            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (!STATE.showStatistics) {
+                alert('Enable statistics to run parameter sweep.');
+                return;
+            }
+            const param = STATE.sweepParam || 'gaugeCharge';
+            const from = Number.isFinite(STATE.sweepFrom) ? STATE.sweepFrom : 0;
+            const to = Number.isFinite(STATE.sweepTo) ? STATE.sweepTo : 2;
+            const steps = Number.isFinite(STATE.sweepSteps) ? STATE.sweepSteps : 5;
+            const settleFrames = Number.isFinite(STATE.sweepSettleFrames) ? STATE.sweepSettleFrames : 180;
+            setSweepUIState(true, 'running (0/0)');
+            await discoverySweepController.run({ param, from, to, steps, settleFrames });
+            stateAdapter.syncURL(true);
+        },
+        onCancelSweep: () => {
+            if (!discoverySweepController || !discoverySweepController.isRunning()) return;
+            discoverySweepController.cancel();
+            setSweepUIState(true, 'canceling...');
+        },
+        onExportSweepJSON: () => {
+            if (!discoverySweepLastExport) return;
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadJSON(discoverySweepLastExport, `kuramoto_sweep_${ts}.json`);
+        },
+        onExportSweepCSV: () => {
+            if (!discoverySweepController) return;
+            const csv = discoverySweepController.exportCSV();
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadCSV(csv, `kuramoto_sweep_${ts}.csv`);
+        },
+        onCompareCapture: (slot) => {
+            if (slot !== 'a' && slot !== 'b') return;
+            void captureCompareSnapshot(slot);
+        },
+        onCompareRestore: (slot) => {
+            if (slot !== 'a' && slot !== 'b') return;
+            void restoreCompareSnapshot(slot);
+        },
         onURLSync: () => {
             stateAdapter.syncURL(true);
         },
@@ -663,6 +732,10 @@ async function init() {
             setDisabled('fss-start-btn', !enabled || fssRunning);
             setDisabled('exp-run-btn', !enabled);
             setDisabled('exp-export-btn', !enabled || !(experimentController && experimentController.hasExport()));
+            setDisabled('sweep-run-btn', !enabled || (discoverySweepController && discoverySweepController.isRunning()));
+            setDisabled('sweep-cancel-btn', !enabled || !(discoverySweepController && discoverySweepController.isRunning()));
+            setDisabled('sweep-export-json-btn', !enabled || !discoverySweepLastExport);
+            setDisabled('sweep-export-csv-btn', !enabled || !discoverySweepLastExport);
             setDisabled('rc-ksweep-btn', !enabled);
             setDisabled('rc-ksweep-export-json', !enabled || !rcCritSweepLastExport);
             setDisabled('rc-ksweep-export-csv', !enabled || !(rcCritSweepInfo.results && rcCritSweepInfo.results.length > 0));
@@ -1004,6 +1077,212 @@ async function init() {
         },
     });
     snapshotController.bindControls();
+
+    const captureMainThumbnail = () => {
+        try {
+            const thumb = document.createElement('canvas');
+            thumb.width = 96;
+            thumb.height = 96;
+            const ctx = thumb.getContext('2d');
+            if (!ctx) return null;
+            ctx.drawImage(canvas, 0, 0, thumb.width, thumb.height);
+            return thumb.toDataURL('image/png');
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const renderSweepResults = (results = []) => {
+        const root = document.getElementById('sweep-results');
+        if (!root) return;
+        root.innerHTML = '';
+        results.forEach((row) => {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'sweep-row';
+            const val = Number.isFinite(row.value) ? row.value : 0;
+            const r = Number.isFinite(row.metrics?.R) ? row.metrics.R : 0;
+            const localR = Number.isFinite(row.metrics?.localR) ? row.metrics.localR : 0;
+            const chi = Number.isFinite(row.metrics?.chi) ? row.metrics.chi : 0;
+            rowEl.innerHTML = `
+                <img class="sweep-thumb" alt="sweep thumbnail" src="${row.thumbnail || ''}">
+                <div>
+                    <div style="font-size:11px; color:#ddd;">${row.param} = ${val.toFixed(3)}</div>
+                    <div>R=${r.toFixed(3)} | localR=${localR.toFixed(3)}</div>
+                    <div>chi=${chi.toFixed(4)}</div>
+                </div>
+            `;
+            root.appendChild(rowEl);
+        });
+    };
+
+    const setSweepUIState = (running, statusText = null) => {
+        const runBtn = document.getElementById('sweep-run-btn');
+        const cancelBtn = document.getElementById('sweep-cancel-btn');
+        const exportJsonBtn = document.getElementById('sweep-export-json-btn');
+        const exportCsvBtn = document.getElementById('sweep-export-csv-btn');
+        const statusEl = document.getElementById('sweep-status');
+        if (runBtn) runBtn.disabled = !!running;
+        if (cancelBtn) cancelBtn.disabled = !running;
+        if (exportJsonBtn) exportJsonBtn.disabled = running || !discoverySweepLastExport;
+        if (exportCsvBtn) exportCsvBtn.disabled = running || !discoverySweepLastExport;
+        if (statusEl && statusText !== null) statusEl.textContent = statusText;
+    };
+
+    const setCompareUIState = () => {
+        const a = compareSnapshots.a;
+        const b = compareSnapshots.b;
+        const aThumb = document.getElementById('compare-a-thumb');
+        const bThumb = document.getElementById('compare-b-thumb');
+        const aMeta = document.getElementById('compare-a-meta');
+        const bMeta = document.getElementById('compare-b-meta');
+        const diffMeta = document.getElementById('compare-diff-meta');
+        const restoreA = document.getElementById('compare-restore-a-btn');
+        const restoreB = document.getElementById('compare-restore-b-btn');
+        if (restoreA) restoreA.disabled = !a;
+        if (restoreB) restoreB.disabled = !b;
+        if (aThumb) aThumb.src = a?.thumbnail || '';
+        if (bThumb) bThumb.src = b?.thumbnail || '';
+        if (aMeta) {
+            aMeta.textContent = a
+                ? `${a.state.manifoldMode}/${a.state.topologyMode} R=${(a.metrics?.R ?? 0).toFixed(3)} χ=${(a.metrics?.chi ?? 0).toFixed(4)}`
+                : 'empty';
+        }
+        if (bMeta) {
+            bMeta.textContent = b
+                ? `${b.state.manifoldMode}/${b.state.topologyMode} R=${(b.metrics?.R ?? 0).toFixed(3)} χ=${(b.metrics?.chi ?? 0).toFixed(4)}`
+                : 'empty';
+        }
+        if (diffMeta) {
+            if (a && b) {
+                const dR = (b.metrics?.R ?? 0) - (a.metrics?.R ?? 0);
+                const dChi = (b.metrics?.chi ?? 0) - (a.metrics?.chi ?? 0);
+                diffMeta.textContent = `ΔR: ${dR.toFixed(4)} | Δχ: ${dChi.toFixed(5)}`;
+            } else {
+                diffMeta.textContent = 'ΔR: — | Δχ: —';
+            }
+        }
+    };
+
+    const captureCompareSnapshot = async (slot) => {
+        const manifold = STATE.manifoldMode || 's1';
+        const snapshot = {
+            createdAt: new Date().toISOString(),
+            state: JSON.parse(JSON.stringify({
+                manifoldMode: STATE.manifoldMode,
+                topologyMode: STATE.topologyMode,
+                ruleMode: STATE.ruleMode,
+                K0: STATE.K0,
+                range: STATE.range,
+                gaugeEnabled: STATE.gaugeEnabled,
+                gaugeMode: STATE.gaugeMode,
+                gaugeCharge: STATE.gaugeCharge,
+                gaugeMatterCoupling: STATE.gaugeMatterCoupling,
+                gaugeStiffness: STATE.gaugeStiffness,
+                gaugeDamping: STATE.gaugeDamping,
+                gaugeNoise: STATE.gaugeNoise,
+                gaugeDtScale: STATE.gaugeDtScale,
+                activeLayer: STATE.activeLayer,
+                colormap: STATE.colormap,
+            })),
+            theta: null,
+            vec: null,
+            omega: null,
+            omegaVec: null,
+            gauge: null,
+            thumbnail: captureMainThumbnail(),
+            metrics: {
+                R: Number.isFinite(stats.R) ? stats.R : 0,
+                localR: Number.isFinite(stats.localR) ? stats.localR : 0,
+                chi: Number.isFinite(stats.chi) ? stats.chi : 0,
+            },
+        };
+        if (manifold === 's1') {
+            snapshot.theta = await sim.readTheta();
+            if (!snapshot.theta && sim.thetaData) snapshot.theta = new Float32Array(sim.thetaData);
+            snapshot.omega = sim.getOmega() ? new Float32Array(sim.getOmega()) : null;
+            snapshot.gauge = await sim.readGaugeField();
+            if (!snapshot.gauge && sim.gaugeXData && sim.gaugeYData) {
+                snapshot.gauge = {
+                    ax: new Float32Array(sim.gaugeXData),
+                    ay: new Float32Array(sim.gaugeYData),
+                    graph: sim.graphGaugeData ? new Float32Array(sim.graphGaugeData) : null
+                };
+            }
+        } else {
+            snapshot.vec = await sim.readS2();
+            if (!snapshot.vec && sim.s2Data) snapshot.vec = new Float32Array(sim.s2Data);
+            snapshot.omegaVec = sim.omegaVecData ? new Float32Array(sim.omegaVecData) : null;
+        }
+        compareSnapshots[slot] = snapshot;
+        setCompareUIState();
+    };
+
+    const restoreCompareSnapshot = async (slot) => {
+        const snap = compareSnapshots[slot];
+        if (!snap) return;
+        Object.assign(STATE, snap.state || {});
+        normalizeSelectedLayers(STATE, STATE.layerCount);
+        syncStateToLayerParams(STATE, STATE.selectedLayers);
+        if (snap.theta) sim.writeTheta(snap.theta);
+        if (snap.vec) sim.writeS2(snap.vec);
+        if (snap.omega) {
+            sim.writeOmega(snap.omega);
+            sim.storeOmega(snap.omega);
+        }
+        if (snap.omegaVec && typeof sim.writeOmegaVec === 'function') {
+            sim.writeOmegaVec(snap.omegaVec);
+        }
+        if (snap.gauge?.ax && snap.gauge?.ay && typeof sim.writeGaugeField === 'function') {
+            sim.writeGaugeField(snap.gauge.ax, snap.gauge.ay);
+        }
+        if (snap.gauge?.graph && typeof sim.writeGraphGauge === 'function') {
+            sim.writeGraphGauge(snap.gauge.graph);
+        }
+        sim.updateFullParams(STATE);
+        sim.setManifoldMode(STATE.manifoldMode);
+        sim.writeLayerParams(STATE.layerParams);
+        drawKernel(STATE);
+        ui?.updateDisplay?.();
+        stateAdapter.syncURL(true);
+    };
+
+    discoverySweepController = createDiscoverySweepController({
+        state: STATE,
+        sim,
+        stats,
+        ui,
+        captureThumbnail: captureMainThumbnail,
+        onStatus: (text) => setSweepUIState(discoverySweepController?.isRunning?.(), text),
+        onResult: (_row, idx, total, results) => {
+            renderSweepResults(results);
+            setSweepUIState(true, `running (${idx + 1}/${total})`);
+        },
+        onDone: ({ canceled, results }) => {
+            discoverySweepLastExport = {
+                generatedAt: new Date().toISOString(),
+                canceled,
+                state: {
+                    seed: STATE.seed,
+                    manifoldMode: STATE.manifoldMode,
+                    topologyMode: STATE.topologyMode,
+                    gaugeEnabled: STATE.gaugeEnabled,
+                    gaugeMode: STATE.gaugeMode,
+                },
+                sweep: {
+                    param: STATE.sweepParam,
+                    from: STATE.sweepFrom,
+                    to: STATE.sweepTo,
+                    steps: STATE.sweepSteps,
+                    settleFrames: STATE.sweepSettleFrames,
+                },
+                results,
+            };
+            renderSweepResults(results);
+            setSweepUIState(false, canceled ? 'canceled' : 'done');
+        },
+    });
+    setSweepUIState(false, 'idle');
+    setCompareUIState();
     
     // Initialize plots after DOM is ready
     setTimeout(() => {
@@ -1080,6 +1359,8 @@ async function init() {
         if (lleStartBtn) lleStartBtn.disabled = !statsEnabled;
         const fssBtn = document.getElementById('fss-start-btn');
         if (fssBtn) fssBtn.disabled = !statsEnabled;
+        const sweepBtn = document.getElementById('sweep-run-btn');
+        if (sweepBtn) sweepBtn.disabled = !statsEnabled;
     }, 100);
     
     // ============= LYAPUNOV EXPONENT =============
@@ -1824,6 +2105,94 @@ async function init() {
         if (STATE.manifoldMode !== 's1') return;
         phaseSpacePlot.render(theta);
     }
+
+    const wrapPhase = (v) => {
+        let x = v;
+        const PI = Math.PI;
+        const TWO_PI = Math.PI * 2;
+        while (x <= -PI) x += TWO_PI;
+        while (x > PI) x -= TWO_PI;
+        return x;
+    };
+
+    const buildProbeData = (thetaData, gaugeData) => {
+        if (!thetaData || !gaugeData?.ax || !gaugeData?.ay) return null;
+        const grid = sim.gridSize;
+        const layerSize = grid * grid;
+        const layer = getActiveLayerIndex();
+        const c = Math.min(grid - 1, Math.max(0, Math.floor(runtime.overlayMouseNorm.x * grid)));
+        const r = Math.min(grid - 1, Math.max(0, Math.floor(runtime.overlayMouseNorm.y * grid)));
+        const idx = layer * layerSize + r * grid + c;
+        const rightIdx = layer * layerSize + r * grid + ((c + 1) % grid);
+        const upIdx = layer * layerSize + ((r + 1) % grid) * grid + c;
+        const axIdx = idx;
+        const ayIdx = idx;
+        const ayRightIdx = layer * layerSize + r * grid + ((c + 1) % grid);
+        const axUpIdx = layer * layerSize + ((r + 1) % grid) * grid + c;
+        const theta = thetaData[idx];
+        const right = thetaData[rightIdx];
+        const up = thetaData[upIdx];
+        const q = STATE.gaugeCharge ?? 1.0;
+        const ax = gaugeData.ax[axIdx] ?? 0;
+        const ay = gaugeData.ay[ayIdx] ?? 0;
+        const ayRight = gaugeData.ay[ayRightIdx] ?? 0;
+        const axUp = gaugeData.ax[axUpIdx] ?? 0;
+        const covDx = wrapPhase(right - theta - q * ax);
+        const covDy = wrapPhase(up - theta - q * ay);
+        const flux = wrapPhase(ax + ayRight - axUp - ay);
+        const cov = Math.sqrt(covDx * covDx + covDy * covDy);
+        return { c, r, layer, theta, ax, ay, covDx, covDy, cov, flux };
+    };
+
+    const updateOverlayDiagnostics = () => {
+        const wantsProbe = STATE.overlayProbeEnabled && runtime.overlayMouseNorm.inside;
+        const overlayMode = STATE.viewMode === 1
+            && STATE.manifoldMode === 's1'
+            && (STATE.overlayGaugeLinks || STATE.overlayPlaquetteSign || wantsProbe);
+
+        if (!overlayMode) {
+            if (runtime.gaugeProbeData || runtime.gaugeOverlayData) {
+                runtime.gaugeProbeData = null;
+                runtime.gaugeOverlayData = null;
+                runtime.overlayDirty = true;
+            }
+            return;
+        }
+
+        const now = performance.now();
+        if (!runtime.gaugeOverlayReadPending && !runtime.probeReadPending && (now - runtime.lastGaugeOverlayReadMs) >= 180) {
+            runtime.gaugeOverlayReadPending = true;
+            sim.readGaugeField().then((gaugeData) => {
+                if (gaugeData?.ax && gaugeData?.ay) {
+                    runtime.gaugeOverlayData = gaugeData;
+                    runtime.lastGaugeOverlayReadMs = performance.now();
+                    runtime.overlayDirty = true;
+                }
+            }).finally(() => {
+                runtime.gaugeOverlayReadPending = false;
+            });
+            return;
+        }
+
+        if (!STATE.overlayProbeEnabled || !runtime.overlayMouseNorm.inside) {
+            runtime.gaugeProbeData = null;
+            return;
+        }
+
+        if (!runtime.gaugeOverlayData || runtime.gaugeOverlayReadPending || runtime.probeReadPending) {
+            return;
+        }
+        if ((now - runtime.lastProbeReadMs) < 220) return;
+        runtime.probeReadPending = true;
+        sim.readTheta().then((thetaData) => {
+            runtime.lastProbeReadMs = performance.now();
+            runtime.gaugeProbeData = buildProbeData(thetaData, runtime.gaugeOverlayData);
+            runtime.overlayDirty = true;
+        }).finally(() => {
+            runtime.probeReadPending = false;
+        });
+    };
+    setInterval(updateOverlayDiagnostics, 120);
     
     // Initialize display
     regenerateTopology();
