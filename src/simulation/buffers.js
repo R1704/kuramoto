@@ -41,6 +41,10 @@ export function initBuffers() {
         this.gaugeYTexture = this.gaugeYTextures[this.gaugeIndex];
         this.gaugeReadbackXBuf = null;
         this.gaugeReadbackYBuf = null;
+        this.gaugeLayerReadbackXBuf = null;
+        this.gaugeLayerReadbackYBuf = null;
+        this.thetaNeighborhoodReadbackBuf = null;
+        this.thetaLayerReadbackBuf = null;
 
         // Global order parameter buffer (stores complex mean field Z = (cos, sin) as vec2)
         this.globalOrderBuf = this.device.createBuffer({ 

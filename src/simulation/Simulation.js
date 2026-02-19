@@ -31,6 +31,8 @@ import {
     readS2 as readS2Fn,
     readS3 as readS3Fn,
     readGaugeField as readGaugeFieldFn,
+    readGaugeFieldDecimated as readGaugeFieldDecimatedFn,
+    readThetaNeighborhood as readThetaNeighborhoodFn,
     getOmega as getOmegaFn,
     storeOmega as storeOmegaFn
 } from './readback.js';
@@ -472,6 +474,14 @@ export class Simulation {
 
     async readGaugeField() {
         return readGaugeFieldFn.call(this);
+    }
+
+    async readGaugeFieldDecimated(layer = 0, stride = 1) {
+        return readGaugeFieldDecimatedFn.call(this, layer, stride);
+    }
+
+    async readThetaNeighborhood(layer = 0, c = 0, r = 0, radius = 1) {
+        return readThetaNeighborhoodFn.call(this, layer, c, r, radius);
     }
 
     getOmega() {

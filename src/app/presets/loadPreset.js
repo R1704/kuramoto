@@ -79,6 +79,7 @@ export async function loadPreset({ name, sim, ui, state, lastExternalCanvas }) {
         'discovery_stiffness_low',
         'discovery_stiffness_high',
         'discovery_graph_static',
+        'overlay_alignment_debug',
     ]);
     if (gaugePresets.has(name) && !applyAll && baseGauge && sim.gaugeXData && sim.gaugeYData && typeof sim.writeGaugeField === 'function') {
         const layerSize = sim.gridSize * sim.gridSize;

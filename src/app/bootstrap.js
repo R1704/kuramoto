@@ -1,14 +1,11 @@
 import { Simulation } from '../simulation/index.js';
-import { Renderer } from '../rendering/index.js';
-import { Camera } from '../utils/index.js';
 import { UIManager } from '../ui/index.js';
 import { drawKernel } from '../patterns/index.js';
 import { loadStateFromURL } from '../utils/index.js';
-import { StatisticsTracker, TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot, LyapunovCalculator } from '../statistics/index.js';
-import { ReservoirComputer } from '../reservoir/index.js';
+import { TimeSeriesPlot, PhaseDiagramPlot, PhaseSpacePlot } from '../statistics/index.js';
 import { generateTopology, MAX_GRAPH_DEGREE } from '../topology/index.js';
 import { makeRng, normalizeSeed, cryptoSeedFallback } from '../utils/index.js';
-import { ExperimentRunner, RCCriticalitySweepRunner, RCInjectionModeCompareRunner } from '../experiments/index.js';
+import { RCCriticalitySweepRunner, RCInjectionModeCompareRunner } from '../experiments/index.js';
 import { encodeFloat32ToBase64, decodeBase64ToFloat32, estimateBase64SizeBytes } from '../utils/index.js';
 import { applyLayerParamsToState, syncStateToLayerParams, ensureLayerParams, normalizeSelectedLayers } from '../state/layerParams.js';
 import { resizeSparkCanvas, showError, downloadCSV, downloadJSON, formatBytes } from '../utils/index.js';
@@ -31,9 +28,14 @@ import { createStatsViewUpdater } from './view/updateStatsView.js';
 import { initDrawing } from './view/initDrawing.js';
 import { createFrameLoop } from './render/frameLoop.js';
 import { extrapolateKc, createDiscoverySweepController } from './controllers/analysisController.js';
-import { createExperimentController } from './controllers/experimentController.js';
 import { createSnapshotController } from './controllers/snapshotController.js';
 import { drawRCPlot as drawRCPredictions, renderRCKSweepPlot as renderRCKSweepChart, renderRCModeComparePlot as renderRCModeCompareChart } from './controllers/rcController.js';
+import { canShowGaugeLayers } from '../utils/gaugeSupport.js';
+import { initWebGPU } from './runtime/initWebGPU.js';
+import { initEventWiring } from './runtime/initEventWiring.js';
+import { initOverlayDiagnostics } from './runtime/initOverlayDiagnostics.js';
+import { initSimulationRuntime } from './runtime/initSimulation.js';
+import { initExperimentControllers } from './runtime/initControllers.js';
 
 const STATE = createInitialState();
 
@@ -47,83 +49,15 @@ let gridResizeInProgress = false;
 let APP_RUNTIME = null;
 
 function clampGaugeLayerSelection(state) {
-    if (state.manifoldMode !== 's1' && state.colormap >= 7) {
+    if (!canShowGaugeLayers(state) && state.colormap >= 7) {
         state.colormap = 0;
     }
 }
 
 async function init() {
-    // Check WebGPU support
-    if (!navigator.gpu) {
-        showError('WebGPU is not supported in your browser. Please use Chrome 113+, Edge 113+, or Safari 17+ with WebGPU enabled.');
-        return;
-    }
-    
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) {
-        showError('Failed to get WebGPU adapter. Your GPU may not be supported, or WebGPU may be disabled.');
-        return;
-    }
-    
-    // Log adapter info for debugging (if available)
-    if (adapter.requestAdapterInfo) {
-        try {
-            const adapterInfo = await adapter.requestAdapterInfo();
-            console.log('WebGPU Adapter:', adapterInfo.vendor, adapterInfo.architecture, adapterInfo.device);
-        } catch (e) {
-            console.log('Could not get adapter info:', e.message);
-        }
-    }
-    console.log('Adapter features:', [...adapter.features]);
-    
-    let device;
-    try {
-        // Request features if available
-        const requiredFeatures = [];
-        if (adapter.features.has('float32-filterable')) {
-            requiredFeatures.push('float32-filterable');
-        }
-
-        const requiredLimits = {};
-        const maxStorageBuffers = adapter.limits?.maxStorageBuffersPerShaderStage;
-        const requiredStorageBuffers = 9;
-        if (typeof maxStorageBuffers === 'number') {
-            if (maxStorageBuffers < requiredStorageBuffers) {
-                showError(
-                    `WebGPU adapter limit too low: maxStorageBuffersPerShaderStage=${maxStorageBuffers}, `
-                    + `required=${requiredStorageBuffers}.`
-                );
-                return;
-            }
-            requiredLimits.maxStorageBuffersPerShaderStage = requiredStorageBuffers;
-        }
-        
-        device = await adapter.requestDevice({
-            requiredFeatures,
-            requiredLimits,
-        });
-    } catch (e) {
-        showError('Failed to get WebGPU device: ' + e.message);
-        return;
-    }
-    
-    // Handle device loss
-    device.lost.then((info) => {
-        console.error('WebGPU device lost:', info.message);
-        if (info.reason !== 'destroyed') {
-            showError('WebGPU device was lost: ' + info.message + '. Please refresh the page.');
-        }
-    });
-    
-    const canvas = document.getElementById('canvas');
-    const context = canvas.getContext('webgpu');
-    if (!context) {
-        showError('Failed to get WebGPU context from canvas.');
-        return;
-    }
-    
-    const format = navigator.gpu.getPreferredCanvasFormat();
-    context.configure({ device, format, alphaMode: 'opaque' });
+    const webgpu = await initWebGPU({ showError, canvasId: 'canvas' });
+    if (!webgpu) return;
+    const { device, canvas, context, format } = webgpu;
 
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
@@ -135,45 +69,25 @@ async function init() {
     }
     STATE.seed = normalizeSeed(STATE.seed);
 
-    ensureLayerParams(STATE, STATE.layerCount);
-    let sim = new Simulation(device, STATE.gridSize, STATE.layerCount);
-    STATE.layerCount = sim.layers;
-    STATE.activeLayer = Math.min(STATE.activeLayer || 0, STATE.layerCount - 1);
-    normalizeSelectedLayers(STATE, STATE.layerCount);
-    applyLayerParamsToState(STATE, STATE.activeLayer);
-    sim.updateFullParams(STATE);
-    sim.setManifoldMode(STATE.manifoldMode);
-    sim.writeLayerParams(STATE.layerParams);
-    const renderer = new Renderer(device, format, canvas, STATE.gridSize);
-    renderer.setMeshMode(STATE.surfaceMode);
+    const runtimeInit = initSimulationRuntime({
+        device,
+        format,
+        canvas,
+        state: STATE,
+    });
+    let sim = runtimeInit.sim;
+    const renderer = runtimeInit.renderer;
     renderer.setContext(context);
-    const camera = new Camera(canvas);
-    const graphOverlay = document.getElementById('graph-overlay');
-    const graphOverlayCtx = graphOverlay ? graphOverlay.getContext('2d') : null;
-    const rcOverlay = document.getElementById('rc-task-overlay');
-    const rcOverlayCtx = rcOverlay ? rcOverlay.getContext('2d') : null;
-    const runtime = {
-        overlayDirty: true,
-        overlayMouseNorm: { x: 0.5, y: 0.5, inside: false },
-        gaugeOverlayData: null,
-        gaugeOverlayReadPending: false,
-        lastGaugeOverlayReadMs: 0,
-        gaugeProbeData: null,
-        probeReadPending: false,
-        lastProbeReadMs: 0,
-        rcReadPending: false,
-        lastRCReadMs: 0,
-        rcTestRemaining: 0,
-        rcActiveLayerSeen: 0,
-        rcOverlayLastThetaLayer: null,
-        statsFrameCounter: 0,
-        lastStatsReadbackMs: 0,
-        kScanner: null,
-        phaseSpaceCounter: 0,
-        phaseSpacePending: false,
-        frameErrorCount: 0,
-        frameErrorShown: false,
-    };
+    const camera = runtimeInit.camera;
+    const graphOverlay = runtimeInit.graphOverlay;
+    const graphOverlayCtx = runtimeInit.graphOverlayCtx;
+    const rcOverlay = runtimeInit.rcOverlay;
+    const rcOverlayCtx = runtimeInit.rcOverlayCtx;
+    const runtime = runtimeInit.runtime;
+    const stats = runtimeInit.stats;
+    let lyapunovCalc = runtimeInit.lyapunovCalc;
+    let reservoir = runtimeInit.reservoir;
+    reservoir.setSeed?.(STATE.seed);
     let lastViewMode = STATE.viewMode;
 
     const updateRenderModeIndicator = () => {
@@ -190,16 +104,7 @@ async function init() {
     };
     updateRenderModeIndicator();
     
-    // Initialize statistics tracking
-    const stats = new StatisticsTracker(STATE.gridSize * STATE.gridSize * STATE.layerCount);
-    
-    // Initialize Lyapunov calculator
-    let lyapunovCalc = new LyapunovCalculator(STATE.gridSize * STATE.gridSize * STATE.layerCount);
     let lleUpdateInterval = null;
-    
-    // Initialize Reservoir Computer
-    let reservoir = new ReservoirComputer(STATE.gridSize);
-    reservoir.setSeed?.(STATE.seed);
     let rcPlot = null;
     let rcKsweepPlot = null;
     const RC_TEST_STEPS = 200;
@@ -312,47 +217,16 @@ async function init() {
         return topology;
     };
 
-    const resizeCanvasesToDisplay = () => {
-        if (!canvas) return;
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        const displayW = rect.width || canvas.clientWidth || canvas.width;
-        const displayH = rect.height || canvas.clientHeight || canvas.height;
-        const w = Math.max(1, Math.round(displayW * dpr));
-        const h = Math.max(1, Math.round(displayH * dpr));
-
-        if (canvas.width !== w || canvas.height !== h) {
-            canvas.width = w;
-            canvas.height = h;
-            context.configure({ device, format, alphaMode: 'opaque' });
-            renderer.resize(w, h);
-            runtime.overlayDirty = true;
-        }
-
-        if (graphOverlay) {
-            if (graphOverlay.width !== w || graphOverlay.height !== h) {
-                graphOverlay.width = w;
-                graphOverlay.height = h;
-            }
-            // CSS sizing is handled by #canvas-stage (100%).
-        }
-
-        if (rcOverlay) {
-            if (rcOverlay.width !== w || rcOverlay.height !== h) {
-                rcOverlay.width = w;
-                rcOverlay.height = h;
-            }
-            // CSS sizing is handled by #canvas-stage (100%).
-        }
-    };
-
-    // Keep WebGPU canvas backing store matched to its CSS size.
-    resizeCanvasesToDisplay();
-    window.addEventListener('resize', resizeCanvasesToDisplay, { passive: true });
-    if (canvas && 'ResizeObserver' in window) {
-        const ro = new ResizeObserver(() => resizeCanvasesToDisplay());
-        ro.observe(canvas);
-    }
+    const { resizeCanvasesToDisplay } = initEventWiring({
+        canvas,
+        context,
+        device,
+        format,
+        renderer,
+        graphOverlay,
+        rcOverlay,
+        runtime,
+    });
 
     // Sparkline resizing
     const resizeSparklines = () => {
@@ -405,21 +279,6 @@ async function init() {
     resetSimulation(sim, STATE, lastExternalCanvas);
     initDrawing({ canvas, state: STATE, getSimulation: () => sim });
     sim.writeLayerParams(STATE.layerParams);
-
-    const updateOverlayMouse = (evt, inside = true) => {
-        const rect = canvas.getBoundingClientRect();
-        const nx = (evt.clientX - rect.left) / rect.width;
-        const ny = (evt.clientY - rect.top) / rect.height;
-        runtime.overlayMouseNorm.x = Math.min(1, Math.max(0, nx));
-        runtime.overlayMouseNorm.y = Math.min(1, Math.max(0, ny));
-        runtime.overlayMouseNorm.inside = inside;
-        runtime.overlayDirty = true;
-    };
-    canvas.addEventListener('mousemove', (evt) => updateOverlayMouse(evt, true), { passive: true });
-    canvas.addEventListener('mouseleave', () => {
-        runtime.overlayMouseNorm.inside = false;
-        runtime.overlayDirty = true;
-    }, { passive: true });
 
     const rebuildLayerCount = async (newCount) => {
         const clamped = Math.max(1, Math.min(8, Math.floor(newCount)));
@@ -968,26 +827,17 @@ async function init() {
         }
     });
 
-    experimentRunner = new ExperimentRunner({
+    ({ experimentRunner, experimentController } = initExperimentControllers({
         device,
         sim,
         stats,
-        getState: () => STATE,
-        onUpdate: (info) => experimentController?.handleRunnerUpdate(info),
-    });
-
-    experimentController = createExperimentController({
         state: STATE,
-        sim,
-        stats,
-        runner: experimentRunner,
+        ui,
         resetSimulation,
         getLastExternalCanvas: () => lastExternalCanvas,
         downloadJSON,
-    });
-    experimentController.updateUI({ running: false, phase: 'idle', stepIndex: 0, totalSteps: 0, configHash: null, summary: null });
-    experimentController.bindButtons();
-    experimentController.attachToUIManager(ui);
+        onUpdate: (info) => experimentController?.handleRunnerUpdate(info),
+    }));
 
     rcCritSweepRunner = new RCCriticalitySweepRunner({
         device,
@@ -2106,93 +1956,12 @@ async function init() {
         phaseSpacePlot.render(theta);
     }
 
-    const wrapPhase = (v) => {
-        let x = v;
-        const PI = Math.PI;
-        const TWO_PI = Math.PI * 2;
-        while (x <= -PI) x += TWO_PI;
-        while (x > PI) x -= TWO_PI;
-        return x;
-    };
-
-    const buildProbeData = (thetaData, gaugeData) => {
-        if (!thetaData || !gaugeData?.ax || !gaugeData?.ay) return null;
-        const grid = sim.gridSize;
-        const layerSize = grid * grid;
-        const layer = getActiveLayerIndex();
-        const c = Math.min(grid - 1, Math.max(0, Math.floor(runtime.overlayMouseNorm.x * grid)));
-        const r = Math.min(grid - 1, Math.max(0, Math.floor(runtime.overlayMouseNorm.y * grid)));
-        const idx = layer * layerSize + r * grid + c;
-        const rightIdx = layer * layerSize + r * grid + ((c + 1) % grid);
-        const upIdx = layer * layerSize + ((r + 1) % grid) * grid + c;
-        const axIdx = idx;
-        const ayIdx = idx;
-        const ayRightIdx = layer * layerSize + r * grid + ((c + 1) % grid);
-        const axUpIdx = layer * layerSize + ((r + 1) % grid) * grid + c;
-        const theta = thetaData[idx];
-        const right = thetaData[rightIdx];
-        const up = thetaData[upIdx];
-        const q = STATE.gaugeCharge ?? 1.0;
-        const ax = gaugeData.ax[axIdx] ?? 0;
-        const ay = gaugeData.ay[ayIdx] ?? 0;
-        const ayRight = gaugeData.ay[ayRightIdx] ?? 0;
-        const axUp = gaugeData.ax[axUpIdx] ?? 0;
-        const covDx = wrapPhase(right - theta - q * ax);
-        const covDy = wrapPhase(up - theta - q * ay);
-        const flux = wrapPhase(ax + ayRight - axUp - ay);
-        const cov = Math.sqrt(covDx * covDx + covDy * covDy);
-        return { c, r, layer, theta, ax, ay, covDx, covDy, cov, flux };
-    };
-
-    const updateOverlayDiagnostics = () => {
-        const wantsProbe = STATE.overlayProbeEnabled && runtime.overlayMouseNorm.inside;
-        const overlayMode = STATE.viewMode === 1
-            && STATE.manifoldMode === 's1'
-            && (STATE.overlayGaugeLinks || STATE.overlayPlaquetteSign || wantsProbe);
-
-        if (!overlayMode) {
-            if (runtime.gaugeProbeData || runtime.gaugeOverlayData) {
-                runtime.gaugeProbeData = null;
-                runtime.gaugeOverlayData = null;
-                runtime.overlayDirty = true;
-            }
-            return;
-        }
-
-        const now = performance.now();
-        if (!runtime.gaugeOverlayReadPending && !runtime.probeReadPending && (now - runtime.lastGaugeOverlayReadMs) >= 180) {
-            runtime.gaugeOverlayReadPending = true;
-            sim.readGaugeField().then((gaugeData) => {
-                if (gaugeData?.ax && gaugeData?.ay) {
-                    runtime.gaugeOverlayData = gaugeData;
-                    runtime.lastGaugeOverlayReadMs = performance.now();
-                    runtime.overlayDirty = true;
-                }
-            }).finally(() => {
-                runtime.gaugeOverlayReadPending = false;
-            });
-            return;
-        }
-
-        if (!STATE.overlayProbeEnabled || !runtime.overlayMouseNorm.inside) {
-            runtime.gaugeProbeData = null;
-            return;
-        }
-
-        if (!runtime.gaugeOverlayData || runtime.gaugeOverlayReadPending || runtime.probeReadPending) {
-            return;
-        }
-        if ((now - runtime.lastProbeReadMs) < 220) return;
-        runtime.probeReadPending = true;
-        sim.readTheta().then((thetaData) => {
-            runtime.lastProbeReadMs = performance.now();
-            runtime.gaugeProbeData = buildProbeData(thetaData, runtime.gaugeOverlayData);
-            runtime.overlayDirty = true;
-        }).finally(() => {
-            runtime.probeReadPending = false;
-        });
-    };
-    setInterval(updateOverlayDiagnostics, 120);
+    initOverlayDiagnostics({
+        STATE,
+        sim,
+        runtime,
+        getActiveLayerIndex,
+    });
     
     // Initialize display
     regenerateTopology();

@@ -1,4 +1,5 @@
 import { isFeatureSupported } from '../../manifolds/ManifoldRegistry.js';
+import { canShowGaugeLayers, canUseGaugeOverlay, getGaugeStatusText, isGaugeS1 } from '../../utils/gaugeSupport.js';
 
 export function updateDisplay() {
         // Update all sliders to match state
@@ -156,13 +157,7 @@ export function updateDisplay() {
         if (gaugeGraphSeedVal) gaugeGraphSeedVal.textContent = gaugeGraphSeed;
         const gaugeStatus = document.getElementById('gauge-status');
         if (gaugeStatus) {
-            if (this.state.manifoldMode !== 's1') {
-                gaugeStatus.textContent = 'Gauge disabled outside S1 manifold.';
-            } else if ((this.state.gaugeMode || 'static') === 'dynamic' && this.state.topologyMode !== 'grid') {
-                gaugeStatus.textContent = 'Dynamic gauge requires grid topology (WS/BA uses static gauge links).';
-            } else {
-                gaugeStatus.textContent = 'S1 only. Dynamic gauge requires grid topology.';
-            }
+            gaugeStatus.textContent = getGaugeStatusText(this.state);
         }
 
         const dynStatus = document.getElementById('discovery-dynamics-status');
@@ -172,7 +167,7 @@ export function updateDisplay() {
             const gaugeModeTxt = this.state.gaugeEnabled ? (this.state.gaugeMode || 'static') : 'off';
             const layer = this.state.colormap ?? 0;
             const inactive = [];
-            if (mode !== 's1') inactive.push('gauge off');
+            if (!isGaugeS1(this.state)) inactive.push('gauge off');
             if (this.state.gaugeEnabled && (this.state.gaugeMode || 'static') === 'dynamic' && topo !== 'grid') inactive.push('dynamic gauge gated');
             dynStatus.textContent = `manifold:${mode} | topology:${topo} | rule:${this.state.ruleMode} | gauge:${gaugeModeTxt} | layer:${layer}${inactive.length ? ` | inactive: ${inactive.join(', ')}` : ''}`;
         }
@@ -196,7 +191,7 @@ export function updateDisplay() {
 
         const layerSelect = document.getElementById('data-layer-select');
         if (layerSelect) {
-            const showGaugeLayers = this.state.manifoldMode === 's1';
+            const showGaugeLayers = canShowGaugeLayers(this.state);
             const gaugeFluxOption = document.getElementById('data-layer-gauge-flux');
             const covGradOption = document.getElementById('data-layer-cov-gradient');
             if (gaugeFluxOption) gaugeFluxOption.hidden = !showGaugeLayers;
@@ -209,11 +204,10 @@ export function updateDisplay() {
         const vizStatus = document.getElementById('discovery-viz-status');
         if (vizStatus) {
             const layer = this.state.colormap ?? 0;
-            const mode = this.state.manifoldMode || 's1';
             const extra = [];
-            if (layer >= 7 && mode !== 's1') extra.push('gauge layers hidden on S2/S3');
-            if ((this.state.overlayGaugeLinks || this.state.overlayPlaquetteSign || this.state.overlayProbeEnabled) && this.state.viewMode !== 1) {
-                extra.push('overlays visible in 2D only');
+            if (layer >= 7 && !canShowGaugeLayers(this.state)) extra.push('gauge layers hidden on S2/S3');
+            if ((this.state.overlayGaugeLinks || this.state.overlayPlaquetteSign || this.state.overlayProbeEnabled) && !canUseGaugeOverlay(this.state)) {
+                extra.push('overlays require S1 + grid + 2D');
             }
             vizStatus.textContent = `layer:${layer} | palette:${this.state.colormapPalette ?? 0} | fluxGain:${(this.state.vizFluxGain ?? 1).toFixed(2)} | covGain:${(this.state.vizCovGradGain ?? 1).toFixed(2)}${extra.length ? ` | note: ${extra.join(', ')}` : ''}`;
         }

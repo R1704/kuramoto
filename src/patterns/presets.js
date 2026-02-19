@@ -725,4 +725,54 @@ export const Presets = {
         sim.writeOmega(omega);
         sim.storeOmega(omega);
     },
+
+    overlay_alignment_debug: (state, sim) => {
+        state.manifoldMode = 's1';
+        state.topologyMode = 'grid';
+        state.viewMode = 1;
+        state.zoom = 2.2;
+        state.panX = 0.12;
+        state.panY = -0.08;
+        state.colormap = 7;
+        state.gaugeEnabled = true;
+        state.gaugeMode = 'static';
+        state.gaugeCharge = 1.0;
+        state.overlayGaugeLinks = true;
+        state.overlayPlaquetteSign = true;
+        state.overlayProbeEnabled = true;
+        state.ruleMode = 0;
+        state.K0 = 1.1;
+        state.range = 2;
+        state.globalCoupling = false;
+
+        const grid = sim.gridSize;
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        const ax = new Float32Array(sim.N);
+        const ay = new Float32Array(sim.N);
+        const wrapPi = (value) => {
+            let v = value;
+            while (v <= -Math.PI) v += 2 * Math.PI;
+            while (v > Math.PI) v -= 2 * Math.PI;
+            return v;
+        };
+
+        for (let r = 0; r < grid; r++) {
+            for (let c = 0; c < grid; c++) {
+                const idx = r * grid + c;
+                const checker = ((r + c) % 2 === 0) ? 0 : Math.PI;
+                theta[idx] = checker;
+                omega[idx] = 0.0;
+                ax[idx] = 0.0;
+                ay[idx] = wrapPi(0.8 * c);
+            }
+        }
+
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+        sim.storeOmega(omega);
+        if (typeof sim.writeGaugeField === 'function') {
+            sim.writeGaugeField(ax, ay);
+        }
+    },
 };

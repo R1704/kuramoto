@@ -53,30 +53,33 @@ export function bindControls() {
             });
         };
 
-        bind('k0-slider', 'K0');
-        bind('dt-slider', 'dt');
-        bind('range-slider', 'range', 'int');
-        bind('harmonic-slider', 'harmonicA');
-        bind('harmonic3-slider', 'harmonicB');
-        bind('sigma-slider', 'sigma');
-        bind('sigma2-slider', 'sigma2');
-        bind('beta-slider', 'beta');
-        bind('delay-slider', 'delaySteps', 'int');
-        bind('noise-slider', 'noiseStrength');
-        bind('leak-slider', 'leak');
-        bind('gauge-charge-slider', 'gaugeCharge');
-        bind('gauge-matter-coupling-slider', 'gaugeMatterCoupling');
-        bind('gauge-stiffness-slider', 'gaugeStiffness');
-        bind('gauge-damping-slider', 'gaugeDamping');
-        bind('gauge-noise-slider', 'gaugeNoise');
-        bind('gauge-dt-scale-slider', 'gaugeDtScale');
-        bind('gauge-init-amplitude-slider', 'gaugeInitAmplitude');
-        bind('gauge-flux-bias-slider', 'gaugeFluxBias');
-        bind('viz-flux-gain-slider', 'vizFluxGain');
-        bind('viz-cov-grad-gain-slider', 'vizCovGradGain');
-        bind('layer-coupling-up-slider', 'layerCouplingUp');
-        bind('layer-coupling-down-slider', 'layerCouplingDown');
-        bind('layer-z-offset-slider', 'layerZOffset');
+        const basicControls = [
+            ['k0-slider', 'K0'],
+            ['dt-slider', 'dt'],
+            ['range-slider', 'range', 'int'],
+            ['harmonic-slider', 'harmonicA'],
+            ['harmonic3-slider', 'harmonicB'],
+            ['sigma-slider', 'sigma'],
+            ['sigma2-slider', 'sigma2'],
+            ['beta-slider', 'beta'],
+            ['delay-slider', 'delaySteps', 'int'],
+            ['noise-slider', 'noiseStrength'],
+            ['leak-slider', 'leak'],
+            ['gauge-charge-slider', 'gaugeCharge'],
+            ['gauge-matter-coupling-slider', 'gaugeMatterCoupling'],
+            ['gauge-stiffness-slider', 'gaugeStiffness'],
+            ['gauge-damping-slider', 'gaugeDamping'],
+            ['gauge-noise-slider', 'gaugeNoise'],
+            ['gauge-dt-scale-slider', 'gaugeDtScale'],
+            ['gauge-init-amplitude-slider', 'gaugeInitAmplitude'],
+            ['gauge-flux-bias-slider', 'gaugeFluxBias'],
+            ['viz-flux-gain-slider', 'vizFluxGain'],
+            ['viz-cov-grad-gain-slider', 'vizCovGradGain'],
+            ['layer-coupling-up-slider', 'layerCouplingUp'],
+            ['layer-coupling-down-slider', 'layerCouplingDown'],
+            ['layer-z-offset-slider', 'layerZOffset'],
+        ];
+        basicControls.forEach(([id, key, type]) => bind(id, key, type || 'float'));
 
         const layerKernelToggle = document.getElementById('layer-kernel-toggle');
         if (layerKernelToggle) {

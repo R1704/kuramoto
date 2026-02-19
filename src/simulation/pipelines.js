@@ -247,42 +247,47 @@ export function getGaugeUpdateBindGroup() {
 }
 
 export function getS2BindGroup() {
-        // Don't cache - texture views become stale after s2Index swap each frame
         const currentIdx = this.s2Index;
         const nextIdx = currentIdx ^ 1;
-        return this.device.createBindGroup({
-            layout: this.s2Pipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: this.s2Textures[currentIdx].createView({ dimension: '2d-array' }) },
-                { binding: 1, resource: { buffer: this.omegaVecBuf } },
-                { binding: 2, resource: { buffer: this.paramsBuf } },
-                { binding: 3, resource: { buffer: this.orderBuf } },
-                { binding: 4, resource: this.s2Textures[nextIdx].createView({ dimension: '2d-array' }) },
-                { binding: 5, resource: { buffer: this.graphNeighborsBuf } },
-                { binding: 6, resource: { buffer: this.graphWeightsBuf } },
-                { binding: 7, resource: { buffer: this.graphCountsBuf } },
-                { binding: 8, resource: { buffer: this.layerParamsBuf } },
-            ],
-        });
+        const cacheKey = `${currentIdx}:${nextIdx}`;
+        if (!this.s2BindGroupCache.has(cacheKey)) {
+            this.s2BindGroupCache.set(cacheKey, this.device.createBindGroup({
+                layout: this.s2Pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: this.s2Textures[currentIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 1, resource: { buffer: this.omegaVecBuf } },
+                    { binding: 2, resource: { buffer: this.paramsBuf } },
+                    { binding: 3, resource: { buffer: this.orderBuf } },
+                    { binding: 4, resource: this.s2Textures[nextIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 5, resource: { buffer: this.graphNeighborsBuf } },
+                    { binding: 6, resource: { buffer: this.graphWeightsBuf } },
+                    { binding: 7, resource: { buffer: this.graphCountsBuf } },
+                    { binding: 8, resource: { buffer: this.layerParamsBuf } },
+                ],
+            }));
+        }
+        return this.s2BindGroupCache.get(cacheKey);
 }
 
 export function getS3BindGroup() {
-        // Don't cache - texture views become stale after s2Index swap each frame
-        // S³ uses same textures as S² (both are rgba32float)
         const currentIdx = this.s2Index;
         const nextIdx = currentIdx ^ 1;
-        return this.device.createBindGroup({
-            layout: this.s3Pipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: this.s2Textures[currentIdx].createView({ dimension: '2d-array' }) },
-                { binding: 1, resource: { buffer: this.omegaVecBuf } },
-                { binding: 2, resource: { buffer: this.paramsBuf } },
-                { binding: 3, resource: { buffer: this.orderBuf } },
-                { binding: 4, resource: this.s2Textures[nextIdx].createView({ dimension: '2d-array' }) },
-                { binding: 5, resource: { buffer: this.graphNeighborsBuf } },
-                { binding: 6, resource: { buffer: this.graphWeightsBuf } },
-                { binding: 7, resource: { buffer: this.graphCountsBuf } },
-                { binding: 8, resource: { buffer: this.layerParamsBuf } },
-            ],
-        });
+        const cacheKey = `${currentIdx}:${nextIdx}`;
+        if (!this.s3BindGroupCache.has(cacheKey)) {
+            this.s3BindGroupCache.set(cacheKey, this.device.createBindGroup({
+                layout: this.s3Pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: this.s2Textures[currentIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 1, resource: { buffer: this.omegaVecBuf } },
+                    { binding: 2, resource: { buffer: this.paramsBuf } },
+                    { binding: 3, resource: { buffer: this.orderBuf } },
+                    { binding: 4, resource: this.s2Textures[nextIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 5, resource: { buffer: this.graphNeighborsBuf } },
+                    { binding: 6, resource: { buffer: this.graphWeightsBuf } },
+                    { binding: 7, resource: { buffer: this.graphCountsBuf } },
+                    { binding: 8, resource: { buffer: this.layerParamsBuf } },
+                ],
+            }));
+        }
+        return this.s3BindGroupCache.get(cacheKey);
 }

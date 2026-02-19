@@ -1,4 +1,5 @@
 import { normalizeSelectedLayers } from '../../state/layerParams.js';
+import { screenUvToSimUv } from '../../core/viewTransform2d.js';
 
 export function initDrawing({ canvas, state, getSimulation }) {
     if (!canvas) return;
@@ -19,8 +20,13 @@ export function initDrawing({ canvas, state, getSimulation }) {
         const rect = canvas.getBoundingClientRect();
         const nx = (evt.clientX - rect.left) / rect.width;
         const ny = (evt.clientY - rect.top) / rect.height;
-        const gx = Math.floor(nx * state.gridSize);
-        const gy = Math.floor(ny * state.gridSize);
+        const mapped = screenUvToSimUv(nx, ny, state.zoom, state.panX, state.panY);
+        if (!mapped.inside) {
+            drawPending = false;
+            return;
+        }
+        const gx = Math.floor(mapped.u * state.gridSize);
+        const gy = Math.floor(mapped.v * state.gridSize);
 
         const sim = getSimulation();
         if (!sim) {

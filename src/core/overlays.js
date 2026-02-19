@@ -3,6 +3,30 @@
  *
  * Canvas overlay rendering for graph topology and RC task visualization.
  */
+import { simCellToScreenPx, simUvToScreenUv } from './viewTransform2d.js';
+
+function wrapIndex(v, n) {
+    let x = v % n;
+    if (x < 0) x += n;
+    return x;
+}
+
+function sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c, r, axis) {
+    if (!gaugeOverlayData) return 0;
+    const src = axis === 'x' ? gaugeOverlayData.ax : gaugeOverlayData.ay;
+    if (!src) return 0;
+    const cw = wrapIndex(c, grid);
+    const rw = wrapIndex(r, grid);
+    const sampleGrid = gaugeOverlayData.sampleGrid || 0;
+    const sampleStride = Math.max(1, Math.floor(gaugeOverlayData.stride || 1));
+    if (sampleGrid > 0 && gaugeOverlayData.layer === layer) {
+        const sc = Math.min(sampleGrid - 1, Math.floor(cw / sampleStride));
+        const sr = Math.min(sampleGrid - 1, Math.floor(rw / sampleStride));
+        return src[sr * sampleGrid + sc] || 0;
+    }
+    const layerOffset = layer * grid * grid;
+    return src[layerOffset + rw * grid + cw] || 0;
+}
 
 /**
  * Project world coordinates to screen coordinates using view projection matrix.
@@ -50,14 +74,10 @@ export function mapDotNormToScreen(nx, ny, viewProj, options) {
     const h = rcOverlay.height;
 
     if (STATE.viewMode === 1) {
-        // Match 2D shader UV convention: (0,0)=top-left.
-        const zoom = (STATE.zoom && STATE.zoom > 0) ? STATE.zoom : 1.0;
-        let u = nx;
-        let v = ny;
-        u = (u - 0.5) / zoom + (STATE.panX || 0.0) + 0.5;
-        v = (v - 0.5) / zoom + (STATE.panY || 0.0) + 0.5;
-        if (u < 0 || u > 1 || v < 0 || v > 1) return { visible: false, x: 0, y: 0 };
-        return { visible: true, x: u * w, y: v * h };
+        // RC dot coordinates are in simulation UV space; map to screen UV.
+        const mapped = simUvToScreenUv(nx, ny, STATE.zoom, STATE.panX, STATE.panY);
+        if (!mapped.visible) return { visible: false, x: 0, y: 0 };
+        return { visible: true, x: mapped.u * w, y: mapped.v * h };
     }
 
     if (!viewProj) return { visible: false, x: 0, y: 0 };
@@ -197,6 +217,10 @@ export function drawGraphOverlay(topology, options) {
     const grid = STATE.gridSize;
     const w = graphOverlay.width;
     const h = graphOverlay.height;
+    const zoom = STATE.zoom || 1.0;
+    const panX = STATE.panX || 0.0;
+    const panY = STATE.panY || 0.0;
+    const toScreen = (c, r) => simCellToScreenPx(c, r, grid, w, h, zoom, panX, panY);
     graphOverlay.style.display = 'block';
 
     if (showGraph && topology?.counts && topology?.neighbors && grid <= 256) {
@@ -224,20 +248,22 @@ export function drawGraphOverlay(topology, options) {
             const deg = Math.min(counts[i], maxDeg);
             if (!deg) continue;
             const base = i * maxDeg;
-            const cx = ((i % grid) + 0.5) / grid * w;
-            const cy = (Math.floor(i / grid) + 0.5) / grid * h;
+            const c0 = i % grid;
+            const r0 = Math.floor(i / grid);
+            const p0 = toScreen(c0, r0);
+            if (!p0.visible) continue;
             for (let j = 0; j < deg; j++) {
                 const nbr = neighbors[base + j];
                 if (nbr <= i) continue;
                 if (rand() > prob) continue;
-                const nx = ((nbr % grid) + 0.5) / grid * w;
-                const ny = (Math.floor(nbr / grid) + 0.5) / grid * h;
+                const p1 = toScreen(nbr % grid, Math.floor(nbr / grid));
+                if (!p1.visible) continue;
                 const jitter = 0.002;
                 const jx = (rand() - 0.5) * w * jitter;
                 const jy = (rand() - 0.5) * h * jitter;
                 graphOverlayCtx.beginPath();
-                graphOverlayCtx.moveTo(cx + jx, cy + jy);
-                graphOverlayCtx.lineTo(nx - jx, ny - jy);
+                graphOverlayCtx.moveTo(p0.x + jx, p0.y + jy);
+                graphOverlayCtx.lineTo(p1.x - jx, p1.y - jy);
                 graphOverlayCtx.stroke();
                 drawn++;
                 if (drawn >= maxEdges) break;
@@ -248,25 +274,27 @@ export function drawGraphOverlay(topology, options) {
 
     if ((showGaugeLinks || showPlaquetteSign) && gaugeOverlayData?.ax && gaugeOverlayData?.ay) {
         const layer = Math.min(Math.max(0, STATE.activeLayer ?? 0), (sim.layers || 1) - 1);
-        const layerOffset = layer * grid * grid;
-        const stride = Math.max(6, Math.floor(grid / 48));
+        const dataStride = Math.max(1, Math.floor(gaugeOverlayData.stride || 1));
+        const stride = Math.max(dataStride, Math.max(6, Math.floor(grid / 48)));
 
         if (showGaugeLinks) {
             graphOverlayCtx.strokeStyle = 'rgba(58, 188, 255, 0.6)';
             graphOverlayCtx.lineWidth = 1;
             for (let r = 0; r < grid; r += stride) {
                 for (let c = 0; c < grid; c += stride) {
-                    const idx = layerOffset + r * grid + c;
-                    const ax = gaugeOverlayData.ax[idx] || 0;
-                    const ay = gaugeOverlayData.ay[idx] || 0;
-                    const px = (c + 0.5) / grid * w;
-                    const py = (r + 0.5) / grid * h;
-                    const scale = Math.min(w, h) / grid * 0.45;
-                    const dx = Math.max(-1.5, Math.min(1.5, ax)) * scale;
-                    const dy = Math.max(-1.5, Math.min(1.5, ay)) * scale;
+                    const ax = sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c, r, 'x');
+                    const ay = sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c, r, 'y');
+                    const startU = (c + 0.5) / grid;
+                    const startV = (r + 0.5) / grid;
+                    const scaleSim = 0.45 / grid;
+                    const endU = startU + Math.max(-1.5, Math.min(1.5, ax)) * scaleSim;
+                    const endV = startV + Math.max(-1.5, Math.min(1.5, ay)) * scaleSim;
+                    const p0 = simUvToScreenUv(startU, startV, zoom, panX, panY);
+                    const p1 = simUvToScreenUv(endU, endV, zoom, panX, panY);
+                    if (!p0.visible && !p1.visible) continue;
                     graphOverlayCtx.beginPath();
-                    graphOverlayCtx.moveTo(px, py);
-                    graphOverlayCtx.lineTo(px + dx, py + dy);
+                    graphOverlayCtx.moveTo(p0.u * w, p0.v * h);
+                    graphOverlayCtx.lineTo(p1.u * w, p1.v * h);
                     graphOverlayCtx.stroke();
                 }
             }
@@ -278,26 +306,24 @@ export function drawGraphOverlay(topology, options) {
             graphOverlayCtx.textBaseline = 'middle';
             for (let r = 0; r < grid; r += stride) {
                 for (let c = 0; c < grid; c += stride) {
-                    const idx = layerOffset + r * grid + c;
-                    const right = layerOffset + r * grid + ((c + 1) % grid);
-                    const up = layerOffset + ((r + 1) % grid) * grid + c;
-                    const flux = (gaugeOverlayData.ax[idx] || 0)
-                        + (gaugeOverlayData.ay[right] || 0)
-                        - (gaugeOverlayData.ax[up] || 0)
-                        - (gaugeOverlayData.ay[idx] || 0);
+                    const flux = sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c, r, 'x')
+                        + sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c + 1, r, 'y')
+                        - sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c, r + 1, 'x')
+                        - sampleGaugeLayerValue(gaugeOverlayData, layer, grid, c, r, 'y');
                     if (Math.abs(flux) < 1e-3) continue;
-                    const px = (c + 0.5) / grid * w;
-                    const py = (r + 0.5) / grid * h;
+                    const p = toScreen(c, r);
+                    if (!p.visible) continue;
                     graphOverlayCtx.fillStyle = flux >= 0 ? 'rgba(255, 173, 58, 0.8)' : 'rgba(128, 224, 255, 0.85)';
-                    graphOverlayCtx.fillText(flux >= 0 ? '+' : '−', px, py);
+                    graphOverlayCtx.fillText(flux >= 0 ? '+' : '−', p.x, p.y);
                 }
             }
         }
     }
 
     if (showProbe && gaugeProbeData) {
-        const px = overlayMouseNorm.x * w;
-        const py = overlayMouseNorm.y * h;
+        const probePos = toScreen(gaugeProbeData.c, gaugeProbeData.r);
+        const px = probePos.visible ? probePos.x : overlayMouseNorm.x * w;
+        const py = probePos.visible ? probePos.y : overlayMouseNorm.y * h;
         const line1 = `cell (${gaugeProbeData.c},${gaugeProbeData.r}) L${gaugeProbeData.layer}`;
         const line2 = `theta=${gaugeProbeData.theta.toFixed(3)} qA=(${gaugeProbeData.ax.toFixed(3)},${gaugeProbeData.ay.toFixed(3)})`;
         const line3 = `D=(dx ${gaugeProbeData.covDx.toFixed(3)}, dy ${gaugeProbeData.covDy.toFixed(3)}) |D|=${gaugeProbeData.cov.toFixed(3)}`;

@@ -1,7 +1,9 @@
 import { drawRCTaskOverlay, drawGraphOverlay } from '../../core/overlays.js';
+import { canUseGaugeOverlay } from '../../utils/gaugeSupport.js';
 
 export function createFrameLoop(ctx) {
     return function frame() {
+        const frameStart = performance.now();
         const {
             STATE,
             device,
@@ -106,7 +108,7 @@ export function createFrameLoop(ctx) {
                 rcDotTrailMax
             });
 
-            const gaugeOverlayLive = STATE.manifoldMode === 's1'
+            const gaugeOverlayLive = canUseGaugeOverlay(STATE)
                 && (STATE.overlayGaugeLinks || STATE.overlayPlaquetteSign || (STATE.overlayProbeEnabled && runtime.overlayMouseNorm?.inside));
             const overlayLive = STATE.viewMode === 1
                 && (STATE.graphOverlayEnabled || gaugeOverlayLive);
@@ -195,11 +197,13 @@ export function createFrameLoop(ctx) {
                 const canReadback = sim.readbackPending && (frameNow - runtime.lastStatsReadbackMs >= config.STATS_READBACK_MIN_MS);
                 if (canReadback) {
                     const didComputeStatsThisFrame = didComputeStats;
+                    const readbackStart = performance.now();
                     sim.processReadback().then((result) => {
                         if (result && !STATE.paused) {
                             stats.update(result.cos, result.sin, result.localStats);
                             runtime.lastStatsReadbackMs = frameNow;
                         }
+                        runtime.lastReadbackDurationMs = performance.now() - readbackStart;
 
                         if (runtime.kScanner && runtime.kScanner.phase !== 'done' && runtime.kScanner.phase !== 'idle') {
                             const scanner = stats.createKScanner(sim, STATE);
@@ -251,6 +255,8 @@ export function createFrameLoop(ctx) {
                 }
             }
         }
+
+        runtime.frameDurationMs = performance.now() - frameStart;
 
         requestAnimationFrame(frame);
     };

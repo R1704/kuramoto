@@ -196,6 +196,10 @@ export function destroy() {
         if (this.graphGaugeBuf) this.graphGaugeBuf.destroy();
         if (this.gaugeReadbackXBuf) this.gaugeReadbackXBuf.destroy();
         if (this.gaugeReadbackYBuf) this.gaugeReadbackYBuf.destroy();
+        if (this.gaugeLayerReadbackXBuf) this.gaugeLayerReadbackXBuf.destroy();
+        if (this.gaugeLayerReadbackYBuf) this.gaugeLayerReadbackYBuf.destroy();
+        if (this.thetaNeighborhoodReadbackBuf) this.thetaNeighborhoodReadbackBuf.destroy();
+        if (this.thetaLayerReadbackBuf) this.thetaLayerReadbackBuf.destroy();
         if (this.inputWeightsBuf) this.inputWeightsBuf.destroy();
         if (this.inputSignalBuf) this.inputSignalBuf.destroy();
         if (this.graphNeighborsBuf) this.graphNeighborsBuf.destroy();
@@ -204,6 +208,7 @@ export function destroy() {
         if (this.layerParamsBuf) this.layerParamsBuf.destroy();
         this.bindGroupCache.clear();
         if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
+        if (this.s3BindGroupCache) this.s3BindGroupCache.clear();
         if (this.gaugeUpdateBindGroupCache) this.gaugeUpdateBindGroupCache.clear();
 }
 
@@ -300,10 +305,27 @@ export function resize(newGridSize) {
             this.gaugeReadbackYBuf.destroy();
             this.gaugeReadbackYBuf = null;
         }
+        if (this.gaugeLayerReadbackXBuf) {
+            this.gaugeLayerReadbackXBuf.destroy();
+            this.gaugeLayerReadbackXBuf = null;
+        }
+        if (this.gaugeLayerReadbackYBuf) {
+            this.gaugeLayerReadbackYBuf.destroy();
+            this.gaugeLayerReadbackYBuf = null;
+        }
+        if (this.thetaNeighborhoodReadbackBuf) {
+            this.thetaNeighborhoodReadbackBuf.destroy();
+            this.thetaNeighborhoodReadbackBuf = null;
+        }
+        if (this.thetaLayerReadbackBuf) {
+            this.thetaLayerReadbackBuf.destroy();
+            this.thetaLayerReadbackBuf = null;
+        }
         
         // Clear bind group cache since textures/buffers changed
         this.bindGroupCache.clear();
         if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
+        if (this.s3BindGroupCache) this.s3BindGroupCache.clear();
         if (this.gaugeUpdateBindGroupCache) this.gaugeUpdateBindGroupCache.clear();
         
         // Update size

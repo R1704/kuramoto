@@ -18,6 +18,10 @@ export function requestGlobalOrderReadback(commandEncoder) {
         this.readbackPending = true;
 }
 
+function alignTo(value, alignment) {
+        return Math.ceil(value / alignment) * alignment;
+}
+
 export async function processReadback() {
         if (!this.readbackPending) return null;
         if (this.mappingInProgress) return null;  // Don't start new mapping while one is in progress
@@ -214,6 +218,207 @@ export async function readGaugeField() {
             };
         } catch (e) {
             console.warn('readGaugeField failed:', e);
+            return null;
+        } finally {
+            this.thetaReadPending = false;
+        }
+}
+
+export async function readGaugeFieldDecimated(layer = 0, stride = 1) {
+        if (this.thetaReadPending) {
+            return null;
+        }
+        this.thetaReadPending = true;
+
+        try {
+            const grid = this.gridSize;
+            const layerIndex = Math.min(Math.max(0, Math.floor(layer)), Math.max(0, this.layers - 1));
+            const layerBytes = grid * grid * 4;
+
+            if (!this.gaugeLayerReadbackXBuf || this.gaugeLayerReadbackXBuf.size !== layerBytes) {
+                if (this.gaugeLayerReadbackXBuf) this.gaugeLayerReadbackXBuf.destroy();
+                this.gaugeLayerReadbackXBuf = this.device.createBuffer({
+                    size: layerBytes,
+                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+                });
+            }
+            if (!this.gaugeLayerReadbackYBuf || this.gaugeLayerReadbackYBuf.size !== layerBytes) {
+                if (this.gaugeLayerReadbackYBuf) this.gaugeLayerReadbackYBuf.destroy();
+                this.gaugeLayerReadbackYBuf = this.device.createBuffer({
+                    size: layerBytes,
+                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+                });
+            }
+
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                { texture: this.gaugeXTexture, origin: { x: 0, y: 0, z: layerIndex } },
+                { buffer: this.gaugeLayerReadbackXBuf, bytesPerRow: grid * 4, rowsPerImage: grid },
+                [grid, grid, 1]
+            );
+            encoder.copyTextureToBuffer(
+                { texture: this.gaugeYTexture, origin: { x: 0, y: 0, z: layerIndex } },
+                { buffer: this.gaugeLayerReadbackYBuf, bytesPerRow: grid * 4, rowsPerImage: grid },
+                [grid, grid, 1]
+            );
+            this.device.queue.submit([encoder.finish()]);
+
+            await this.gaugeLayerReadbackXBuf.mapAsync(GPUMapMode.READ);
+            const axLayer = new Float32Array(this.gaugeLayerReadbackXBuf.getMappedRange().slice(0));
+            this.gaugeLayerReadbackXBuf.unmap();
+
+            await this.gaugeLayerReadbackYBuf.mapAsync(GPUMapMode.READ);
+            const ayLayer = new Float32Array(this.gaugeLayerReadbackYBuf.getMappedRange().slice(0));
+            this.gaugeLayerReadbackYBuf.unmap();
+
+            const step = Math.max(1, Math.floor(stride));
+            if (step <= 1) {
+                return {
+                    layer: layerIndex,
+                    grid,
+                    stride: 1,
+                    sampleGrid: grid,
+                    ax: axLayer,
+                    ay: ayLayer
+                };
+            }
+
+            const sampleGrid = Math.max(1, Math.ceil(grid / step));
+            const ax = new Float32Array(sampleGrid * sampleGrid);
+            const ay = new Float32Array(sampleGrid * sampleGrid);
+            for (let sr = 0; sr < sampleGrid; sr++) {
+                const r = Math.min(grid - 1, sr * step);
+                const rowBase = r * grid;
+                const outRowBase = sr * sampleGrid;
+                for (let sc = 0; sc < sampleGrid; sc++) {
+                    const c = Math.min(grid - 1, sc * step);
+                    const srcIdx = rowBase + c;
+                    const dstIdx = outRowBase + sc;
+                    ax[dstIdx] = axLayer[srcIdx];
+                    ay[dstIdx] = ayLayer[srcIdx];
+                }
+            }
+
+            return {
+                layer: layerIndex,
+                grid,
+                stride: step,
+                sampleGrid,
+                ax,
+                ay
+            };
+        } catch (e) {
+            console.warn('readGaugeFieldDecimated failed:', e);
+            return null;
+        } finally {
+            this.thetaReadPending = false;
+        }
+}
+
+export async function readThetaNeighborhood(layer = 0, c = 0, r = 0, radius = 1) {
+        if (this.thetaReadPending) {
+            return null;
+        }
+        this.thetaReadPending = true;
+
+        try {
+            const grid = this.gridSize;
+            const layerIndex = Math.min(Math.max(0, Math.floor(layer)), Math.max(0, this.layers - 1));
+            const rr = Math.max(1, Math.floor(radius));
+            const width = Math.max(1, rr * 2 + 1);
+            const height = width;
+            const centerC = Math.min(grid - 1, Math.max(0, Math.floor(c)));
+            const centerR = Math.min(grid - 1, Math.max(0, Math.floor(r)));
+            const startX = centerC - rr;
+            const startY = centerR - rr;
+            const needsWrap = startX < 0 || startY < 0 || (startX + width) > grid || (startY + height) > grid;
+
+            // Fast path: read only small neighborhood when fully in-bounds.
+            if (!needsWrap) {
+                const bytesPerRow = alignTo(width * 4, 256);
+                const sizeBytes = bytesPerRow * height;
+                if (!this.thetaNeighborhoodReadbackBuf || this.thetaNeighborhoodReadbackBuf.size < sizeBytes) {
+                    if (this.thetaNeighborhoodReadbackBuf) this.thetaNeighborhoodReadbackBuf.destroy();
+                    this.thetaNeighborhoodReadbackBuf = this.device.createBuffer({
+                        size: sizeBytes,
+                        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+                    });
+                }
+
+                const encoder = this.device.createCommandEncoder();
+                encoder.copyTextureToBuffer(
+                    {
+                        texture: this.thetaTexture,
+                        origin: { x: startX, y: startY, z: layerIndex }
+                    },
+                    {
+                        buffer: this.thetaNeighborhoodReadbackBuf,
+                        bytesPerRow,
+                        rowsPerImage: height
+                    },
+                    [width, height, 1]
+                );
+                this.device.queue.submit([encoder.finish()]);
+
+                await this.thetaNeighborhoodReadbackBuf.mapAsync(GPUMapMode.READ);
+                const raw = new Float32Array(this.thetaNeighborhoodReadbackBuf.getMappedRange().slice(0));
+                this.thetaNeighborhoodReadbackBuf.unmap();
+                const strideFloats = bytesPerRow / 4;
+                const lc = rr;
+                const lr = rr;
+                const idx = (x, y) => y * strideFloats + x;
+                return {
+                    layer: layerIndex,
+                    c: centerC,
+                    r: centerR,
+                    center: raw[idx(lc, lr)],
+                    right: raw[idx(Math.min(width - 1, lc + 1), lr)],
+                    left: raw[idx(Math.max(0, lc - 1), lr)],
+                    up: raw[idx(lc, Math.min(height - 1, lr + 1))],
+                    down: raw[idx(lc, Math.max(0, lr - 1))]
+                };
+            }
+
+            // Boundary path: read full active layer once, then wrap sample.
+            const layerBytes = grid * grid * 4;
+            if (!this.thetaLayerReadbackBuf || this.thetaLayerReadbackBuf.size !== layerBytes) {
+                if (this.thetaLayerReadbackBuf) this.thetaLayerReadbackBuf.destroy();
+                this.thetaLayerReadbackBuf = this.device.createBuffer({
+                    size: layerBytes,
+                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+                });
+            }
+
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                { texture: this.thetaTexture, origin: { x: 0, y: 0, z: layerIndex } },
+                { buffer: this.thetaLayerReadbackBuf, bytesPerRow: grid * 4, rowsPerImage: grid },
+                [grid, grid, 1]
+            );
+            this.device.queue.submit([encoder.finish()]);
+
+            await this.thetaLayerReadbackBuf.mapAsync(GPUMapMode.READ);
+            const layerData = new Float32Array(this.thetaLayerReadbackBuf.getMappedRange().slice(0));
+            this.thetaLayerReadbackBuf.unmap();
+
+            const wrap = (v) => {
+                let x = v % grid;
+                if (x < 0) x += grid;
+                return x;
+            };
+            const at = (x, y) => layerData[wrap(y) * grid + wrap(x)];
+            return {
+                layer: layerIndex,
+                c: centerC,
+                r: centerR,
+                center: at(centerC, centerR),
+                right: at(centerC + 1, centerR),
+                left: at(centerC - 1, centerR),
+                up: at(centerC, centerR + 1),
+                down: at(centerC, centerR - 1)
+            };
+        } catch (e) {
+            console.warn('readThetaNeighborhood failed:', e);
             return null;
         } finally {
             this.thetaReadPending = false;

@@ -65,6 +65,7 @@ any sizable change. Prefer concise, verifiable guidance over speculation.
 ## Repo Snapshot
 - App type: static WebGPU app (ES modules, no bundler)
 - Entry points: `index.html`, `src/main.js` (thin wrapper), `src/app/bootstrap.js`
+- Runtime setup helpers: `src/app/runtime/{initWebGPU,initSimulation,initEventWiring,initOverlayDiagnostics,initControllers}.js`
 - Runtime defaults/input helpers: `src/app/defaultState.js`, `src/app/view/initDrawing.js`
 - UI wiring: `src/ui/UIManager.js` composes `src/ui/bindings/*`, `src/ui/view/*`, and `src/ui/externalInput.js`
 - Bootstrap controllers: `src/app/controllers/{experimentController,snapshotController,analysisController,rcController}.js`

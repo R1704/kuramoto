@@ -99,13 +99,13 @@ export function bindKeyboard() {
                    this.syncURL();
             }
             // Speed controls
-            else if (e.key === '[') {
+            else if (e.key === '[' && !e.shiftKey) {
                 this.state.timeScale = Math.max(0.1, this.state.timeScale * 0.5);
                 this.cb.onParamChange();
                 this.updateDisplay();
                    this.syncURL();
             }
-            else if (e.key === ']') {
+            else if (e.key === ']' && !e.shiftKey) {
                 this.state.timeScale = Math.min(4.0, this.state.timeScale * 2.0);
                 this.cb.onParamChange();
                 this.updateDisplay();
@@ -173,15 +173,14 @@ export function bindKeyboard() {
                 }
                    this.syncURL();
             }
-            // Cycle active layer down/up with [ and ]
-            else if (e.key === '[') {
-                const maxLayer = Math.max(0, (this.state.layerCount ?? 1) - 1);
+            // Cycle active layer down/up with Shift+[ / Shift+]
+            else if (e.key === '{' || (e.key === '[' && e.shiftKey)) {
                 this.state.activeLayer = Math.max(0, (this.state.activeLayer ?? 0) - 1);
                 if (this.cb.onParamChange) this.cb.onParamChange();
                 this.updateDisplay();
                    this.syncURL();
             }
-            else if (e.key === ']') {
+            else if (e.key === '}' || (e.key === ']' && e.shiftKey)) {
                 const maxLayer = Math.max(0, (this.state.layerCount ?? 1) - 1);
                 this.state.activeLayer = Math.min(maxLayer, (this.state.activeLayer ?? 0) + 1);
                 if (this.cb.onParamChange) this.cb.onParamChange();
