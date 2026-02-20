@@ -30,6 +30,7 @@ export function createFrameLoop(ctx) {
             updateRCDisplay,
             updateStatsView,
             onFrameError,
+            audioEngine,
             rcOverlay,
             rcOverlayCtx,
             graphOverlay,
@@ -83,6 +84,22 @@ export function createFrameLoop(ctx) {
             resizeCanvasesToDisplay();
             const viewProj = camera.getMatrix(canvas.width / canvas.height, STATE.gridSize);
             const viewModeStr = STATE.viewMode === 0 ? '3d' : '2d';
+            const audioActive = !!(audioEngine && audioEngine.isRunning && audioEngine.isRunning()
+                && STATE.audioEmpyreanEnabled
+                && STATE.manifoldMode === 's1'
+                && STATE.topologyMode === 'grid'
+                && !experimentActive
+                && !rcSweepActive
+                && !rcModeCompareActive);
+            const wantsAudioMetrics = audioActive;
+            if (!wantsAudioMetrics) {
+                runtime.audioPhaseBins.fill(0);
+                runtime.audioPhasePans.fill(0);
+                runtime.audioIntensity = 0;
+                runtime.audioCoherence = 0;
+                runtime.audioGradient = 0;
+                runtime.audioOrder = 0;
+            }
             renderer.draw(
                 encoder,
                 sim,
@@ -93,6 +110,10 @@ export function createFrameLoop(ctx) {
                 STATE.activeLayer,
                 STATE.selectedLayers
             );
+            if (wantsAudioMetrics && (frameNow - (runtime.lastPrismaticMetricsRequestMs || 0)) >= 36) {
+                sim.requestPrismaticMetricsReadback(encoder);
+                runtime.lastPrismaticMetricsRequestMs = frameNow;
+            }
 
             device.queue.submit([encoder.finish()]);
 
@@ -242,6 +263,44 @@ export function createFrameLoop(ctx) {
                         runtime.phaseSpacePending = false;
                     });
                 }
+            }
+
+            if (sim.prismaticMetricsPending && !runtime.prismaticMetricsReadPending) {
+                runtime.prismaticMetricsReadPending = true;
+                sim.processPrismaticMetricsReadback().then((metrics) => {
+                    if (wantsAudioMetrics && metrics?.phaseBins && metrics?.phasePans) {
+                        const n = Math.min(runtime.audioPhaseBins.length, metrics.phaseBins.length);
+                        for (let i = 0; i < n; i++) {
+                            runtime.audioPhaseBins[i] = metrics.phaseBins[i];
+                            runtime.audioPhasePans[i] = metrics.phasePans[i];
+                        }
+                        for (let i = n; i < runtime.audioPhaseBins.length; i++) {
+                            runtime.audioPhaseBins[i] = 0;
+                            runtime.audioPhasePans[i] = 0;
+                        }
+                        runtime.audioIntensity = metrics.intensity ?? 0;
+                        runtime.audioCoherence = metrics.coherence ?? 0;
+                        runtime.audioGradient = metrics.gradient ?? 0;
+                        runtime.audioOrder = metrics.order ?? 0;
+                        runtime.lastPrismaticMetricsMs = performance.now();
+                    }
+                }).finally(() => {
+                    runtime.prismaticMetricsReadPending = false;
+                });
+            }
+
+            if (audioEngine) {
+                audioEngine.update({
+                    R: stats?.R ?? 0,
+                    localR: stats?.localR ?? stats?.R ?? 0,
+                    gradient: stats?.gradient ?? 0,
+                    phaseBins: runtime.audioPhaseBins,
+                    phasePans: runtime.audioPhasePans,
+                    intensity: runtime.audioIntensity ?? 0,
+                    coherence: runtime.audioCoherence ?? 0,
+                    layerGradient: runtime.audioGradient ?? 0,
+                    layerOrder: runtime.audioOrder ?? 0
+                }, STATE);
             }
 
             runtime.frameErrorCount = 0;

@@ -106,6 +106,46 @@ Gauge parameter reference:
 | Flux Bias `B0` | Target mean plaquette flux in uniform-flux init | Stronger chiral/frustrated lattice patterns |
 | Gauge Graph Seed | RNG seed for graph-link initialization | Reproducible graph-gauge realizations |
 
+### Prismatic Aether (S1, Additive)
+
+Prismatic is now split into **style** and **optional dynamics**.
+
+1. **Style-first visualization**
+- `prismaticStyleEnabled`, `prismaticStyleBlend`, `prismaticStyleBaseLayerMode`
+- Layer 9 is now `Prismatic Style View` over existing simulation state.
+- Style controls:
+  - `prismaticCellPx`
+  - `prismaticTrailFade`
+  - `prismaticGlowScale`
+  - `prismaticCoreThreshold`
+  - `prismaticCoreScale`
+
+2. **Optional Prismatic dynamics**
+- `prismaticDynamicsEnabled`
+- Inertial S1/grid branch:
+  - `v'=(v+K(F+Fmouse))f`
+  - `θ' = θ + ω + v'`
+  - `E' = E·decay + |v'|·mix`
+- Parameters: `prismaticK`, `prismaticFriction`, `prismaticEnergyDecay`, `prismaticEnergyMix`
+
+3. **Interaction force**
+- `interactionForceEnabled` + drag parameters:
+  - `prismaticDragRadiusPx`
+  - `prismaticDragPeakForce`
+  - `prismaticTargetPhase`
+  - `interactionForceFalloff`
+- Left-drag applies local force injection; Cmd+drag remains draw/erase.
+- 2D uses zoom/pan-aware picking; 3D projects to active-layer plane.
+
+4. **Reactive audio engine**
+- Optional WebAudio subsystem (`audioEmpyreanEnabled`) with Start/Stop lifecycle.
+- Audio source follows active visualization features:
+  - Prismatic feature bus when style view is active.
+  - Active-layer theta features otherwise.
+- Modes: `audioEmpyreanMode = ambient | pulse`
+- `audioCoherenceLock` enforces Prismatic-style/audio lock when style view is selected.
+- Audio remains output-only (no physics feedback path).
+
 ### Discovery-First Tooling (v1.2)
 
 To speed up interpretation without changing equations:

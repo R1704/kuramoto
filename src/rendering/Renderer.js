@@ -67,6 +67,16 @@ export class Renderer {
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
+                {
+                    binding: 10,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
+                {
+                    binding: 11,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+                },
             ],
         });
         this.pipelineLayout = device.createPipelineLayout({
@@ -108,8 +118,16 @@ export class Renderer {
         this.initBlendPipeline();
         this.bindGroup = null; // Cache bind group
         this.bindGroup2D = null; // Cache 2D bind group
+        this.bindGroups2D = null;
+        this.bindGroups2DBlend = null;
         this.lastThetaTexture = null;
         this.drawOverlayTex = null;
+        this.prismaticTrailPrimed = false;
+        this.prismaticTrailTextures = null;
+        this.prismaticTrailIndex = 0;
+        this.prismaticTrailBindGroups = null;
+        this.prismaticTrailWidth = 0;
+        this.prismaticTrailHeight = 0;
 
         // Mesh buffers for continuous grid rendering in 3D
         this.vertexBuffer = null;
@@ -198,6 +216,8 @@ export class Renderer {
                         { binding: 7, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
                         { binding: 8, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
                         { binding: 9, resource: { buffer: sim.gaugeParamsBuf } },
+                        { binding: 10, resource: { buffer: sim.interactionParamsBuf } },
+                        { binding: 11, resource: sim.prismaticStateTexture.createView({ dimension: '2d-array' }) },
                     ],
                 }));
             }
@@ -217,10 +237,97 @@ export class Renderer {
                 primitive: { topology: 'triangle-list', cullMode: 'none' },
                 // No depth buffer needed for 2D
             });
+            this.pipeline2DBlend = this.device.createRenderPipeline({
+                layout: 'auto',
+                vertex: { module, entryPoint: 'vs_main' },
+                fragment: {
+                    module,
+                    entryPoint: 'fs_main',
+                    targets: [{
+                        format: this.format,
+                        blend: {
+                            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                        },
+                    }],
+                },
+                primitive: { topology: 'triangle-list', cullMode: 'none' },
+            });
+
+            const compositeModule = this.device.createShaderModule({
+                code: `
+struct VSOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+@group(0) @binding(0) var compositeSampler: sampler;
+@group(0) @binding(1) var compositeTex: texture_2d<f32>;
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VSOut {
+    var pos = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0)
+    );
+    var uv = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(2.0, 0.0),
+        vec2<f32>(0.0, 2.0)
+    );
+    var out: VSOut;
+    out.position = vec4<f32>(pos[vi], 0.0, 1.0);
+    out.uv = uv[vi];
+    return out;
+}
+@fragment
+fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
+    // input.uv is GPU screen UV (v up); sampled textures expect v down.
+    return textureSample(compositeTex, compositeSampler, vec2<f32>(input.uv.x, 1.0 - input.uv.y));
+}
+                `
+            });
+            this.pipeline2DComposite = this.device.createRenderPipeline({
+                layout: 'auto',
+                vertex: { module: compositeModule, entryPoint: 'vs_main' },
+                fragment: { module: compositeModule, entryPoint: 'fs_main', targets: [{ format: this.format }] },
+                primitive: { topology: 'triangle-list', cullMode: 'none' },
+            });
         } catch (e) {
             console.error('Failed to create 2D pipeline:', e);
             this.pipeline2D = null;
+            this.pipeline2DBlend = null;
+            this.pipeline2DComposite = null;
         }
+    }
+
+    ensurePrismaticTrailTextures() {
+        const width = this.canvas?.width || 1;
+        const height = this.canvas?.height || 1;
+        if (this.prismaticTrailTextures
+            && this.prismaticTrailWidth === width
+            && this.prismaticTrailHeight === height) {
+            return;
+        }
+        if (this.prismaticTrailTextures) {
+            this.prismaticTrailTextures.forEach((tex) => tex.destroy());
+        }
+        this.prismaticTrailTextures = [
+            this.device.createTexture({
+                size: [width, height, 1],
+                format: this.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+            }),
+            this.device.createTexture({
+                size: [width, height, 1],
+                format: this.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+            })
+        ];
+        this.prismaticTrailBindGroups = new Map();
+        this.prismaticTrailIndex = 0;
+        this.prismaticTrailPrimed = false;
+        this.prismaticTrailWidth = width;
+        this.prismaticTrailHeight = height;
     }
 
     resize(width, height) {
@@ -230,6 +337,14 @@ export class Renderer {
             format: 'depth24plus',
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
+        if (this.prismaticTrailTextures) {
+            this.prismaticTrailTextures.forEach((tex) => tex.destroy());
+            this.prismaticTrailTextures = null;
+        }
+        this.prismaticTrailBindGroups = null;
+        this.prismaticTrailWidth = 0;
+        this.prismaticTrailHeight = 0;
+        this.prismaticTrailPrimed = false;
     }
     
     // Call this when simulation textures change
@@ -237,12 +352,17 @@ export class Renderer {
         this.bindGroup = null;
         this.bindGroup2D = null;
         this.bindGroups2D = null; // Clear 2D bind group cache
+        this.bindGroups2DBlend = null;
         this.lastSim = null;
         this.lastThetaTexture = null;
         this.layerBindGroups = [];
         this.layerBindGroupSim = null;
         this.layerBindGroupCount = 0;
         this.layerBindGroupCache.clear();
+        this.prismaticTrailPrimed = false;
+        this.prismaticTrailIndex = 0;
+        this.prismaticTrailWidth = 0;
+        this.prismaticTrailHeight = 0;
     }
 
     draw(commandEncoder, sim, viewProjMatrix, N, viewMode = '3d', renderAllLayers = false, activeLayer = 0, selectedLayers = null) {
@@ -340,18 +460,24 @@ export class Renderer {
             return;
         }
         
-        // Cache bind groups per theta texture (we have 2 textures for double buffering)
-        if (!this.bindGroups2D) {
-            this.bindGroups2D = new Map();
-        }
-        
-        // Get or create bind group for current theta texture
         const useVectorTexture = sim.paramsManifoldMode === 's2' || sim.paramsManifoldMode === 's3';
         const keyTexture = useVectorTexture ? sim.s2Texture : sim.thetaTexture;
-        let bindGroup = this.bindGroups2D.get(keyTexture);
+        const prismaticTrailActive = sim.paramsManifoldMode === 's1'
+            && (sim.paramsColormap === 9)
+            && !!sim.prismaticEnabled
+            && !!this.pipeline2DBlend;
+        const useBlend = !!prismaticTrailActive;
+        if (useBlend) {
+            if (!this.bindGroups2DBlend) this.bindGroups2DBlend = new Map();
+        } else if (!this.bindGroups2D) {
+            this.bindGroups2D = new Map();
+        }
+        const bindGroupCache = useBlend ? this.bindGroups2DBlend : this.bindGroups2D;
+        const layout = useBlend ? this.pipeline2DBlend.getBindGroupLayout(0) : this.pipeline2D.getBindGroupLayout(0);
+        let bindGroup = bindGroupCache.get(keyTexture);
         if (!bindGroup) {
             bindGroup = this.device.createBindGroup({
-                layout: this.pipeline2D.getBindGroupLayout(0),
+                layout,
                 entries: [
                     { binding: 0, resource: keyTexture.createView({ dimension: '2d-array' }) },
                     { binding: 1, resource: { buffer: sim.paramsBuf } },
@@ -361,12 +487,71 @@ export class Renderer {
                     { binding: 5, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
                     { binding: 6, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
                     { binding: 7, resource: { buffer: sim.gaugeParamsBuf } },
+                    { binding: 8, resource: { buffer: sim.interactionParamsBuf } },
+                    { binding: 9, resource: sim.prismaticStateTexture.createView({ dimension: '2d-array' }) },
                 ],
             });
-            this.bindGroups2D.set(keyTexture, bindGroup);
+            bindGroupCache.set(keyTexture, bindGroup);
         }
 
-        const pass = commandEncoder.beginRenderPass({
+        if (!prismaticTrailActive || !this.pipeline2DComposite) {
+            this.prismaticTrailPrimed = false;
+            this.prismaticTrailIndex = 0;
+            const pass = commandEncoder.beginRenderPass({
+                colorAttachments: [{
+                    view: this.context.getCurrentTexture().createView(),
+                    clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                }],
+            });
+            pass.setPipeline(this.pipeline2D);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(3);
+            pass.end();
+            return;
+        }
+
+        this.ensurePrismaticTrailTextures();
+        const prevIdx = this.prismaticTrailIndex;
+        const nextIdx = prevIdx ^ 1;
+        const prevTex = this.prismaticTrailTextures[prevIdx];
+        const nextTex = this.prismaticTrailTextures[nextIdx];
+        if (this.prismaticTrailPrimed) {
+            commandEncoder.copyTextureToTexture(
+                { texture: prevTex },
+                { texture: nextTex },
+                [this.canvas.width, this.canvas.height, 1]
+            );
+        }
+
+        const trailPass = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: nextTex.createView(),
+                clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+                loadOp: this.prismaticTrailPrimed ? 'load' : 'clear',
+                storeOp: 'store',
+            }],
+        });
+        trailPass.setPipeline(this.pipeline2DBlend);
+        trailPass.setBindGroup(0, bindGroup);
+        trailPass.draw(3);
+        trailPass.end();
+
+        if (!this.prismaticTrailBindGroups) this.prismaticTrailBindGroups = new Map();
+        let compositeBindGroup = this.prismaticTrailBindGroups.get(nextTex);
+        if (!compositeBindGroup) {
+            compositeBindGroup = this.device.createBindGroup({
+                layout: this.pipeline2DComposite.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: this.externalSampler },
+                    { binding: 1, resource: nextTex.createView() }
+                ]
+            });
+            this.prismaticTrailBindGroups.set(nextTex, compositeBindGroup);
+        }
+
+        const compositePass = commandEncoder.beginRenderPass({
             colorAttachments: [{
                 view: this.context.getCurrentTexture().createView(),
                 clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
@@ -374,14 +559,22 @@ export class Renderer {
                 storeOp: 'store',
             }],
         });
-        pass.setPipeline(this.pipeline2D);
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(3); // Single triangle covering the screen
-        pass.end();
+        compositePass.setPipeline(this.pipeline2DComposite);
+        compositePass.setBindGroup(0, compositeBindGroup);
+        compositePass.draw(3);
+        compositePass.end();
+
+        this.prismaticTrailIndex = nextIdx;
+        this.prismaticTrailPrimed = true;
     }
     
     setContext(ctx) {
         this.context = ctx;
+    }
+
+    resetPrismaticTrail() {
+        this.prismaticTrailPrimed = false;
+        this.prismaticTrailIndex = 0;
     }
 
     clearDrawOverlay() {
@@ -494,5 +687,7 @@ export class Renderer {
         if (this.quadVertexBuffer) this.quadVertexBuffer.destroy();
         this.layerBindGroupCache.clear();
         this.layerBindGroups = [];
+        if (this.bindGroups2D) this.bindGroups2D.clear();
+        if (this.bindGroups2DBlend) this.bindGroups2DBlend.clear();
     }
 }

@@ -38,6 +38,9 @@ export async function loadPreset({ name, sim, ui, state, lastExternalCanvas }) {
     if (state.manifoldMode !== 's1' && state.colormap >= 7) {
         state.colormap = 0;
     }
+    if (typeof sim.writePrismaticState === 'function') {
+        sim.writePrismaticState();
+    }
 
     syncStateToLayerParams(state, targets);
     sim.writeLayerParams(state.layerParams);

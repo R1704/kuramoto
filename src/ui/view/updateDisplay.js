@@ -29,8 +29,28 @@ export function updateDisplay() {
         update('gauge-dt-scale-slider', this.state.gaugeDtScale ?? 1.0);
         update('gauge-init-amplitude-slider', this.state.gaugeInitAmplitude ?? 0.5);
         update('gauge-flux-bias-slider', this.state.gaugeFluxBias ?? 0.0);
+        update('phase-lag-eta-slider', this.state.phaseLagEta ?? 0.0);
+        update('prismatic-k-slider', this.state.prismaticK ?? 0.10);
+        update('prismatic-friction-slider', this.state.prismaticFriction ?? 0.92);
+        update('prismatic-energy-decay-slider', this.state.prismaticEnergyDecay ?? 0.88);
+        update('prismatic-energy-mix-slider', this.state.prismaticEnergyMix ?? 0.12);
+        update('prismatic-drag-radius-px-slider', this.state.prismaticDragRadiusPx ?? 120);
+        update('prismatic-drag-peak-force-slider', this.state.prismaticDragPeakForce ?? 4.0);
+        update('prismatic-target-phase-slider', this.state.prismaticTargetPhase ?? 0.0);
+        update('prismatic-cell-px-slider', this.state.prismaticCellPx ?? 24);
+        update('prismatic-trail-fade-slider', this.state.prismaticTrailFade ?? 0.15);
+        update('prismatic-glow-scale-slider', this.state.prismaticGlowScale ?? 50);
+        update('prismatic-core-threshold-slider', this.state.prismaticCoreThreshold ?? 0.4);
+        update('prismatic-core-scale-slider', this.state.prismaticCoreScale ?? 0.3);
+        update('prismatic-style-blend-slider', this.state.prismaticStyleBlend ?? 1.0);
+        update('interaction-force-falloff-slider', this.state.interactionForceFalloff ?? 1.0);
         update('viz-flux-gain-slider', this.state.vizFluxGain ?? 1.0);
         update('viz-cov-grad-gain-slider', this.state.vizCovGradGain ?? 1.0);
+        update('audio-empyrean-master-slider', this.state.audioEmpyreanMaster ?? 0.55);
+        update('audio-empyrean-bells-slider', this.state.audioEmpyreanBells ?? 0.45);
+        update('audio-empyrean-bass-slider', this.state.audioEmpyreanBass ?? 0.5);
+        update('audio-empyrean-reverb-mix-slider', this.state.audioEmpyreanReverbMix ?? 0.45);
+        update('audio-empyrean-reverb-time-slider', this.state.audioEmpyreanReverbTime ?? 8.0);
         update('layer-coupling-up-slider', this.state.layerCouplingUp ?? 0);
         update('layer-coupling-down-slider', this.state.layerCouplingDown ?? 0);
         update('omega-amplitude-slider', this.state.omegaAmplitude);
@@ -138,6 +158,32 @@ export function updateDisplay() {
         if (gaugeEnabledToggle) gaugeEnabledToggle.checked = !!this.state.gaugeEnabled;
         const gaugeModeSelect = document.getElementById('gauge-mode-select');
         if (gaugeModeSelect) gaugeModeSelect.value = this.state.gaugeMode || 'static';
+        const phaseLagEnabledToggle = document.getElementById('phase-lag-enabled-toggle');
+        if (phaseLagEnabledToggle) phaseLagEnabledToggle.checked = !!this.state.phaseLagEnabled;
+        const prismaticStyleEnabledToggle = document.getElementById('prismatic-style-enabled-toggle');
+        if (prismaticStyleEnabledToggle) prismaticStyleEnabledToggle.checked = !!this.state.prismaticStyleEnabled;
+        const prismaticDynamicsEnabledToggle = document.getElementById('prismatic-dynamics-enabled-toggle');
+        if (prismaticDynamicsEnabledToggle) prismaticDynamicsEnabledToggle.checked = !!this.state.prismaticDynamicsEnabled;
+        const interactionForceEnabledToggle = document.getElementById('interaction-force-enabled-toggle');
+        if (interactionForceEnabledToggle) interactionForceEnabledToggle.checked = !!this.state.interactionForceEnabled;
+        const audioEmpyreanEnabledToggle = document.getElementById('audio-empyrean-enabled-toggle');
+        if (audioEmpyreanEnabledToggle) audioEmpyreanEnabledToggle.checked = !!this.state.audioEmpyreanEnabled;
+        const audioEmpyreanModeSelect = document.getElementById('audio-empyrean-mode-select');
+        if (audioEmpyreanModeSelect) audioEmpyreanModeSelect.value = this.state.audioEmpyreanMode || 'ambient';
+        const audioCoherenceLockToggle = document.getElementById('audio-coherence-lock-toggle');
+        if (audioCoherenceLockToggle) audioCoherenceLockToggle.checked = this.state.audioCoherenceLock !== false;
+        const prismaticStyleBaseSelect = document.getElementById('prismatic-style-base-select');
+        if (prismaticStyleBaseSelect) prismaticStyleBaseSelect.value = this.state.prismaticStyleBaseLayerMode || 'active';
+        const audioStartStopBtn = document.getElementById('audio-empyrean-start-stop-btn');
+        if (audioStartStopBtn) audioStartStopBtn.textContent = this.state.audioEmpyreanRunning ? 'Stop Audio' : 'Start Audio';
+        const audioSourceStatus = document.getElementById('audio-source-status');
+        if (audioSourceStatus) {
+            const source = (this.state.colormap === 9 && this.state.prismaticStyleEnabled)
+                ? 'Active Prismatic style bus'
+                : 'Active layer/style bus';
+            const lockTxt = this.state.audioCoherenceLock === false ? 'unlock' : 'lock';
+            audioSourceStatus.textContent = `Audio source: ${source} (${lockTxt}, ~36ms)`;
+        }
         const gaugeInitPatternSelect = document.getElementById('gauge-init-pattern-select');
         if (gaugeInitPatternSelect) gaugeInitPatternSelect.value = this.state.gaugeInitPattern || 'zero';
         const vizAutoNormToggle = document.getElementById('viz-gauge-autonorm-toggle');
@@ -165,11 +211,16 @@ export function updateDisplay() {
             const mode = this.state.manifoldMode || 's1';
             const topo = this.state.topologyMode || 'grid';
             const gaugeModeTxt = this.state.gaugeEnabled ? (this.state.gaugeMode || 'static') : 'off';
+            const styleTxt = this.state.prismaticStyleEnabled ? 'on' : 'off';
+            const dynTxt = this.state.prismaticDynamicsEnabled ? 'on' : 'off';
+            const forceTxt = this.state.interactionForceEnabled ? 'on' : 'off';
             const layer = this.state.colormap ?? 0;
             const inactive = [];
             if (!isGaugeS1(this.state)) inactive.push('gauge off');
             if (this.state.gaugeEnabled && (this.state.gaugeMode || 'static') === 'dynamic' && topo !== 'grid') inactive.push('dynamic gauge gated');
-            dynStatus.textContent = `manifold:${mode} | topology:${topo} | rule:${this.state.ruleMode} | gauge:${gaugeModeTxt} | layer:${layer}${inactive.length ? ` | inactive: ${inactive.join(', ')}` : ''}`;
+            if (this.state.prismaticDynamicsEnabled && topo !== 'grid') inactive.push('prismatic dynamics grid-only');
+            if (this.state.interactionForceEnabled && topo !== 'grid') inactive.push('force grid-only');
+            dynStatus.textContent = `manifold:${mode} | topology:${topo} | rule:${this.state.ruleMode} | gauge:${gaugeModeTxt} | style:${styleTxt} | dyn:${dynTxt} | force:${forceTxt} | layer:${layer}${inactive.length ? ` | inactive: ${inactive.join(', ')}` : ''}`;
         }
         
         // Update kernel shape controls
@@ -194,8 +245,10 @@ export function updateDisplay() {
             const showGaugeLayers = canShowGaugeLayers(this.state);
             const gaugeFluxOption = document.getElementById('data-layer-gauge-flux');
             const covGradOption = document.getElementById('data-layer-cov-gradient');
+            const prismaticOption = document.getElementById('data-layer-prismatic-style');
             if (gaugeFluxOption) gaugeFluxOption.hidden = !showGaugeLayers;
             if (covGradOption) covGradOption.hidden = !showGaugeLayers;
+            if (prismaticOption) prismaticOption.hidden = !showGaugeLayers;
             const safeLayer = showGaugeLayers ? this.state.colormap : Math.min(this.state.colormap, 6);
             layerSelect.value = safeLayer;
         }
@@ -472,6 +525,45 @@ export function updateDisplay() {
         if (overlayGauge) overlayGauge.disabled = this.state.manifoldMode !== 's1';
         const overlayPlaquette = document.getElementById('overlay-plaquette-sign-toggle');
         if (overlayPlaquette) overlayPlaquette.disabled = this.state.manifoldMode !== 's1';
+        const phaseLagToggle = document.getElementById('phase-lag-enabled-toggle');
+        if (phaseLagToggle) phaseLagToggle.disabled = this.state.manifoldMode !== 's1';
+        const phaseLagEta = document.getElementById('phase-lag-eta-slider');
+        if (phaseLagEta) phaseLagEta.disabled = this.state.manifoldMode !== 's1' || !this.state.phaseLagEnabled;
+        const prismaticStyleToggle = document.getElementById('prismatic-style-enabled-toggle');
+        if (prismaticStyleToggle) prismaticStyleToggle.disabled = this.state.manifoldMode !== 's1';
+        const prismaticDynamicsToggle = document.getElementById('prismatic-dynamics-enabled-toggle');
+        if (prismaticDynamicsToggle) prismaticDynamicsToggle.disabled = this.state.manifoldMode !== 's1' || this.state.topologyMode !== 'grid';
+        const interactionForceToggle = document.getElementById('interaction-force-enabled-toggle');
+        if (interactionForceToggle) interactionForceToggle.disabled = this.state.manifoldMode !== 's1' || this.state.topologyMode !== 'grid';
+        ['prismatic-k-slider', 'prismatic-friction-slider', 'prismatic-energy-decay-slider', 'prismatic-energy-mix-slider']
+            .forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = this.state.manifoldMode !== 's1' || !this.state.prismaticDynamicsEnabled || this.state.topologyMode !== 'grid';
+            });
+        ['prismatic-drag-radius-px-slider', 'prismatic-drag-peak-force-slider', 'prismatic-target-phase-slider']
+            .forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = this.state.manifoldMode !== 's1' || !this.state.interactionForceEnabled || this.state.topologyMode !== 'grid';
+            });
+        ['prismatic-style-blend-slider', 'prismatic-style-base-select', 'prismatic-cell-px-slider', 'prismatic-trail-fade-slider', 'prismatic-glow-scale-slider', 'prismatic-core-threshold-slider', 'prismatic-core-scale-slider']
+            .forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = this.state.manifoldMode !== 's1' || !this.state.prismaticStyleEnabled;
+            });
+        ['interaction-force-falloff-slider']
+            .forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = this.state.manifoldMode !== 's1' || !this.state.interactionForceEnabled || this.state.topologyMode !== 'grid';
+            });
+        const audioToggle = document.getElementById('audio-empyrean-enabled-toggle');
+        if (audioToggle) audioToggle.disabled = this.state.manifoldMode !== 's1' || this.state.topologyMode !== 'grid';
+        const audioBtn = document.getElementById('audio-empyrean-start-stop-btn');
+        if (audioBtn) audioBtn.disabled = this.state.manifoldMode !== 's1' || this.state.topologyMode !== 'grid';
+        ['audio-empyrean-master-slider', 'audio-empyrean-bells-slider', 'audio-empyrean-bass-slider', 'audio-empyrean-reverb-mix-slider', 'audio-empyrean-reverb-time-slider', 'audio-empyrean-mode-select', 'audio-coherence-lock-toggle']
+            .forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = this.state.manifoldMode !== 's1' || this.state.topologyMode !== 'grid' || !this.state.audioEmpyreanEnabled;
+            });
 
         const sweepParamSelect = document.getElementById('sweep-param-select');
         if (sweepParamSelect) sweepParamSelect.value = this.state.sweepParam || 'gaugeCharge';

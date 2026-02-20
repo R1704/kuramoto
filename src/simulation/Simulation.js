@@ -12,7 +12,9 @@ import {
     writeGraphGauge as writeGraphGaugeFn,
     writeInputWeights as writeInputWeightsFn,
     setInputSignal as setInputSignalFn,
-    setGaugeParams as setGaugeParamsFn
+    writePrismaticState as writePrismaticStateFn,
+    setGaugeParams as setGaugeParamsFn,
+    setInteractionParams as setInteractionParamsFn
 } from './buffers.js';
 import {
     initPipeline as initPipelineFn,
@@ -20,7 +22,8 @@ import {
     getBindGroup as getBindGroupFn,
     getS2BindGroup as getS2BindGroupFn,
     getS3BindGroup as getS3BindGroupFn,
-    getGaugeUpdateBindGroup as getGaugeUpdateBindGroupFn
+    getGaugeUpdateBindGroup as getGaugeUpdateBindGroupFn,
+    getPrismaticMetricsBindGroup as getPrismaticMetricsBindGroupFn
 } from './pipelines.js';
 import {
     requestGlobalOrderReadback as requestGlobalOrderReadbackFn,
@@ -33,6 +36,8 @@ import {
     readGaugeField as readGaugeFieldFn,
     readGaugeFieldDecimated as readGaugeFieldDecimatedFn,
     readThetaNeighborhood as readThetaNeighborhoodFn,
+    requestPrismaticMetricsReadback as requestPrismaticMetricsReadbackFn,
+    processPrismaticMetricsReadback as processPrismaticMetricsReadbackFn,
     getOmega as getOmegaFn,
     storeOmega as storeOmegaFn
 } from './readback.js';
@@ -58,6 +63,7 @@ export class Simulation {
         this.delayBufferIndex = 0;
         this.delayBuffers = [];
         this.paramsManifoldMode = 's1';
+        this.paramsColormap = 0;
         this.topologyModeValue = 0;
         this.gaugeEnabled = false;
         this.gaugeDynamic = false;
@@ -95,6 +101,10 @@ export class Simulation {
         return getGaugeUpdateBindGroupFn.call(this);
     }
 
+    getPrismaticMetricsBindGroup(thetaIdx = this.thetaIndex, prismaticIdx = this.prismaticIndex) {
+        return getPrismaticMetricsBindGroupFn.call(this, thetaIdx, prismaticIdx);
+    }
+
     writeLayerParams(layers) {
         return writeLayerParamsFn.call(this, layers);
     }
@@ -112,6 +122,7 @@ export class Simulation {
         this.device.queue.writeBuffer(this.paramsBuf, 16 * 4, timeData);
 
         this.paramsManifoldMode = p.manifoldMode || 's1';
+        setInteractionParamsFn.call(this, p);
         
         // Only write full params if something other than dt/time changed
         // (This will be called explicitly when params change via updateFullParams)
@@ -185,10 +196,12 @@ export class Simulation {
         ]);
         this.device.queue.writeBuffer(this.paramsBuf, 0, data);
         this.topologyModeValue = topoMode;
+        this.paramsColormap = p.colormap ?? 0;
         const gaugeState = (p.manifoldMode === 's1')
             ? p
             : { ...p, gaugeEnabled: false, gaugeMode: 'static' };
         setGaugeParamsFn.call(this, gaugeState);
+        setInteractionParamsFn.call(this, p);
     }
 
     setManifoldMode(mode) {
@@ -207,6 +220,8 @@ export class Simulation {
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
         const currentThetaTex = this.thetaTextures[currentIdx];
+        const currentPrismaticIdx = this.prismaticIndex;
+        const nextPrismaticIdx = currentPrismaticIdx ^ 1;
         const gaugeDynamic = (!useVectorManifold) && this.gaugeEnabled && this.gaugeDynamic && (this.topologyModeValue === 0);
 
         if (gaugeDynamic) {
@@ -379,6 +394,25 @@ export class Simulation {
             // Swap textures
             this.thetaIndex = nextIdx;
             this.thetaTexture = this.thetaTextures[this.thetaIndex];
+            this.prismaticIndex = nextPrismaticIdx;
+            this.prismaticStateTexture = this.prismaticStateTextures[this.prismaticIndex];
+
+            if (this.paramsManifoldMode === 's1' && this.topologyModeValue === 0 && this.audioFeatureEnabled) {
+                const atomicBytes = (this.prismaticMetricsAtomicCount || 20) * 4;
+                commandEncoder.clearBuffer(this.prismaticMetricsAtomicBuf, 0, atomicBytes);
+                const metricsPass = commandEncoder.beginComputePass();
+                metricsPass.setPipeline(this.prismaticMetricsReductionPipeline);
+                metricsPass.setBindGroup(0, this.getPrismaticMetricsBindGroup(this.thetaIndex, this.prismaticIndex));
+                const metricsWg = Math.ceil(this.gridSize / 16);
+                metricsPass.dispatchWorkgroups(metricsWg, metricsWg, this.layers);
+                metricsPass.end();
+
+                const metricsNormalizePass = commandEncoder.beginComputePass();
+                metricsNormalizePass.setPipeline(this.prismaticMetricsNormalizePipeline);
+                metricsNormalizePass.setBindGroup(0, this.prismaticMetricsNormalizeBindGroup);
+                metricsNormalizePass.dispatchWorkgroups(1);
+                metricsNormalizePass.end();
+            }
         } else if (useS3) {
             // S³ compute pass
             const pass = commandEncoder.beginComputePass();
@@ -436,12 +470,20 @@ export class Simulation {
         return setGaugeParamsFn.call(this, state);
     }
 
+    setInteractionParams(state) {
+        return setInteractionParamsFn.call(this, state);
+    }
+
     writeInputWeights(weights) {
         return writeInputWeightsFn.call(this, weights);
     }
 
     setInputSignal(signal) {
         return setInputSignalFn.call(this, signal);
+    }
+
+    writePrismaticState(data = null) {
+        return writePrismaticStateFn.call(this, data);
     }
 
     requestGlobalOrderReadback(commandEncoder) {
@@ -482,6 +524,14 @@ export class Simulation {
 
     async readThetaNeighborhood(layer = 0, c = 0, r = 0, radius = 1) {
         return readThetaNeighborhoodFn.call(this, layer, c, r, radius);
+    }
+
+    requestPrismaticMetricsReadback(commandEncoder) {
+        return requestPrismaticMetricsReadbackFn.call(this, commandEncoder);
+    }
+
+    async processPrismaticMetricsReadback() {
+        return processPrismaticMetricsReadbackFn.call(this);
     }
 
     getOmega() {

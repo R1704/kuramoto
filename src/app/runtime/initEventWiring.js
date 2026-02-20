@@ -1,3 +1,5 @@
+import { screenPxToScreenUvGpu } from '../../core/viewTransform2d.js';
+
 export function initEventWiring({
     canvas,
     context,
@@ -42,10 +44,11 @@ export function initEventWiring({
 
     const updateOverlayMouse = (evt, inside = true) => {
         const rect = canvas.getBoundingClientRect();
-        const nx = (evt.clientX - rect.left) / rect.width;
-        const ny = (evt.clientY - rect.top) / rect.height;
-        runtime.overlayMouseNorm.x = Math.min(1, Math.max(0, nx));
-        runtime.overlayMouseNorm.y = Math.min(1, Math.max(0, ny));
+        const x = evt.clientX - rect.left;
+        const y = evt.clientY - rect.top;
+        const uv = screenPxToScreenUvGpu(x, y, rect.width, rect.height);
+        runtime.overlayMouseNorm.x = Math.min(1, Math.max(0, uv.u));
+        runtime.overlayMouseNorm.y = Math.min(1, Math.max(0, uv.v));
         runtime.overlayMouseNorm.inside = inside;
         runtime.overlayDirty = true;
     };

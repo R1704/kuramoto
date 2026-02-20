@@ -86,7 +86,7 @@ export function bindKeyboard() {
                 this.updateDisplay();
                    this.syncURL();
             } else if (e.key === 'C' && e.shiftKey) {
-                const layerCount = this.state.manifoldMode === 's1' ? 9 : 7;
+                const layerCount = this.state.manifoldMode === 's1' ? 10 : 7;
                 this.state.colormap = (this.state.colormap + 1) % layerCount;
                 this.cb.onParamChange();
                 this.updateDisplay();

@@ -75,6 +75,41 @@ export function createInitialState() {
         overlayProbeEnabled: true,
         phaseLagEnabled: false,
         phaseLagEta: 0.0,
+        // Prismatic style/dynamics split
+        prismaticStyleEnabled: false,
+        prismaticStyleBlend: 1.0,
+        prismaticStyleBaseLayerMode: 'active', // 'active' | 'phase' | 'order'
+        prismaticDynamicsEnabled: false,
+        interactionForceEnabled: true,
+        interactionForceFalloff: 1.0,
+        audioEmpyreanEnabled: false,
+        audioEmpyreanMaster: 0.55,
+        audioEmpyreanBells: 0.45,
+        audioEmpyreanBass: 0.5,
+        audioEmpyreanReverbMix: 0.45,
+        audioEmpyreanReverbTime: 8.0,
+        audioEmpyreanMode: 'ambient', // 'ambient' | 'pulse'
+        audioCoherenceLock: true,
+        audioEmpyreanRunning: false,
+        // Prismatic Aether parity controls
+        prismaticK: 0.10,
+        prismaticFriction: 0.92,
+        prismaticEnergyDecay: 0.88,
+        prismaticEnergyMix: 0.12,
+        prismaticDragRadiusPx: 120,
+        prismaticDragPeakForce: 4.0,
+        prismaticTargetPhase: 0.0,
+        prismaticCellPx: 24,
+        prismaticTrailFade: 0.15,
+        prismaticGlowScale: 50,
+        prismaticCoreThreshold: 0.4,
+        prismaticCoreScale: 0.3,
+        // Runtime-only mouse pointer for force injection (not serialized)
+        mouseForcePointerU: 0.5,
+        mouseForcePointerV: 0.5,
+        mouseForcePointerActive: false,
+        // Runtime-only projected radius in simulation UV units
+        prismaticDragRadiusUV: 0.08,
         // Interaction primer controls
         drawMode: 'draw', // 'draw' or 'erase'
         scaleBase: 1.0,

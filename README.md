@@ -86,8 +86,9 @@ Switch rules using **keyboard 0-5** or the dropdown menu.
 ### Data Layers + Palettes
 
 Visualization now separates **data layers** from **palettes**:
-- Layers: Phase, Velocity, Curvature, Order, Chirality, Phase+Gradient, Image Texture, Gauge Flux, Covariant Gradient.
+- Layers: Phase, Velocity, Curvature, Order, Chirality, Phase+Gradient, Image Texture, Gauge Flux, Covariant Gradient, Prismatic Style View.
   - `Gauge Flux` and `Covariant Gradient` are available on **S1 only**.
+  - `Prismatic Style View` is available on **S1 only**.
 - Palettes: Rainbow, Viridis, Plasma, Inferno, Twilight (cyclic), Greyscale.
 
 Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
@@ -141,6 +142,22 @@ Gauge controls and effects:
 | Init Amplitude | Magnitude for random-link and pure-gauge initialization |
 | Flux Bias `B0` | Target uniform plaquette flux (uniform-flux init) |
 | Gauge Graph Seed | Deterministic graph-link initialization seed |
+
+### Prismatic Aether (S1)
+
+- **Style-first split**:
+  - `prismaticStyleEnabled` turns on Prismatic rendering only (no equation changes).
+  - `prismaticDynamicsEnabled` enables optional inertial dynamics branch (grid-only).
+- **Interaction force**:
+  - Left-drag injects local force when `interactionForceEnabled` is on.
+  - Cmd+drag / Cmd+Shift+drag remain draw/erase.
+  - 2D uses zoom/pan-aware picking; 3D projects rays to active-layer plane.
+- **Reactive audio**:
+  - FM bells + sub-bass + delay/reverb.
+  - Follows active visualization features (Prismatic bus in style view, active-layer features otherwise).
+  - `audioEmpyreanMode`: `ambient` or `pulse`.
+  - `audioCoherenceLock` keeps Prismatic audio/style coupled in style view.
+- Audio is output-only and does **not** feed back into simulation equations.
 
 ### 3D Surface Modes
 - **Continuous Mesh** (default) for smooth height fields.

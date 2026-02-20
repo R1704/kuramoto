@@ -36,6 +36,8 @@ import { initEventWiring } from './runtime/initEventWiring.js';
 import { initOverlayDiagnostics } from './runtime/initOverlayDiagnostics.js';
 import { initSimulationRuntime } from './runtime/initSimulation.js';
 import { initExperimentControllers } from './runtime/initControllers.js';
+import { screenPxToSimCell, projectScreenToSimCell3D } from '../core/index.js';
+import { EmpyreanAudioEngine } from '../audio/EmpyreanAudioEngine.js';
 
 const STATE = createInitialState();
 
@@ -87,8 +89,17 @@ async function init() {
     const stats = runtimeInit.stats;
     let lyapunovCalc = runtimeInit.lyapunovCalc;
     let reservoir = runtimeInit.reservoir;
+    const audioEngine = new EmpyreanAudioEngine();
     reservoir.setSeed?.(STATE.seed);
     let lastViewMode = STATE.viewMode;
+    let lastColormap = STATE.colormap;
+    let lastPrismaticStyleEnabled = !!STATE.prismaticStyleEnabled;
+    runtime.audioPhaseBins = new Float32Array(8);
+    runtime.audioPhasePans = new Float32Array(8);
+    runtime.audioIntensity = 0;
+    runtime.audioCoherence = 0;
+    runtime.audioGradient = 0;
+    runtime.audioOrder = 0;
 
     const updateRenderModeIndicator = () => {
         const el = document.getElementById('render-mode-indicator');
@@ -129,6 +140,69 @@ async function init() {
         const layer = getActiveLayerIndex();
         const offset = layer * layerSize;
         return thetaFull.subarray(offset, offset + layerSize);
+    };
+
+    const getDrawCellFromEvent = (evt) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = evt.clientX - rect.left;
+        const y = evt.clientY - rect.top;
+        if (STATE.viewMode === 1) {
+            return screenPxToSimCell(
+                x,
+                y,
+                STATE.gridSize,
+                rect.width,
+                rect.height,
+                STATE.zoom,
+                STATE.panX,
+                STATE.panY
+            );
+        }
+        const planeY = (STATE.layerZOffset ?? 0) * getActiveLayerIndex();
+        return projectScreenToSimCell3D(x, y, rect.width, rect.height, camera, STATE.gridSize, planeY);
+    };
+
+    const onDrawPointerUpdate = (cell, active, evt = null) => {
+        const inside = !!cell?.inside;
+        const pointerActive = !!active && inside && STATE.viewMode >= 0 && STATE.topologyMode === 'grid';
+        if (inside) {
+            STATE.mouseForcePointerU = cell.simU ?? ((cell.c + 0.5) / Math.max(1, STATE.gridSize));
+            STATE.mouseForcePointerV = cell.simV ?? ((cell.r + 0.5) / Math.max(1, STATE.gridSize));
+        }
+        const radiusPx = Math.max(1, STATE.prismaticDragRadiusPx ?? 120);
+        let radiusUV = STATE.prismaticDragRadiusUV ?? 0.08;
+        if (evt && canvas) {
+            const rect = canvas.getBoundingClientRect();
+            if (STATE.viewMode === 1) {
+                const denom = Math.max(1, Math.min(rect.width, rect.height));
+                radiusUV = (radiusPx / denom) / Math.max(1e-6, STATE.zoom || 1.0);
+            } else {
+                const x = evt.clientX - rect.left;
+                const y = evt.clientY - rect.top;
+                const planeY = (STATE.layerZOffset ?? 0) * getActiveLayerIndex();
+                const a = projectScreenToSimCell3D(x, y, rect.width, rect.height, camera, STATE.gridSize, planeY);
+                const b = projectScreenToSimCell3D(x + radiusPx, y, rect.width, rect.height, camera, STATE.gridSize, planeY);
+                if (a?.inside && b?.inside) {
+                    const du = (b.simU ?? 0) - (a.simU ?? 0);
+                    const dv = (b.simV ?? 0) - (a.simV ?? 0);
+                    radiusUV = Math.max(0.001, Math.hypot(du, dv));
+                }
+            }
+        }
+        STATE.prismaticDragRadiusUV = Math.max(0.001, Math.min(0.75, radiusUV));
+        STATE.mouseForcePointerActive = pointerActive;
+        sim.setInteractionParams(STATE);
+    };
+
+    const syncPrismaticRadiusUV = () => {
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const radiusPx = Math.max(1, STATE.prismaticDragRadiusPx ?? 120);
+        if (STATE.viewMode === 1) {
+            const denom = Math.max(1, Math.min(rect.width, rect.height));
+            STATE.prismaticDragRadiusUV = Math.max(0.001, Math.min(0.75, (radiusPx / denom) / Math.max(1e-6, STATE.zoom || 1.0)));
+        }
     };
 
     const writeRCInputWeights = () => {
@@ -277,7 +351,14 @@ async function init() {
 
     // Initial State
     resetSimulation(sim, STATE, lastExternalCanvas);
-    initDrawing({ canvas, state: STATE, getSimulation: () => sim });
+    syncPrismaticRadiusUV();
+    initDrawing({
+        canvas,
+        state: STATE,
+        getSimulation: () => sim,
+        getDrawCellFromEvent,
+        onPointerUpdate: onDrawPointerUpdate
+    });
     sim.writeLayerParams(STATE.layerParams);
 
     const rebuildLayerCount = async (newCount) => {
@@ -318,10 +399,24 @@ async function init() {
                 if (STATE.gaugeEnabled) {
                     STATE.gaugeEnabled = false;
                 }
+                if (STATE.phaseLagEnabled) {
+                    STATE.phaseLagEnabled = false;
+                }
+                STATE.prismaticStyleEnabled = false;
+                STATE.prismaticDynamicsEnabled = false;
+                STATE.interactionForceEnabled = false;
+                STATE.mouseForcePointerActive = false;
+                STATE.audioEmpyreanEnabled = false;
+                STATE.audioEmpyreanRunning = false;
+                void audioEngine.setRunning(false);
             }
             if (STATE.gaugeEnabled && STATE.globalCoupling) {
                 STATE.globalCoupling = false;
             }
+            if (STATE.topologyMode !== 'grid') {
+                STATE.mouseForcePointerActive = false;
+            }
+            syncPrismaticRadiusUV();
             clampGaugeLayerSelection(STATE);
             if (STATE.manifoldMode === 's2' || STATE.manifoldMode === 's3') {
                 if (STATE.thetaPattern !== 'random' && STATE.thetaPattern !== 'synchronized') {
@@ -335,6 +430,19 @@ async function init() {
                 runtime.overlayDirty = true;
                 lastViewMode = STATE.viewMode;
                 updateRenderModeIndicator();
+                renderer.resetPrismaticTrail?.();
+            }
+            if (STATE.colormap !== lastColormap) {
+                const wasPrismatic = lastColormap === 9;
+                const isPrismatic = STATE.colormap === 9;
+                if (wasPrismatic !== isPrismatic) {
+                    renderer.resetPrismaticTrail?.();
+                }
+                lastColormap = STATE.colormap;
+            }
+            if (!!STATE.prismaticStyleEnabled !== lastPrismaticStyleEnabled) {
+                renderer.resetPrismaticTrail?.();
+                lastPrismaticStyleEnabled = !!STATE.prismaticStyleEnabled;
             }
             normalizeSelectedLayers(STATE, STATE.layerCount);
             syncStateToLayerParams(STATE, STATE.selectedLayers);
@@ -447,6 +555,9 @@ async function init() {
                 const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
                 applyThetaPattern(sim, thetaPattern, targets, thetaBase, thetaRng, STATE, lastExternalCanvas);
                 applyOmegaPattern(sim, omegaPattern, omegaAmp, targets, omegaBase, omegaRng, STATE);
+            }
+            if (typeof sim.writePrismaticState === 'function') {
+                sim.writePrismaticState();
             }
         },
         onOverlayToggle: (enabled) => {
@@ -609,7 +720,11 @@ async function init() {
             STATE.paused = !STATE.paused; 
             document.getElementById('pause-btn').textContent = STATE.paused ? 'Resume' : 'Pause';
         },
-    onReset: () => { resetSimulation(sim); stateAdapter.syncURL(true); },
+    onReset: () => {
+            resetSimulation(sim, STATE, lastExternalCanvas);
+            if (typeof sim.writePrismaticState === 'function') sim.writePrismaticState();
+            stateAdapter.syncURL(true);
+        },
     onRandomize: () => { randomizeTheta(sim, STATE.seed, STATE.manifoldMode); stateAdapter.syncURL(true); },
         onPreset: (name) => {
             void loadPreset({ name, sim, ui, state: STATE, lastExternalCanvas }).then(() => {
@@ -824,6 +939,30 @@ async function init() {
         },
         onClearCanvas: () => {
             if (renderer.clearDrawOverlay) renderer.clearDrawOverlay();
+        },
+        onEmpyreanAudioToggle: async () => {
+            try {
+                const running = await audioEngine.toggleRunning();
+                STATE.audioEmpyreanRunning = running;
+                if (!running) {
+                    STATE.mouseForcePointerActive = false;
+                }
+                sim.setInteractionParams(STATE);
+                if (ui?.updateDisplay) ui.updateDisplay();
+            } catch (e) {
+                console.warn('Audio toggle failed:', e);
+                STATE.audioEmpyreanRunning = false;
+                sim.setInteractionParams(STATE);
+                if (ui?.updateDisplay) ui.updateDisplay();
+            }
+        },
+        onEmpyreanAudioEnabledChange: async (enabled) => {
+            if (!enabled) {
+                await audioEngine.setRunning(false);
+                STATE.audioEmpyreanRunning = false;
+                sim.setInteractionParams(STATE);
+                if (ui?.updateDisplay) ui.updateDisplay();
+            }
         }
     });
 
@@ -2009,6 +2148,7 @@ async function init() {
             const msg = error?.message ? error.message : String(error);
             showError(`Runtime frame error: ${msg}`);
         },
+        audioEngine,
         rcOverlay,
         rcOverlayCtx,
         graphOverlay,

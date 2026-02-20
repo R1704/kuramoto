@@ -29,7 +29,8 @@ export async function initWebGPU({ showError, canvasId = 'canvas' }) {
 
         const requiredLimits = {};
         const maxStorageBuffers = adapter.limits?.maxStorageBuffersPerShaderStage;
-        const requiredStorageBuffers = 9;
+        // Main S1 compute pipeline currently binds 10 storage buffers.
+        const requiredStorageBuffers = 10;
         if (typeof maxStorageBuffers === 'number') {
             if (maxStorageBuffers < requiredStorageBuffers) {
                 showError(

@@ -51,6 +51,9 @@ export class Camera {
 
     setupEvents(canvas) {
         canvas.onmousedown = e => {
+            if (window.__KURAMOTO_PRISMATIC_POINTER_ACTIVE__) {
+                return;
+            }
             if (e.metaKey) {
                 // Allow draw/erase without moving camera
                 return;
@@ -70,7 +73,7 @@ export class Camera {
         };
         canvas.onmousemove = e => {
             // If user is holding Cmd for drawing/erasing, never move camera
-            if (e.metaKey) { this.drag = false; this.pan = false; return; }
+            if (e.metaKey || window.__KURAMOTO_PRISMATIC_POINTER_ACTIVE__) { this.drag = false; this.pan = false; return; }
             if (this.drag) {
                 this.theta -= (e.clientX - this.mx) * 0.01;
                 this.phi = Math.max(0.1, Math.min(3.04, this.phi + (e.clientY - this.my) * 0.01));

@@ -12,7 +12,9 @@ import {
     S3_GLOBAL_ORDER_REDUCTION_SHADER,
     S3_GLOBAL_ORDER_NORMALIZE_SHADER,
     S3_LOCAL_ORDER_STATS_SHADER,
-    GAUGE_UPDATE_SHADER
+    GAUGE_UPDATE_SHADER,
+    PRISMATIC_METRICS_REDUCTION_SHADER,
+    PRISMATIC_METRICS_NORMALIZE_SHADER
 } from '../shaders/index.js';
 
 export function initPipeline() {
@@ -45,6 +47,7 @@ export function initPipeline() {
         this.s2BindGroupCache = new Map();
         this.s3BindGroupCache = new Map();
         this.gaugeUpdateBindGroupCache = new Map();
+        this.prismaticMetricsBindGroupCache = new Map();
 }
 
 export function initReductionPipeline() {
@@ -189,15 +192,37 @@ export function initReductionPipeline() {
             ],
         });
 
+        const prismaticReductionModule = this.device.createShaderModule({ code: PRISMATIC_METRICS_REDUCTION_SHADER });
+        this.prismaticMetricsReductionPipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: prismaticReductionModule, entryPoint: 'main' }
+        });
+
+        const prismaticNormalizeModule = this.device.createShaderModule({ code: PRISMATIC_METRICS_NORMALIZE_SHADER });
+        this.prismaticMetricsNormalizePipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: prismaticNormalizeModule, entryPoint: 'main' }
+        });
+
+        this.prismaticMetricsNormalizeBindGroup = this.device.createBindGroup({
+            layout: this.prismaticMetricsNormalizePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: this.prismaticMetricsAtomicBuf } },
+                { binding: 1, resource: { buffer: this.prismaticMetricsBuf } },
+            ],
+        });
+
 }
 
 export function getBindGroup(delaySteps) {
         const delayIdx = (this.delayBufferIndex - delaySteps + this.delayBufferSize) % this.delayBufferSize;
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
+        const currentPrismaticIdx = this.prismaticIndex;
+        const nextPrismaticIdx = currentPrismaticIdx ^ 1;
         
         // Cache key based on delay index and active theta texture
-        const cacheKey = `${delayIdx}:${currentIdx}:${this.gaugeIndex}`;
+        const cacheKey = `${delayIdx}:${currentIdx}:${this.gaugeIndex}:${this.prismaticIndex}`;
         if (!this.bindGroupCache.has(cacheKey)) {
             this.bindGroupCache.set(cacheKey, this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
@@ -219,10 +244,31 @@ export function getBindGroup(delaySteps) {
                     { binding: 14, resource: this.gaugeYTextures[this.gaugeIndex].createView({ dimension: '2d-array' }) },
                     { binding: 15, resource: { buffer: this.graphGaugeBuf } },
                     { binding: 16, resource: { buffer: this.gaugeParamsBuf } },
+                    { binding: 17, resource: { buffer: this.interactionParamsBuf } },
+                    { binding: 18, resource: this.prismaticStateTextures[currentPrismaticIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 19, resource: this.prismaticStateTextures[nextPrismaticIdx].createView({ dimension: '2d-array' }) },
                 ],
             }));
         }
         return this.bindGroupCache.get(cacheKey);
+}
+
+export function getPrismaticMetricsBindGroup(thetaIdx = this.thetaIndex, prismaticIdx = this.prismaticIndex) {
+        const cacheKey = `${thetaIdx}:${prismaticIdx}`;
+        if (!this.prismaticMetricsBindGroupCache.has(cacheKey)) {
+            this.prismaticMetricsBindGroupCache.set(cacheKey, this.device.createBindGroup({
+                layout: this.prismaticMetricsReductionPipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: this.thetaTextures[thetaIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 1, resource: this.prismaticStateTextures[prismaticIdx].createView({ dimension: '2d-array' }) },
+                    { binding: 2, resource: { buffer: this.paramsBuf } },
+                    { binding: 3, resource: { buffer: this.prismaticMetricsAtomicBuf } },
+                    { binding: 4, resource: { buffer: this.orderBuf } },
+                    { binding: 5, resource: { buffer: this.interactionParamsBuf } },
+                ],
+            }));
+        }
+        return this.prismaticMetricsBindGroupCache.get(cacheKey);
 }
 
 export function getGaugeUpdateBindGroup() {

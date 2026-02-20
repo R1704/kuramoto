@@ -3,7 +3,7 @@
  *
  * Canvas overlay rendering for graph topology and RC task visualization.
  */
-import { simCellToScreenPx, simUvToScreenUv } from './viewTransform2d.js';
+import { simCellToScreenPx, simUvToScreenUv, screenUvGpuToScreenPx } from './viewTransform2d.js';
 
 function wrapIndex(v, n) {
     let x = v % n;
@@ -76,8 +76,9 @@ export function mapDotNormToScreen(nx, ny, viewProj, options) {
     if (STATE.viewMode === 1) {
         // RC dot coordinates are in simulation UV space; map to screen UV.
         const mapped = simUvToScreenUv(nx, ny, STATE.zoom, STATE.panX, STATE.panY);
-        if (!mapped.visible) return { visible: false, x: 0, y: 0 };
-        return { visible: true, x: mapped.u * w, y: mapped.v * h };
+        const px = screenUvGpuToScreenPx(mapped.u, mapped.v, w, h);
+        if (!mapped.visible || !px.visible) return { visible: false, x: 0, y: 0 };
+        return { visible: true, x: px.x, y: px.y };
     }
 
     if (!viewProj) return { visible: false, x: 0, y: 0 };
@@ -291,10 +292,12 @@ export function drawGraphOverlay(topology, options) {
                     const endV = startV + Math.max(-1.5, Math.min(1.5, ay)) * scaleSim;
                     const p0 = simUvToScreenUv(startU, startV, zoom, panX, panY);
                     const p1 = simUvToScreenUv(endU, endV, zoom, panX, panY);
-                    if (!p0.visible && !p1.visible) continue;
+                    const s0 = screenUvGpuToScreenPx(p0.u, p0.v, w, h);
+                    const s1 = screenUvGpuToScreenPx(p1.u, p1.v, w, h);
+                    if ((!p0.visible || !s0.visible) && (!p1.visible || !s1.visible)) continue;
                     graphOverlayCtx.beginPath();
-                    graphOverlayCtx.moveTo(p0.u * w, p0.v * h);
-                    graphOverlayCtx.lineTo(p1.u * w, p1.v * h);
+                    graphOverlayCtx.moveTo(s0.x, s0.y);
+                    graphOverlayCtx.lineTo(s1.x, s1.y);
                     graphOverlayCtx.stroke();
                 }
             }
@@ -322,8 +325,9 @@ export function drawGraphOverlay(topology, options) {
 
     if (showProbe && gaugeProbeData) {
         const probePos = toScreen(gaugeProbeData.c, gaugeProbeData.r);
-        const px = probePos.visible ? probePos.x : overlayMouseNorm.x * w;
-        const py = probePos.visible ? probePos.y : overlayMouseNorm.y * h;
+        const fallback = screenUvGpuToScreenPx(overlayMouseNorm.x, overlayMouseNorm.y, w, h);
+        const px = probePos.visible ? probePos.x : fallback.x;
+        const py = probePos.visible ? probePos.y : fallback.y;
         const line1 = `cell (${gaugeProbeData.c},${gaugeProbeData.r}) L${gaugeProbeData.layer}`;
         const line2 = `theta=${gaugeProbeData.theta.toFixed(3)} qA=(${gaugeProbeData.ax.toFixed(3)},${gaugeProbeData.ay.toFixed(3)})`;
         const line3 = `D=(dx ${gaugeProbeData.covDx.toFixed(3)}, dy ${gaugeProbeData.covDy.toFixed(3)}) |D|=${gaugeProbeData.cov.toFixed(3)}`;

@@ -18,6 +18,17 @@ export function requestGlobalOrderReadback(commandEncoder) {
         this.readbackPending = true;
 }
 
+export function requestPrismaticMetricsReadback(commandEncoder) {
+        if (this.prismaticMetricsPending) return;
+        const bytes = (this.prismaticMetricsFloatCount || 20) * 4;
+        commandEncoder.copyBufferToBuffer(
+            this.prismaticMetricsBuf, 0,
+            this.prismaticMetricsReadbackBuf, 0,
+            bytes
+        );
+        this.prismaticMetricsPending = true;
+}
+
 function alignTo(value, alignment) {
         return Math.ceil(value / alignment) * alignment;
 }
@@ -63,6 +74,44 @@ export async function processReadback() {
             console.warn('Readback failed:', e);
             this.readbackPending = false;
             this.mappingInProgress = false;
+            return null;
+        }
+}
+
+export async function processPrismaticMetricsReadback() {
+        if (!this.prismaticMetricsPending || this.prismaticMetricsMapping) return null;
+        this.prismaticMetricsMapping = true;
+        try {
+            await this.prismaticMetricsReadbackBuf.mapAsync(GPUMapMode.READ);
+            const raw = new Float32Array(this.prismaticMetricsReadbackBuf.getMappedRange().slice(0));
+            this.prismaticMetricsReadbackBuf.unmap();
+            const bins = raw.subarray(0, 8);
+            const pans = raw.subarray(8, 16);
+            const intensity = Number.isFinite(raw[16]) ? raw[16] : 0;
+            const coherence = Number.isFinite(raw[17]) ? raw[17] : 0;
+            const gradient = Number.isFinite(raw[18]) ? raw[18] : 0;
+            const order = Number.isFinite(raw[19]) ? raw[19] : 0;
+            const phaseBins = new Float32Array(8);
+            const phasePans = new Float32Array(8);
+            for (let i = 0; i < 8; i++) {
+                phaseBins[i] = Number.isFinite(bins[i]) ? bins[i] : 0;
+                const p = Number.isFinite(pans[i]) ? pans[i] : 0;
+                phasePans[i] = Math.max(-1, Math.min(1, p));
+            }
+            this.prismaticMetricsPending = false;
+            this.prismaticMetricsMapping = false;
+            return {
+                phaseBins,
+                phasePans,
+                intensity: Math.max(0, Math.min(1, intensity)),
+                coherence: Math.max(0, Math.min(1, coherence)),
+                gradient: Math.max(0, Math.min(1, gradient)),
+                order: Math.max(0, Math.min(1, order))
+            };
+        } catch (e) {
+            console.warn('processPrismaticMetricsReadback failed:', e);
+            this.prismaticMetricsPending = false;
+            this.prismaticMetricsMapping = false;
             return null;
         }
 }

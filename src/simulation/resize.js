@@ -161,6 +161,11 @@ export function destroy() {
                 tex.destroy();
             }
         }
+        if (this.prismaticStateTextures) {
+            for (const tex of this.prismaticStateTextures) {
+                tex.destroy();
+            }
+        }
         if (this.thetaStagingBuf) {
             this.thetaStagingBuf.destroy();
         }
@@ -193,6 +198,11 @@ export function destroy() {
         }
         this.delayBuffers = [];
         if (this.gaugeParamsBuf) this.gaugeParamsBuf.destroy();
+        if (this.interactionParamsBuf) this.interactionParamsBuf.destroy();
+        if (this.prismaticMetricsAtomicBuf) this.prismaticMetricsAtomicBuf.destroy();
+        if (this.prismaticMetricsBuf) this.prismaticMetricsBuf.destroy();
+        if (this.prismaticMetricsReadbackBuf) this.prismaticMetricsReadbackBuf.destroy();
+        if (this.prismaticStateReadbackBuf) this.prismaticStateReadbackBuf.destroy();
         if (this.graphGaugeBuf) this.graphGaugeBuf.destroy();
         if (this.gaugeReadbackXBuf) this.gaugeReadbackXBuf.destroy();
         if (this.gaugeReadbackYBuf) this.gaugeReadbackYBuf.destroy();
@@ -210,6 +220,7 @@ export function destroy() {
         if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
         if (this.s3BindGroupCache) this.s3BindGroupCache.clear();
         if (this.gaugeUpdateBindGroupCache) this.gaugeUpdateBindGroupCache.clear();
+        if (this.prismaticMetricsBindGroupCache) this.prismaticMetricsBindGroupCache.clear();
 }
 
 export function resize(newGridSize) {
@@ -225,6 +236,11 @@ export function resize(newGridSize) {
         }
         if (this.s2Textures) {
             for (const tex of this.s2Textures) {
+                tex.destroy();
+            }
+        }
+        if (this.prismaticStateTextures) {
+            for (const tex of this.prismaticStateTextures) {
                 tex.destroy();
             }
         }
@@ -297,6 +313,22 @@ export function resize(newGridSize) {
         if (this.gaugeParamsBuf) {
             this.gaugeParamsBuf.destroy();
         }
+        if (this.interactionParamsBuf) {
+            this.interactionParamsBuf.destroy();
+        }
+        if (this.prismaticMetricsAtomicBuf) {
+            this.prismaticMetricsAtomicBuf.destroy();
+        }
+        if (this.prismaticMetricsBuf) {
+            this.prismaticMetricsBuf.destroy();
+        }
+        if (this.prismaticMetricsReadbackBuf) {
+            this.prismaticMetricsReadbackBuf.destroy();
+        }
+        if (this.prismaticStateReadbackBuf) {
+            this.prismaticStateReadbackBuf.destroy();
+            this.prismaticStateReadbackBuf = null;
+        }
         if (this.gaugeReadbackXBuf) {
             this.gaugeReadbackXBuf.destroy();
             this.gaugeReadbackXBuf = null;
@@ -327,6 +359,7 @@ export function resize(newGridSize) {
         if (this.s2BindGroupCache) this.s2BindGroupCache.clear();
         if (this.s3BindGroupCache) this.s3BindGroupCache.clear();
         if (this.gaugeUpdateBindGroupCache) this.gaugeUpdateBindGroupCache.clear();
+        if (this.prismaticMetricsBindGroupCache) this.prismaticMetricsBindGroupCache.clear();
         
         // Update size
         this.gridSize = newGridSize;
@@ -334,6 +367,7 @@ export function resize(newGridSize) {
         this.N = this.layerSize * this.layers;
         this.delayBufferIndex = 0;
         this.gaugeIndex = 0;
+        this.prismaticIndex = 0;
         
         // Recreate textures and buffers
         this.initBuffers();
@@ -369,6 +403,14 @@ export function resize(newGridSize) {
                 { binding: 1, resource: { buffer: this.localHistAtomicBuf } },
                 { binding: 2, resource: { buffer: this.localStatsBuf } },
                 { binding: 3, resource: { buffer: this.nUniformBuf } },
+            ],
+        });
+
+        this.prismaticMetricsNormalizeBindGroup = this.device.createBindGroup({
+            layout: this.prismaticMetricsNormalizePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: this.prismaticMetricsAtomicBuf } },
+                { binding: 1, resource: { buffer: this.prismaticMetricsBuf } },
             ],
         });
         

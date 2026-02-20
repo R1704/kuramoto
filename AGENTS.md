@@ -71,6 +71,8 @@ any sizable change. Prefer concise, verifiable guidance over speculation.
 - Bootstrap controllers: `src/app/controllers/{experimentController,snapshotController,analysisController,rcController}.js`
 - Core compute: `src/simulation/Simulation.js` orchestrates `src/simulation/{buffers,pipelines,readback,resize}.js` + WGSL in `src/shaders/shaders.js`
 - Gauge extension: S1 U(1) link fields in `src/simulation/{buffers,pipelines}.js` + gauge patterns in `src/patterns/patterns.js`
+- 3D picking helpers: `src/core/picking3d.js` (screen-ray -> active-layer plane -> sim cell)
+- Reactive audio engine: `src/audio/EmpyreanAudioEngine.js` (output-only, WebAudio lifecycle)
 
 ## Build / Lint / Test
 - Run locally: `python -m http.server 8000` or `npx serve`

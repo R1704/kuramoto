@@ -28,6 +28,57 @@ export function initBuffers() {
             0, 0, 1, 1, 0.2, 0.05, 0, 1,
             1, 1, 1, 0
         ]));
+        // Prismatic/interaction params (28 floats, 112 bytes)
+        this.interactionParamsBuf = this.device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.device.queue.writeBuffer(this.interactionParamsBuf, 0, new Float32Array([
+            0, 0, 0, 0,
+            1.0, 0.5, 0.5, 0.0,
+            4.0, 0.08, 0.0, 1.0,
+            0.10, 0.92, 0.88, 0.12,
+            24.0, 0.15, 50.0, 0.4,
+            0.3, 1.0, 0.0, 1.0,
+            120.0, 4.0, 0.0, 0.0
+        ]));
+
+        const makePrismaticStateTexture = () => this.device.createTexture({
+            size: [this.gridSize, this.gridSize, this.layers],
+            format: 'rg32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        });
+        this.prismaticStateTextures = [makePrismaticStateTexture(), makePrismaticStateTexture()];
+        this.prismaticIndex = 0;
+        this.prismaticStateTexture = this.prismaticStateTextures[this.prismaticIndex];
+        const prismaticInit = new Float32Array(this.N * 2);
+        const prismaticLayout = { bytesPerRow: this.gridSize * 8, rowsPerImage: this.gridSize };
+        const prismaticSize = [this.gridSize, this.gridSize, this.layers];
+        for (const tex of this.prismaticStateTextures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                prismaticInit,
+                prismaticLayout,
+                prismaticSize
+            );
+        }
+        this.prismaticStateReadbackBuf = null;
+
+        // Active-view audio feature bus:
+        // bins[0..7], pans[8..15], intensity[16], coherence[17], gradient[18], order[19]
+        this.prismaticMetricsFloatCount = 20;
+        this.prismaticMetricsAtomicCount = 20;
+        this.prismaticMetricsAtomicBuf = this.device.createBuffer({
+            size: this.prismaticMetricsAtomicCount * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.prismaticMetricsBuf = this.device.createBuffer({
+            size: this.prismaticMetricsFloatCount * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        });
+        this.prismaticMetricsReadbackBuf = this.device.createBuffer({
+            size: this.prismaticMetricsFloatCount * 4,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+        });
+        this.prismaticMetricsPending = false;
+        this.prismaticMetricsMapping = false;
 
         const makeGaugeTexture = () => this.device.createTexture({
             size: [this.gridSize, this.gridSize, this.layers],
@@ -298,6 +349,81 @@ export function setGaugeParams(state) {
         this.gaugeDynamic = this.gaugeEnabled && modeDynamic > 0.5;
 }
 
+export function setInteractionParams(state) {
+        const s1 = (state?.manifoldMode || 's1') === 's1';
+        const phaseLagEnabled = s1 && state?.phaseLagEnabled ? 1.0 : 0.0;
+        const phaseLagEta = state?.phaseLagEta ?? 0.0;
+        const prismaticStyleEnabled = s1 && state?.prismaticStyleEnabled ? 1.0 : 0.0;
+        const prismaticDynamicsEnabled = s1 && state?.prismaticDynamicsEnabled ? 1.0 : 0.0;
+        const interactionForceEnabled = s1 && state?.interactionForceEnabled ? 1.0 : 0.0;
+        const pointerActive = !!state?.mouseForcePointerActive;
+        const mouseForceActive = (interactionForceEnabled > 0.5 && pointerActive) ? 1.0 : 0.0;
+        const mouseU = Math.max(0.0, Math.min(1.0, state?.mouseForcePointerU ?? 0.5));
+        const mouseV = Math.max(0.0, Math.min(1.0, state?.mouseForcePointerV ?? 0.5));
+        const mouseStrength = Math.max(0.0, state?.prismaticDragPeakForce ?? 4.0);
+        const mouseRadius = Math.max(0.001, state?.prismaticDragRadiusUV ?? 0.08);
+        const mouseTargetPhase = state?.prismaticTargetPhase ?? 0.0;
+        const mouseFalloff = Math.max(0.2, state?.interactionForceFalloff ?? 1.0);
+        const prismaticK = Math.max(0.0, state?.prismaticK ?? 0.10);
+        const prismaticFriction = Math.max(0.0, Math.min(0.999, state?.prismaticFriction ?? 0.92));
+        const prismaticEnergyDecay = Math.max(0.0, Math.min(0.999, state?.prismaticEnergyDecay ?? 0.88));
+        const prismaticEnergyMix = Math.max(0.0, state?.prismaticEnergyMix ?? 0.12);
+        const prismaticCellPx = Math.max(1.0, state?.prismaticCellPx ?? 24);
+        const prismaticTrailFade = Math.max(0.0, Math.min(1.0, state?.prismaticTrailFade ?? 0.15));
+        const prismaticGlowScale = Math.max(1.0, state?.prismaticGlowScale ?? 50);
+        const prismaticCoreThreshold = Math.max(0.0, Math.min(1.0, state?.prismaticCoreThreshold ?? 0.4));
+        const prismaticCoreScale = Math.max(0.05, state?.prismaticCoreScale ?? 0.3);
+        const prismaticStyleBlend = Math.max(0.0, Math.min(1.0, state?.prismaticStyleBlend ?? 1.0));
+        const styleModeRaw = state?.prismaticStyleBaseLayerMode || 'active';
+        const prismaticStyleBaseMode = styleModeRaw === 'phase' ? 1.0 : (styleModeRaw === 'order' ? 2.0 : 0.0);
+        const audioCoherenceLock = state?.audioCoherenceLock === false ? 0.0 : 1.0;
+        const prismaticDragRadiusPx = Math.max(1.0, state?.prismaticDragRadiusPx ?? 120);
+        const prismaticDragPeakForce = Math.max(0.0, state?.prismaticDragPeakForce ?? mouseStrength);
+        const prismaticTargetPhase = state?.prismaticTargetPhase ?? mouseTargetPhase;
+
+        this.device.queue.writeBuffer(
+            this.interactionParamsBuf,
+            0,
+            new Float32Array([
+                phaseLagEnabled,
+                phaseLagEta,
+                prismaticStyleEnabled,
+                prismaticDynamicsEnabled,
+                interactionForceEnabled,
+                mouseU,
+                mouseV,
+                mouseForceActive,
+                mouseStrength,
+                mouseRadius,
+                mouseTargetPhase,
+                mouseFalloff,
+                prismaticK,
+                prismaticFriction,
+                prismaticEnergyDecay,
+                prismaticEnergyMix,
+                prismaticCellPx,
+                prismaticTrailFade,
+                prismaticGlowScale,
+                prismaticCoreThreshold,
+                prismaticCoreScale,
+                prismaticStyleBlend,
+                prismaticStyleBaseMode,
+                audioCoherenceLock,
+                prismaticDragRadiusPx,
+                prismaticDragPeakForce,
+                prismaticTargetPhase,
+                0.0
+            ])
+        );
+        this.prismaticStyleEnabled = prismaticStyleEnabled > 0.5;
+        this.prismaticDynamicsEnabled = prismaticDynamicsEnabled > 0.5;
+        this.prismaticEnabled = this.prismaticStyleEnabled;
+        this.audioFeatureEnabled = !!state?.audioEmpyreanEnabled
+            && !!state?.audioEmpyreanRunning
+            && s1
+            && (state?.topologyMode || 'grid') === 'grid';
+}
+
 export function writeTopology(topology) {
         if (!topology) return;
         const expectedSlots = this.N * this.maxGraphDegree;
@@ -432,4 +558,19 @@ export function writeInputWeights(weights) {
 
 export function setInputSignal(signal) {
         this.device.queue.writeBuffer(this.inputSignalBuf, 0, new Float32Array([signal]));
+}
+
+export function writePrismaticState(data = null) {
+        const values = data ? new Float32Array(data) : new Float32Array(this.N * 2);
+        const layout = { bytesPerRow: this.gridSize * 8, rowsPerImage: this.gridSize };
+        const size = [this.gridSize, this.gridSize, this.layers];
+        for (const tex of this.prismaticStateTextures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                values,
+                layout,
+                size
+            );
+        }
+        this.prismaticStateTexture = this.prismaticStateTextures[this.prismaticIndex];
 }

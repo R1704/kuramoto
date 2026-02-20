@@ -9,7 +9,7 @@ export function bindZoomPan() {
 
             const rect = canvas.getBoundingClientRect();
             const cx = (e.clientX - rect.left) / rect.width - 0.5;
-            const cy = (e.clientY - rect.top) / rect.height - 0.5;
+            const cy = (1.0 - (e.clientY - rect.top) / rect.height) - 0.5;
 
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const prevZoom = this.state.zoom;
@@ -19,7 +19,7 @@ export function bindZoomPan() {
             const invPrev = 1.0 / prevZoom;
             const invNew = 1.0 / newZoom;
             this.state.panX += cx * (invPrev - invNew);
-            this.state.panY -= cy * (invPrev - invNew); // flip y
+            this.state.panY += cy * (invPrev - invNew);
 
             this.state.zoom = newZoom;
             this.cb.onParamChange();
@@ -73,8 +73,28 @@ export function bindControls() {
             ['gauge-dt-scale-slider', 'gaugeDtScale'],
             ['gauge-init-amplitude-slider', 'gaugeInitAmplitude'],
             ['gauge-flux-bias-slider', 'gaugeFluxBias'],
+            ['phase-lag-eta-slider', 'phaseLagEta'],
+            ['prismatic-k-slider', 'prismaticK'],
+            ['prismatic-friction-slider', 'prismaticFriction'],
+            ['prismatic-energy-decay-slider', 'prismaticEnergyDecay'],
+            ['prismatic-energy-mix-slider', 'prismaticEnergyMix'],
+            ['prismatic-drag-radius-px-slider', 'prismaticDragRadiusPx', 'int'],
+            ['prismatic-drag-peak-force-slider', 'prismaticDragPeakForce'],
+            ['prismatic-target-phase-slider', 'prismaticTargetPhase'],
+            ['prismatic-cell-px-slider', 'prismaticCellPx', 'int'],
+            ['prismatic-trail-fade-slider', 'prismaticTrailFade'],
+            ['prismatic-glow-scale-slider', 'prismaticGlowScale', 'int'],
+            ['prismatic-core-threshold-slider', 'prismaticCoreThreshold'],
+            ['prismatic-core-scale-slider', 'prismaticCoreScale'],
+            ['prismatic-style-blend-slider', 'prismaticStyleBlend'],
+            ['interaction-force-falloff-slider', 'interactionForceFalloff'],
             ['viz-flux-gain-slider', 'vizFluxGain'],
             ['viz-cov-grad-gain-slider', 'vizCovGradGain'],
+            ['audio-empyrean-master-slider', 'audioEmpyreanMaster'],
+            ['audio-empyrean-bells-slider', 'audioEmpyreanBells'],
+            ['audio-empyrean-bass-slider', 'audioEmpyreanBass'],
+            ['audio-empyrean-reverb-mix-slider', 'audioEmpyreanReverbMix'],
+            ['audio-empyrean-reverb-time-slider', 'audioEmpyreanReverbTime'],
             ['layer-coupling-up-slider', 'layerCouplingUp'],
             ['layer-coupling-down-slider', 'layerCouplingDown'],
             ['layer-z-offset-slider', 'layerZOffset'],
@@ -118,6 +138,77 @@ export function bindControls() {
         if (gaugeModeSelect) {
             gaugeModeSelect.addEventListener('change', () => {
                 this.state.gaugeMode = gaugeModeSelect.value;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const phaseLagEnabledToggle = document.getElementById('phase-lag-enabled-toggle');
+        if (phaseLagEnabledToggle) {
+            phaseLagEnabledToggle.addEventListener('change', () => {
+                this.state.phaseLagEnabled = phaseLagEnabledToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const prismaticStyleEnabledToggle = document.getElementById('prismatic-style-enabled-toggle');
+        if (prismaticStyleEnabledToggle) {
+            prismaticStyleEnabledToggle.addEventListener('change', () => {
+                this.state.prismaticStyleEnabled = prismaticStyleEnabledToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const prismaticDynamicsEnabledToggle = document.getElementById('prismatic-dynamics-enabled-toggle');
+        if (prismaticDynamicsEnabledToggle) {
+            prismaticDynamicsEnabledToggle.addEventListener('change', () => {
+                this.state.prismaticDynamicsEnabled = prismaticDynamicsEnabledToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const interactionForceEnabledToggle = document.getElementById('interaction-force-enabled-toggle');
+        if (interactionForceEnabledToggle) {
+            interactionForceEnabledToggle.addEventListener('change', () => {
+                this.state.interactionForceEnabled = interactionForceEnabledToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const audioEmpyreanEnabledToggle = document.getElementById('audio-empyrean-enabled-toggle');
+        if (audioEmpyreanEnabledToggle) {
+            audioEmpyreanEnabledToggle.addEventListener('change', () => {
+                this.state.audioEmpyreanEnabled = audioEmpyreanEnabledToggle.checked;
+                if (this.cb.onParamChange) this.cb.onParamChange();
+                if (this.cb.onEmpyreanAudioEnabledChange) this.cb.onEmpyreanAudioEnabledChange(audioEmpyreanEnabledToggle.checked);
+                this.updateDisplay();
+            });
+        }
+        const audioEmpyreanStartStopBtn = document.getElementById('audio-empyrean-start-stop-btn');
+        if (audioEmpyreanStartStopBtn) {
+            audioEmpyreanStartStopBtn.addEventListener('click', () => {
+                if (this.cb.onEmpyreanAudioToggle) this.cb.onEmpyreanAudioToggle();
+            });
+        }
+        const audioEmpyreanModeSelect = document.getElementById('audio-empyrean-mode-select');
+        if (audioEmpyreanModeSelect) {
+            audioEmpyreanModeSelect.addEventListener('change', () => {
+                this.state.audioEmpyreanMode = audioEmpyreanModeSelect.value;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const audioCoherenceLockToggle = document.getElementById('audio-coherence-lock-toggle');
+        if (audioCoherenceLockToggle) {
+            audioCoherenceLockToggle.addEventListener('change', () => {
+                this.state.audioCoherenceLock = audioCoherenceLockToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const prismaticStyleBaseSelect = document.getElementById('prismatic-style-base-select');
+        if (prismaticStyleBaseSelect) {
+            prismaticStyleBaseSelect.addEventListener('change', () => {
+                this.state.prismaticStyleBaseLayerMode = prismaticStyleBaseSelect.value;
                 this.cb.onParamChange();
                 this.updateDisplay();
             });

@@ -125,6 +125,62 @@ export const Presets = {
         }
     },
 
+    prismatic_aether_v19: (state, sim, rng = null) => {
+        state.manifoldMode = 's1';
+        state.topologyMode = 'grid';
+        state.ruleMode = 0;
+        state.K0 = 0.1;
+        state.range = 2;
+        state.globalCoupling = false;
+        state.dt = 0.03;
+        state.phaseLagEnabled = true;
+        state.phaseLagEta = 0.02;
+        state.prismaticStyleEnabled = true;
+        state.prismaticDynamicsEnabled = false;
+        state.interactionForceEnabled = true;
+        state.prismaticStyleBlend = 1.0;
+        state.prismaticStyleBaseLayerMode = 'active';
+        state.prismaticK = 0.10;
+        state.prismaticFriction = 0.92;
+        state.prismaticEnergyDecay = 0.88;
+        state.prismaticEnergyMix = 0.12;
+        state.prismaticDragRadiusPx = 120;
+        state.prismaticDragPeakForce = 4.0;
+        state.prismaticTargetPhase = 0.0;
+        state.prismaticCellPx = 24;
+        state.prismaticTrailFade = 0.15;
+        state.prismaticGlowScale = 50;
+        state.prismaticCoreThreshold = 0.4;
+        state.prismaticCoreScale = 0.3;
+        state.interactionForceFalloff = 1.0;
+        state.colormap = 9;
+        state.colormapPalette = 0;
+        state.gaugeEnabled = false;
+        state.audioEmpyreanEnabled = true;
+        state.audioEmpyreanMaster = 0.6;
+        state.audioEmpyreanBells = 0.55;
+        state.audioEmpyreanBass = 0.5;
+        state.audioEmpyreanReverbMix = 0.52;
+        state.audioEmpyreanReverbTime = 8.0;
+        state.audioEmpyreanMode = 'ambient';
+        state.audioCoherenceLock = true;
+        state.audioEmpyreanRunning = false;
+
+        const rand = rng ? rng.float : Math.random;
+        const theta = new Float32Array(sim.N);
+        const omega = new Float32Array(sim.N);
+        for (let i = 0; i < sim.N; i++) {
+            theta[i] = rand() * Math.PI * 2;
+            omega[i] = (rand() - 0.5) * 0.18;
+        }
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+    },
+
+    empyrean_ambient: (state, sim, rng = null) => {
+        Presets.prismatic_aether_v19(state, sim, rng);
+    },
+
     discovery_flux_low: (state, sim, rng = null) => {
         Presets.flux_lattice(state, sim, rng);
         state.gaugeFluxBias = 0.35;

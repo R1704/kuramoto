@@ -101,6 +101,37 @@ struct GaugeParams {
     viz_signed_flux: f32,
 }
 
+struct InteractionParams {
+    phase_lag_enabled: f32,
+    phase_lag_eta: f32,
+    prismatic_style_enabled: f32,
+    prismatic_dynamics_enabled: f32,
+    interaction_force_enabled: f32,
+    mouse_u: f32,
+    mouse_v: f32,
+    mouse_force_active: f32,
+    mouse_force_strength: f32,
+    mouse_force_radius: f32,
+    force_target_phase: f32,
+    mouse_falloff: f32,
+    prismatic_k: f32,
+    prismatic_friction: f32,
+    prismatic_energy_decay: f32,
+    prismatic_energy_mix: f32,
+    prismatic_cell_px: f32,
+    prismatic_trail_fade: f32,
+    prismatic_glow_scale: f32,
+    prismatic_core_threshold: f32,
+    prismatic_core_scale: f32,
+    prismatic_style_blend: f32,
+    prismatic_style_base_mode: f32,
+    audio_coherence_lock: f32,
+    prismatic_drag_radius_px: f32,
+    prismatic_drag_peak_force: f32,
+    prismatic_target_phase: f32,
+    pad0: f32,
+}
+
 // Textures for theta state (array layers = hierarchical levels)
 @group(0) @binding(0) var theta_in: texture_2d_array<f32>;
 @group(0) @binding(1) var<storage, read> omega: array<f32>;
@@ -119,6 +150,9 @@ struct GaugeParams {
 @group(0) @binding(14) var gauge_y: texture_2d_array<f32>;
 @group(0) @binding(15) var<storage, read> graph_gauge: array<f32>;
 @group(0) @binding(16) var<uniform> gauge_params: GaugeParams;
+@group(0) @binding(17) var<uniform> interaction_params: InteractionParams;
+@group(0) @binding(18) var prismatic_state_in: texture_2d_array<f32>;
+@group(0) @binding(19) var prismatic_state_out: texture_storage_2d_array<rg32float, write>;
 
 // ============================================================================
 // SHARED MEMORY TILE for fast neighbor access
@@ -170,6 +204,14 @@ fn loadGaugeYGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> f32
     return textureLoad(gauge_y, vec2<i32>(c, r), layer, 0).r;
 }
 
+fn loadPrismaticState(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> vec2<f32> {
+    var c = col % cols;
+    var r = row % rows;
+    if (c < 0) { c = c + cols; }
+    if (r < 0) { r = r + rows; }
+    return textureLoad(prismatic_state_in, vec2<i32>(c, r), layer, 0).rg;
+}
+
 fn gaugePath(col: i32, row: i32, dc: i32, dr: i32, layer: i32, cols: i32, rows: i32) -> f32 {
     if (gauge_params.enabled < 0.5) { return 0.0; }
     var sum = 0.0;
@@ -200,11 +242,16 @@ fn gaugePath(col: i32, row: i32, dc: i32, dr: i32, layer: i32, cols: i32, rows: 
     return sum;
 }
 
+fn phaseLag() -> f32 {
+    return select(0.0, interaction_params.phase_lag_eta, interaction_params.phase_lag_enabled > 0.5);
+}
+
 fn covSin(theta_j: f32, theta_i: f32, link_phase: f32) -> f32 {
+    let lag = phaseLag();
     if (gauge_params.enabled < 0.5) {
-        return sin(theta_j - theta_i);
+        return sin(theta_j - theta_i - lag);
     }
-    return sin(theta_j - theta_i - gauge_params.charge * link_phase);
+    return sin(theta_j - theta_i - gauge_params.charge * link_phase - lag);
 }
 
 // Simple hash for pseudo-random modulation
@@ -337,7 +384,7 @@ fn graphHarmonics(i: u32, t: f32, cols: u32, rows: u32) -> vec4<f32> {
         let theta_j = loadThetaByIndex(idx, cols, rows);
         let w = graph_weights[base + j];
         let a_ij = select(0.0, graph_gauge[base + j], gauge_params.enabled > 0.5);
-        let d = theta_j - t - gauge_params.charge * a_ij;
+        let d = theta_j - t - gauge_params.charge * a_ij - phaseLag();
         s1 = s1 + w * sin(d);
         s2 = s2 + w * sin(2.0 * d);
         s3 = s3 + w * sin(3.0 * d);
@@ -599,7 +646,7 @@ fn kernelCouplingLayer(global_c: u32, global_r: u32, cols: u32, rows: u32, sourc
             let w = mexhat_weight_scaled(f32(dc), f32(dr), 1.0, lp);
             if (abs(w) < 0.0001) { continue; }
             let theta_j = loadThetaGlobal(i32(global_c) + dc, i32(global_r) + dr, i32(source_layer), i32(cols), i32(rows));
-            sum = sum + w * sin(theta_j - t);
+            sum = sum + w * sin(theta_j - t - phaseLag());
             wtotal = wtotal + abs(w);
         }
     }
@@ -614,7 +661,8 @@ fn rule_classic(local_c: i32, local_r: i32, global_c: i32, global_r: i32, layer:
         // Use precomputed mean field: Z = (cos_avg, sin_avg)
         let Z_cos = global_order.x;
         let Z_sin = global_order.y;
-        sum = Z_sin * cos(t) - Z_cos * sin(t);
+        let tp = t + phaseLag();
+        sum = Z_sin * cos(tp) - Z_cos * sin(tp);
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
         let res = graphCoupling(i, t, cols, rows);
@@ -635,7 +683,8 @@ fn rule_coherence(local_c: i32, local_r: i32, global_c: i32, global_r: i32, laye
         // Use precomputed mean field
         let Z_cos = global_order.x;
         let Z_sin = global_order.y;
-        sum = Z_sin * cos(t) - Z_cos * sin(t);
+        let tp = t + phaseLag();
+        sum = Z_sin * cos(tp) - Z_cos * sin(tp);
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
         let res = graphCoupling(i, t, cols, rows);
@@ -657,7 +706,8 @@ fn rule_curvature(local_c: i32, local_r: i32, global_c: i32, global_r: i32, laye
         // Use precomputed mean field
         let Z_cos = global_order.x;
         let Z_sin = global_order.y;
-        sum = Z_sin * cos(t) - Z_cos * sin(t);
+        let tp = t + phaseLag();
+        sum = Z_sin * cos(tp) - Z_cos * sin(tp);
         cnt = 1.0;
     } else if (params.topology_mode > 0.5) {
         let res = graphCoupling(i, t, cols, rows);
@@ -679,7 +729,8 @@ fn rule_harmonics(local_c: i32, local_r: i32, global_c: i32, global_r: i32, laye
         // Use precomputed mean field for fundamental
         let Z_cos = global_order.x;
         let Z_sin = global_order.y;
-        s1 = Z_sin * cos(t) - Z_cos * sin(t);
+        let tp = t + phaseLag();
+        s1 = Z_sin * cos(tp) - Z_cos * sin(tp);
         
         // For harmonics, use fundamental with harmonic coefficients
         let Z_mag = sqrt(Z_cos * Z_cos + Z_sin * Z_sin);
@@ -696,7 +747,7 @@ fn rule_harmonics(local_c: i32, local_r: i32, global_c: i32, global_r: i32, laye
                 if (dr == 0 && dc == 0) { continue; }
                 let theta_j = loadThetaShared(local_c + dc, local_r + dr);
                 let a_ij = gaugePath(global_c, global_r, dc, dr, layer, i32(cols), i32(rows));
-                let d = theta_j - t - gauge_params.charge * a_ij;
+                let d = theta_j - t - gauge_params.charge * a_ij - phaseLag();
                 s1 = s1 + sin(d);
                 s2 = s2 + sin(2.0 * d);
                 s3 = s3 + sin(3.0 * d);
@@ -808,6 +859,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let layer_stride = cols * rows;
     let i = layer * layer_stride + global_r * cols + global_c;
     let t = loadThetaShared(local_c, local_r);  // Center value from shared memory
+    let pr_state = loadPrismaticState(i32(global_c), i32(global_r), i32(layer), i32(cols), i32(rows));
+    var vel = pr_state.x;
+    var energy = max(0.0, pr_state.y);
     let lp = layer_params[min(layer, 7u)];
     let rng = i32(lp.range);
     // Compute local order (graph vs spatial)
@@ -839,7 +893,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
             inter_sum = inter_sum + lp.layer_coupling_up * ksum;
         } else {
             let t_up = loadThetaGlobal(i32(global_c), i32(global_r), i32(src_layer), i32(cols), i32(rows));
-            inter_sum = inter_sum + lp.layer_coupling_up * sin(t_up - t);
+            inter_sum = inter_sum + lp.layer_coupling_up * sin(t_up - t - phaseLag());
         }
     }
     if (layer + 1u < u32(params.layer_count) && abs(lp.layer_coupling_down) > 0.0001) {
@@ -850,7 +904,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
             inter_sum = inter_sum + lp.layer_coupling_down * ksum;
         } else {
             let t_down = loadThetaGlobal(i32(global_c), i32(global_r), i32(src_layer), i32(cols), i32(rows));
-            inter_sum = inter_sum + lp.layer_coupling_down * sin(t_down - t);
+            inter_sum = inter_sum + lp.layer_coupling_down * sin(t_down - t - phaseLag());
         }
     }
     let dtheta_base = dtheta;
@@ -910,14 +964,62 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     // Adjust dtheta by new K (approximate): rescale by ratio of K_scaled / K0
     let dtheta_scaled = dtheta_base * (K_scaled / max(lp.K0, 1e-6));
 
-    var dyn = omega_eff + dtheta_scaled * orient + inter_sum + dtheta_input + flow;
-    dyn = dyn * (1.0 - lp.leak);
-    var newTheta = t + dyn * params.dt;
-    
+    var mouse_drive = 0.0;
+    if (interaction_params.interaction_force_enabled > 0.5
+        && interaction_params.mouse_force_active > 0.5
+        && params.topology_mode < 0.5) {
+        let u = (f32(global_c) + 0.5) / params.cols;
+        let v = (f32(global_r) + 0.5) / params.rows;
+        var du = abs(u - interaction_params.mouse_u);
+        var dv = abs(v - interaction_params.mouse_v);
+        du = min(du, 1.0 - du);
+        dv = min(dv, 1.0 - dv);
+        let dist = sqrt(du * du + dv * dv);
+        let radius = max(0.001, interaction_params.mouse_force_radius);
+        if (dist < radius) {
+            let shape = clamp(1.0 - dist / radius, 0.0, 1.0);
+            let shaped = pow(shape, max(0.2, interaction_params.mouse_falloff));
+            mouse_drive = interaction_params.mouse_force_strength * shaped * sin(interaction_params.force_target_phase - t);
+        }
+    }
+
+    let prismatic_active = interaction_params.prismatic_dynamics_enabled > 0.5
+        && params.manifold_mode < 0.5
+        && params.topology_mode < 0.5;
+
+    var newTheta = t;
+    if (prismatic_active) {
+        let theta_r = loadThetaShared(local_c + 1, local_r);
+        let theta_l = loadThetaShared(local_c - 1, local_r);
+        let theta_u = loadThetaShared(local_c, local_r + 1);
+        let theta_d = loadThetaShared(local_c, local_r - 1);
+        let a_r = gaugePath(i32(global_c), i32(global_r), 1, 0, i32(layer), i32(cols), i32(rows));
+        let a_l = gaugePath(i32(global_c), i32(global_r), -1, 0, i32(layer), i32(cols), i32(rows));
+        let a_u = gaugePath(i32(global_c), i32(global_r), 0, 1, i32(layer), i32(cols), i32(rows));
+        let a_d = gaugePath(i32(global_c), i32(global_r), 0, -1, i32(layer), i32(cols), i32(rows));
+        let force_cardinal =
+            covSin(theta_r, t, a_r) +
+            covSin(theta_l, t, a_l) +
+            covSin(theta_u, t, a_u) +
+            covSin(theta_d, t, a_d);
+        let force_total = force_cardinal + mouse_drive;
+        vel = (vel + interaction_params.prismatic_k * force_total) * interaction_params.prismatic_friction;
+        energy = energy * interaction_params.prismatic_energy_decay + abs(vel) * interaction_params.prismatic_energy_mix;
+        newTheta = t + omega_eff + vel;
+    } else {
+        var dyn = omega_eff + dtheta_scaled * orient + inter_sum + dtheta_input + mouse_drive + flow;
+        dyn = dyn * (1.0 - lp.leak);
+        newTheta = t + dyn * params.dt;
+        // Passive decay when prismatic branch is disabled.
+        vel = vel * 0.95;
+        energy = energy * 0.98;
+    }
+
     let TWO_PI = 6.28318530718;
     if (newTheta < 0.0) { newTheta = newTheta + TWO_PI; }
     if (newTheta > TWO_PI) { newTheta = newTheta - TWO_PI; }
     textureStore(theta_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(newTheta, 0.0, 0.0, 1.0));
+    textureStore(prismatic_state_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(vel, max(0.0, energy), 0.0, 1.0));
 }
 `;
 
@@ -1536,6 +1638,37 @@ struct GaugeParams {
     viz_auto_normalize: f32,
     viz_signed_flux: f32,
 }
+
+struct InteractionParams {
+    phase_lag_enabled: f32,
+    phase_lag_eta: f32,
+    prismatic_style_enabled: f32,
+    prismatic_dynamics_enabled: f32,
+    interaction_force_enabled: f32,
+    mouse_u: f32,
+    mouse_v: f32,
+    mouse_force_active: f32,
+    mouse_force_strength: f32,
+    mouse_force_radius: f32,
+    force_target_phase: f32,
+    mouse_falloff: f32,
+    prismatic_k: f32,
+    prismatic_friction: f32,
+    prismatic_energy_decay: f32,
+    prismatic_energy_mix: f32,
+    prismatic_cell_px: f32,
+    prismatic_trail_fade: f32,
+    prismatic_glow_scale: f32,
+    prismatic_core_threshold: f32,
+    prismatic_core_scale: f32,
+    prismatic_style_blend: f32,
+    prismatic_style_base_mode: f32,
+    audio_coherence_lock: f32,
+    prismatic_drag_radius_px: f32,
+    prismatic_drag_peak_force: f32,
+    prismatic_target_phase: f32,
+    pad0: f32,
+}
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<uniform> viewProj: mat4x4<f32>;
@@ -1546,6 +1679,8 @@ struct GaugeParams {
 @group(0) @binding(7) var gauge_x_tex: texture_2d_array<f32>;
 @group(0) @binding(8) var gauge_y_tex: texture_2d_array<f32>;
 @group(0) @binding(9) var<uniform> gauge_params: GaugeParams;
+@group(0) @binding(10) var<uniform> interaction_params: InteractionParams;
+@group(0) @binding(11) var prismatic_state_tex: texture_2d_array<f32>;
 
 // Helper to load theta from texture
 fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
@@ -1570,6 +1705,12 @@ fn loadGaugeYRender(col: i32, row: i32, layer: u32, cols: i32, rows: i32) -> f32
     let c = (col + cols) % cols;
     let r = (row + rows) % rows;
     return textureLoad(gauge_y_tex, vec2<i32>(c, r), i32(layer), 0).r;
+}
+
+fn loadPrismaticRender(col: i32, row: i32, layer: u32, cols: i32, rows: i32) -> vec2<f32> {
+    let c = (col + cols) % cols;
+    let r = (row + rows) % rows;
+    return textureLoad(prismatic_state_tex, vec2<i32>(c, r), i32(layer), 0).rg;
 }
 
 fn wrapPhaseDiff(d: f32) -> f32 {
@@ -1794,6 +1935,12 @@ fn sample_palette(t: f32, palette: i32) -> vec3<f32> {
     }
 }
 
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(vec3<f32>(h, h, h) + k.xyz) * 6.0 - vec3<f32>(k.w, k.w, k.w));
+    return v * mix(vec3<f32>(k.x, k.x, k.x), clamp(p - vec3<f32>(k.x, k.x, k.x), vec3<f32>(0.0), vec3<f32>(1.0)), s);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Re-sample theta/order in fragment so colors match 2D path exactly
@@ -1849,6 +1996,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     );
     let cov_base = select(cov_grad / 3.14159, cov_grad / cov_scale, use_auto_norm);
     let cov_norm = clamp(cov_base * max(0.01, gauge_params.viz_cov_grad_gain), 0.0, 1.0);
+    let tr = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
+    let tl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + 1) % rows), i32(active_layer), 0).r;
+    let br = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
+    let bl = textureLoad(theta_tex, vec2<i32>((c + cols - 1) % cols, (r + rows - 1) % rows), i32(active_layer), 0).r;
+    var curl = (tr - tl - br + bl) * 0.25;
+    if (curl > 3.14159) { curl -= 6.28318; }
+    if (curl < -3.14159) { curl += 6.28318; }
+    let chirality_norm = clamp(0.5 + 0.5 * clamp(curl * 5.0, -1.0, 1.0), 0.0, 1.0);
 
     let height = sin(theta) * 2.0;
     let t_phase = clamp((height / 2.0 + 1.0) * 0.5, 0.0, 1.0);
@@ -1883,6 +2038,41 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         color = sample_palette(flux_norm, palette);
     } else if (layer_choice == 8) {
         color = sample_palette(cov_norm, palette);
+    } else if (layer_choice == 9) {
+        let mode = i32(interaction_params.prismatic_style_base_mode + 0.5);
+        var base_scalar = select(t_phase, order_val, mode == 2);
+        if (mode == 0) {
+            base_scalar = clamp(0.55 * t_phase + 0.45 * clamp(gradient * 1.6, 0.0, 1.0), 0.0, 1.0);
+        }
+        let base_color = sample_palette(base_scalar, palette);
+        if (interaction_params.prismatic_style_enabled < 0.5) {
+            color = base_color;
+        } else {
+            let span = max(1, i32(round(interaction_params.prismatic_cell_px / 8.0)));
+            let qc = clamp((c / span) * span + span / 2, 0, cols - 1);
+            let qr = clamp((r / span) * span + span / 2, 0, rows - 1);
+            let cell_theta = textureLoad(theta_tex, vec2<i32>(qc, qr), i32(active_layer), 0).r;
+            let pr = loadPrismaticRender(qc, qr, active_layer, cols, rows);
+            let e_dyn = max(0.0, pr.y);
+            let e = select(clamp(gradient * 1.8, 0.0, 1.0), e_dyn, interaction_params.prismatic_dynamics_enabled > 0.5);
+            let hue = fract(cell_theta / 6.28318530718);
+            let dx_cell = abs(f32(c - qc));
+            let dy_cell = abs(f32(r - qr));
+            let dist_cell = sqrt(dx_cell * dx_cell + dy_cell * dy_cell);
+            let radius = max(1.0, e * interaction_params.prismatic_glow_scale / 10.0);
+            let w = clamp(1.0 - dist_cell / radius, 0.0, 1.0);
+            var base = hsv_to_rgb(hue, 0.8, 0.9);
+            base = base * (0.15 + 0.85 * w);
+            if (e > interaction_params.prismatic_core_threshold) {
+                let core = clamp((e - interaction_params.prismatic_core_threshold) / max(0.01, 1.0 - interaction_params.prismatic_core_threshold), 0.0, 1.0);
+                let core_radius = radius * max(0.05, interaction_params.prismatic_core_scale);
+                let core_w = clamp(1.0 - dist_cell / max(0.001, core_radius), 0.0, 1.0);
+                base = mix(base, vec3<f32>(1.0, 1.0, 1.0), core * core_w * 0.7);
+            }
+            let style = clamp(base, vec3<f32>(0.0), vec3<f32>(1.0));
+            let blend = clamp(interaction_params.prismatic_style_blend, 0.0, 1.0);
+            color = mix(base_color, style, blend);
+        }
     } else {
         color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     }
@@ -2574,6 +2764,37 @@ struct GaugeParams {
     viz_signed_flux: f32,
 }
 
+struct InteractionParams {
+    phase_lag_enabled: f32,
+    phase_lag_eta: f32,
+    prismatic_style_enabled: f32,
+    prismatic_dynamics_enabled: f32,
+    interaction_force_enabled: f32,
+    mouse_u: f32,
+    mouse_v: f32,
+    mouse_force_active: f32,
+    mouse_force_strength: f32,
+    mouse_force_radius: f32,
+    force_target_phase: f32,
+    mouse_falloff: f32,
+    prismatic_k: f32,
+    prismatic_friction: f32,
+    prismatic_energy_decay: f32,
+    prismatic_energy_mix: f32,
+    prismatic_cell_px: f32,
+    prismatic_trail_fade: f32,
+    prismatic_glow_scale: f32,
+    prismatic_core_threshold: f32,
+    prismatic_core_scale: f32,
+    prismatic_style_blend: f32,
+    prismatic_style_base_mode: f32,
+    audio_coherence_lock: f32,
+    prismatic_drag_radius_px: f32,
+    prismatic_drag_peak_force: f32,
+    prismatic_target_phase: f32,
+    pad0: f32,
+}
+
 @group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
 @group(0) @binding(1) var<uniform> params: Params;
 @group(0) @binding(2) var<storage, read> order: array<f32>;
@@ -2582,6 +2803,8 @@ struct GaugeParams {
 @group(0) @binding(5) var gauge_x_tex_2d: texture_2d_array<f32>;
 @group(0) @binding(6) var gauge_y_tex_2d: texture_2d_array<f32>;
 @group(0) @binding(7) var<uniform> gauge_params_2d: GaugeParams;
+@group(0) @binding(8) var<uniform> interaction_params_2d: InteractionParams;
+@group(0) @binding(9) var prismatic_state_tex_2d: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -2934,6 +3157,18 @@ fn sample_palette_2d(t: f32, palette: i32) -> vec3<f32> {
     }
 }
 
+fn hsv_to_rgb_2d(h: f32, s: f32, v: f32) -> vec3<f32> {
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(vec3<f32>(h, h, h) + k.xyz) * 6.0 - vec3<f32>(k.w, k.w, k.w));
+    return v * mix(vec3<f32>(k.x, k.x, k.x), clamp(p - vec3<f32>(k.x, k.x, k.x), vec3<f32>(0.0), vec3<f32>(1.0)), s);
+}
+
+fn sample_prismatic_wrapped(col: i32, row: i32, cols: i32, rows: i32, layer: u32) -> vec2<f32> {
+    let c = ((col % cols) + cols) % cols;
+    let r = ((row % rows) + rows) % rows;
+    return textureLoad(prismatic_state_tex_2d, vec2<i32>(c, r), i32(layer), 0).rg;
+}
+
 // ============================================================================
 // FRAGMENT SHADER
 // ============================================================================
@@ -3044,6 +3279,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let layer_choice = i32(params.colormap);
     let palette = i32(params.colormap_palette);
     var col3: vec3<f32>;
+    var out_alpha = 1.0;
     let ax = sample_gauge_x_wrapped(c, r, cols, rows, active_layer);
     let ay = sample_gauge_y_wrapped(c, r, cols, rows, active_layer);
     let ax_left = sample_gauge_x_wrapped(c - 1, r, cols, rows, active_layer);
@@ -3109,6 +3345,48 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (layer_choice == 8) {
         // Covariant gradient magnitude
         col3 = sample_palette_2d(cov_norm, palette);
+    } else if (layer_choice == 9) {
+        let mode = i32(interaction_params_2d.prismatic_style_base_mode + 0.5);
+        var base_scalar = select(t_height, order_val, mode == 2);
+        if (mode == 0) {
+            base_scalar = clamp(0.55 * t_height + 0.45 * clamp(gradient * 1.6, 0.0, 1.0), 0.0, 1.0);
+        }
+        let base_color = sample_palette_2d(base_scalar, palette);
+        if (interaction_params_2d.prismatic_style_enabled < 0.5) {
+            col3 = base_color;
+        } else {
+            let cell_px = max(1.0, interaction_params_2d.prismatic_cell_px);
+            let cell_u = cell_px / max(1.0, params.cols);
+            let cell_v = cell_px / max(1.0, params.rows);
+            let cell_ux = floor(uv.x / cell_u) * cell_u + 0.5 * cell_u;
+            let cell_vy = floor(uv.y / cell_v) * cell_v + 0.5 * cell_v;
+            let cell_c = clamp(i32(cell_ux * params.cols), 0, cols - 1);
+            let cell_r = clamp(i32(cell_vy * params.rows), 0, rows - 1);
+            let cell_theta = sample_theta_wrapped(cell_c, cell_r, cols, rows, active_layer);
+            let pr = sample_prismatic_wrapped(cell_c, cell_r, cols, rows, active_layer);
+            let e_dyn = max(0.0, pr.y);
+            let e = select(clamp(gradient * 1.8, 0.0, 1.0), e_dyn, interaction_params_2d.prismatic_dynamics_enabled > 0.5);
+
+            let dxp = abs(uv.x - cell_ux) * params.cols;
+            let dyp = abs(uv.y - cell_vy) * params.rows;
+            let dist_cell = sqrt(dxp * dxp + dyp * dyp);
+            let radius = max(1.0, e * interaction_params_2d.prismatic_glow_scale);
+            let w = clamp(1.0 - dist_cell / radius, 0.0, 1.0);
+
+            var base = hsv_to_rgb_2d(fract(cell_theta / 6.28318530718), 0.8, 0.9);
+            base = base * (0.15 + 0.85 * w);
+            if (e > interaction_params_2d.prismatic_core_threshold) {
+                let core_radius = radius * max(0.05, interaction_params_2d.prismatic_core_scale);
+                let core = clamp(1.0 - dist_cell / max(0.001, core_radius), 0.0, 1.0);
+                base = mix(base, vec3<f32>(1.0, 1.0, 1.0), core * 0.7);
+            }
+            let splat_alpha = clamp(e * 0.4 * w, 0.0, 1.0);
+            let fade_alpha = clamp(interaction_params_2d.prismatic_trail_fade, 0.0, 1.0);
+            out_alpha = max(splat_alpha, fade_alpha);
+            let style = clamp(base * splat_alpha / max(1e-5, out_alpha), vec3<f32>(0.0), vec3<f32>(1.0));
+            let blend = clamp(interaction_params_2d.prismatic_style_blend, 0.0, 1.0);
+            col3 = mix(base_color, style, blend);
+        }
     } else {
         col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     }
@@ -3119,6 +3397,153 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         col3 = col3 * brightness;
     }
     
-    return vec4<f32>(col3, 1.0);
+    return vec4<f32>(col3, out_alpha);
+}
+`;
+
+export const PRISMATIC_METRICS_REDUCTION_SHADER = `
+struct Params {
+    dt: f32, K0: f32, range: f32, rule_mode: f32,
+    cols: f32, rows: f32, harmonic_a: f32, global_coupling: f32,
+    delay_steps: f32, sigma: f32, sigma2: f32, beta: f32,
+    show_order: f32, colormap: f32, colormap_palette: f32, noise_strength: f32,
+    time: f32, harmonic_b: f32, view_mode: f32, kernel_shape: f32, kernel_orientation: f32,
+    kernel_aspect: f32, kernel_scale2_weight: f32, kernel_scale3_weight: f32, kernel_asymmetry: f32,
+    kernel_rings: f32, ring_width_1: f32, ring_width_2: f32, ring_width_3: f32,
+    ring_width_4: f32, ring_width_5: f32, ring_weight_1: f32, ring_weight_2: f32,
+    ring_weight_3: f32, ring_weight_4: f32, ring_weight_5: f32, kernel_composition_enabled: f32,
+    kernel_secondary: f32, kernel_mix_ratio: f32, kernel_asymmetric_orientation: f32, kernel_spatial_freq_mag: f32,
+    kernel_spatial_freq_angle: f32, kernel_gabor_phase: f32,
+    zoom: f32, pan_x: f32, pan_y: f32,
+    smoothing_enabled: f32, smoothing_mode: f32, input_mode: f32,
+    leak: f32, layer_z_offset: f32, layer_kernel_enabled: f32,
+    scale_base: f32, scale_radial: f32, scale_random: f32, scale_ring: f32,
+    flow_radial: f32, flow_rotate: f32, flow_swirl: f32, flow_bubble: f32,
+    flow_ring: f32, flow_vortex: f32, flow_vertical: f32, orient_radial: f32,
+    orient_circles: f32, orient_swirl: f32, orient_bubble: f32, orient_linear: f32,
+    mesh_mode: f32, manifold_mode: f32, pad5: f32, pad6: f32,
+    topology_mode: f32, topology_max_degree: f32, topology_avg_degree: f32, topology_pad: f32,
+    layer_count: f32, pad7: f32, pad8: f32, active_layer: f32,
+}
+
+struct InteractionParams {
+    phase_lag_enabled: f32,
+    phase_lag_eta: f32,
+    prismatic_style_enabled: f32,
+    prismatic_dynamics_enabled: f32,
+    interaction_force_enabled: f32,
+    mouse_u: f32,
+    mouse_v: f32,
+    mouse_force_active: f32,
+    mouse_force_strength: f32,
+    mouse_force_radius: f32,
+    force_target_phase: f32,
+    mouse_falloff: f32,
+    prismatic_k: f32,
+    prismatic_friction: f32,
+    prismatic_energy_decay: f32,
+    prismatic_energy_mix: f32,
+    prismatic_cell_px: f32,
+    prismatic_trail_fade: f32,
+    prismatic_glow_scale: f32,
+    prismatic_core_threshold: f32,
+    prismatic_core_scale: f32,
+    prismatic_style_blend: f32,
+    prismatic_style_base_mode: f32,
+    audio_coherence_lock: f32,
+    prismatic_drag_radius_px: f32,
+    prismatic_drag_peak_force: f32,
+    prismatic_target_phase: f32,
+    pad0: f32,
+}
+
+@group(0) @binding(0) var theta_tex: texture_2d_array<f32>;
+@group(0) @binding(1) var prismatic_tex: texture_2d_array<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
+@group(0) @binding(3) var<storage, read_write> metrics_atomic: array<atomic<u32>, 20>;
+@group(0) @binding(4) var<storage, read> order: array<f32>;
+@group(0) @binding(5) var<uniform> interaction_params: InteractionParams;
+
+fn wrap_phase(theta: f32) -> f32 {
+    var x = theta - floor(theta / 6.28318530718) * 6.28318530718;
+    if (x < 0.0) { x = x + 6.28318530718; }
+    return x;
+}
+
+fn wrap_diff(theta_b: f32, theta_a: f32) -> f32 {
+    var d = theta_b - theta_a;
+    if (d > 3.14159265359) { d = d - 6.28318530718; }
+    if (d < -3.14159265359) { d = d + 6.28318530718; }
+    return d;
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let cols = u32(params.cols);
+    let rows = u32(params.rows);
+    let layers = max(1u, u32(params.layer_count));
+    if (gid.x >= cols || gid.y >= rows || gid.z >= layers) { return; }
+    if (params.manifold_mode > 0.5) { return; }
+    let active_layer = min(layers - 1u, u32(params.active_layer + 0.5));
+    if (gid.z != active_layer) { return; }
+
+    let theta = textureLoad(theta_tex, vec2<i32>(i32(gid.x), i32(gid.y)), i32(gid.z), 0).r;
+    let pr = textureLoad(prismatic_tex, vec2<i32>(i32(gid.x), i32(gid.y)), i32(gid.z), 0).rg;
+    let phase = wrap_phase(theta);
+    let bin = min(7u, u32(floor((phase / 6.28318530718) * 8.0)));
+    let xp = (gid.x + 1u) % cols;
+    let yp = (gid.y + 1u) % rows;
+    let theta_r = textureLoad(theta_tex, vec2<i32>(i32(xp), i32(gid.y)), i32(gid.z), 0).r;
+    let theta_u = textureLoad(theta_tex, vec2<i32>(i32(gid.x), i32(yp)), i32(gid.z), 0).r;
+    let grad_e = clamp(abs(wrap_diff(theta_r, theta)) + abs(wrap_diff(theta_u, theta)), 0.0, 6.28318530718) * 0.15915494309;
+    let idx = gid.z * cols * rows + gid.y * cols + gid.x;
+    let order_val = clamp(order[idx], 0.0, 1.0);
+    let layer_choice = i32(params.colormap + 0.5);
+    var mass = grad_e;
+    if (layer_choice == 3) {
+        mass = order_val;
+    }
+    if (layer_choice == 9 && interaction_params.prismatic_style_enabled > 0.5) {
+        mass = select(max(max(0.0, pr.y), grad_e), max(0.0, pr.y), interaction_params.prismatic_dynamics_enabled > 0.5);
+    }
+    mass = clamp(mass, 0.0, 1.0);
+    let mass_scaled = u32(clamp(mass * 10000.0, 0.0, 4294967000.0));
+    let xnorm = (f32(gid.x) + 0.5) / max(1.0, params.cols);
+    let pan = xnorm * 2.0 - 1.0;
+    let xmass_scaled = u32(clamp(mass * (pan + 1.0) * 5000.0, 0.0, 4294967000.0));
+    atomicAdd(&metrics_atomic[bin], mass_scaled);
+    atomicAdd(&metrics_atomic[8u + bin], xmass_scaled);
+    atomicAdd(&metrics_atomic[16u], mass_scaled);
+    atomicAdd(&metrics_atomic[17u], u32(clamp(grad_e * 10000.0, 0.0, 4294967000.0)));
+    atomicAdd(&metrics_atomic[18u], u32(clamp(order_val * 10000.0, 0.0, 4294967000.0)));
+    atomicAdd(&metrics_atomic[19u], 10000u);
+}
+`;
+
+export const PRISMATIC_METRICS_NORMALIZE_SHADER = `
+@group(0) @binding(0) var<storage, read_write> metrics_atomic: array<atomic<u32>, 20>;
+@group(0) @binding(1) var<storage, read_write> metrics_out: array<f32, 20>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let total_mass = max(1e-6, f32(atomicLoad(&metrics_atomic[16u])) / 10000.0);
+    let grad_sum = f32(atomicLoad(&metrics_atomic[17u])) / 10000.0;
+    let order_sum = f32(atomicLoad(&metrics_atomic[18u])) / 10000.0;
+    let sample_count = max(1e-6, f32(atomicLoad(&metrics_atomic[19u])) / 10000.0);
+
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        let mass = f32(atomicLoad(&metrics_atomic[i])) / 10000.0;
+        let xmass = f32(atomicLoad(&metrics_atomic[8u + i])) / 5000.0;
+        metrics_out[i] = clamp(mass / total_mass, 0.0, 1.0);
+        let pan01 = select(0.5, xmass / mass, mass > 1e-6);
+        metrics_out[8u + i] = clamp(pan01 * 2.0 - 1.0, -1.0, 1.0);
+    }
+    let intensity = clamp(total_mass / sample_count, 0.0, 1.0);
+    let grad_mean = clamp(grad_sum / sample_count, 0.0, 1.0);
+    let order_mean = clamp(order_sum / sample_count, 0.0, 1.0);
+    metrics_out[16u] = intensity;
+    metrics_out[17u] = clamp(1.0 - grad_mean, 0.0, 1.0);
+    metrics_out[18u] = grad_mean;
+    metrics_out[19u] = order_mean;
 }
 `;

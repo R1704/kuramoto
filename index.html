@@ -1150,6 +1150,20 @@
                             <input type="range" id="delay-slider" min="1" max="30" step="1" value="10">
                         </div>
                         <div class="control-group">
+                            <label class="control-label" style="align-items:center; gap:8px;">
+                                <span>Phase Lag (Sakaguchi)</span>
+                                <input type="checkbox" id="phase-lag-enabled-toggle" style="width:auto;">
+                            </label>
+                            <div class="control-hint">Affects S1 coupling argument as sin(Δθ - η).</div>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Phase Lag η</span>
+                                <span class="control-value" id="phase-lag-eta-value">0.00</span>
+                            </div>
+                            <input type="range" id="phase-lag-eta-slider" min="-3.14159" max="3.14159" step="0.01" value="0.0">
+                        </div>
+                        <div class="control-group">
                             <div class="control-label">
                                 <span>Layer Coupling Up</span>
                                 <span class="control-value" id="layer-coupling-up-value">0.00</span>
@@ -2486,6 +2500,7 @@
                     <div class="button-group">
                         <button class="preset-btn" data-preset="reservoir" style="background: linear-gradient(135deg, #1a5a2c, #2d1a5a);">🧠 Reservoir</button>
                         <button class="preset-btn" data-preset="flux_lattice">🧲 Flux Lattice</button>
+                        <button class="preset-btn" data-preset="prismatic_aether_v19">🎼 Prismatic Aether v19</button>
                     </div>
 
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Discovery Presets</div>
@@ -2643,6 +2658,7 @@
                             <option value="6">Image Texture</option>
                             <option value="7" id="data-layer-gauge-flux">Gauge Flux (F)</option>
                             <option value="8" id="data-layer-cov-gradient">Covariant Gradient (|Dθ|)</option>
+                            <option value="9" id="data-layer-prismatic-style">Prismatic Style View</option>
                         </select>
                         <div class="control-hint">Affects rendering only.</div>
                     </div>
@@ -2679,6 +2695,73 @@
                         </div>
                         <input type="range" id="viz-cov-grad-gain-slider" min="0.1" max="8" step="0.1" value="1.0">
                         <div class="control-hint">Render-only amplification for Covariant Gradient layer.</div>
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label" style="align-items:center; gap:8px;">
+                            <span>Prismatic Style</span>
+                            <input type="checkbox" id="prismatic-style-enabled-toggle" style="width:auto;">
+                        </label>
+                        <div class="control-hint">Render style only. Does not change equations.</div>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Style Blend</span>
+                            <span class="control-value" id="prismatic-style-blend-value">1.00</span>
+                        </div>
+                        <input type="range" id="prismatic-style-blend-slider" min="0" max="1" step="0.01" value="1.0">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Style Base Source</span>
+                        </div>
+                        <select id="prismatic-style-base-select">
+                            <option value="active">Active Layer</option>
+                            <option value="phase">Phase</option>
+                            <option value="order">Order</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Cell Size (px)</span>
+                            <span class="control-value" id="prismatic-cell-px-value">24</span>
+                        </div>
+                        <input type="range" id="prismatic-cell-px-slider" min="4" max="64" step="1" value="24">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Trail Fade</span>
+                            <span class="control-value" id="prismatic-trail-fade-value">0.15</span>
+                        </div>
+                        <input type="range" id="prismatic-trail-fade-slider" min="0.01" max="0.5" step="0.01" value="0.15">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Glow Scale</span>
+                            <span class="control-value" id="prismatic-glow-scale-value">50</span>
+                        </div>
+                        <input type="range" id="prismatic-glow-scale-slider" min="8" max="120" step="1" value="50">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Core Threshold</span>
+                            <span class="control-value" id="prismatic-core-threshold-value">0.40</span>
+                        </div>
+                        <input type="range" id="prismatic-core-threshold-slider" min="0" max="1" step="0.01" value="0.4">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>Core Scale</span>
+                            <span class="control-value" id="prismatic-core-scale-value">0.30</span>
+                        </div>
+                        <input type="range" id="prismatic-core-scale-slider" min="0.05" max="1.0" step="0.01" value="0.3">
                     </div>
 
                     <div class="control-group">
@@ -2745,6 +2828,156 @@
 
             <div class="tab-pane" data-tab-pane="legacy-interaction">
                 <div class="panel-grid">
+                    <div class="panel-card" id="empyrean-panel">
+                        <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span>Prismatic Aether</span>
+                            <button class="help-btn" data-help="empyrean">?</button>
+                        </div>
+                        <div class="help-tooltip" id="empyrean-help">
+                            <strong>Prismatic Aether (S1 + Grid)</strong><br>
+                            Style-first split: Prismatic visuals/audio can run without changing equations.<br><br>
+                            <strong>Prismatic Dynamics (optional)</strong><br>
+                            • Inertial update: <code>v'=(v+K(F+Fmouse))f</code><br>
+                            • Phase: <code>θ' = θ + ω + v'</code><br>
+                            • Energy: <code>E' = E·decay + |v'|·mix</code><br><br>
+                            <strong>Interaction</strong><br>
+                            • Left-drag injects local entrainment force<br>
+                            • Cmd+drag remains legacy draw/erase<br>
+                            • In 3D, drag projects to active layer plane<br><br>
+                            Audio is reactive-only and follows the active visualization feature bus.
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label" style="align-items:center; gap:8px;">
+                                <span>Prismatic Dynamics</span>
+                                <input type="checkbox" id="prismatic-dynamics-enabled-toggle" style="width:auto;">
+                            </label>
+                            <div class="control-hint">Advanced mode. Changes simulation equations (S1 + grid).</div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label" style="align-items:center; gap:8px;">
+                                <span>Interaction Force</span>
+                                <input type="checkbox" id="interaction-force-enabled-toggle" style="width:auto;">
+                            </label>
+                            <div class="control-hint">Left-drag injects force (S1 + grid). Cmd+drag is legacy draw/erase.</div>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Prismatic K</span>
+                                <span class="control-value" id="prismatic-k-value">0.10</span>
+                            </div>
+                            <input type="range" id="prismatic-k-slider" min="0" max="0.25" step="0.005" value="0.10">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Friction</span>
+                                <span class="control-value" id="prismatic-friction-value">0.92</span>
+                            </div>
+                            <input type="range" id="prismatic-friction-slider" min="0.7" max="0.995" step="0.005" value="0.92">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Energy Decay</span>
+                                <span class="control-value" id="prismatic-energy-decay-value">0.88</span>
+                            </div>
+                            <input type="range" id="prismatic-energy-decay-slider" min="0.6" max="0.995" step="0.005" value="0.88">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Energy Mix</span>
+                                <span class="control-value" id="prismatic-energy-mix-value">0.12</span>
+                            </div>
+                            <input type="range" id="prismatic-energy-mix-slider" min="0" max="0.5" step="0.01" value="0.12">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Drag Radius (px)</span>
+                                <span class="control-value" id="prismatic-drag-radius-px-value">120</span>
+                            </div>
+                            <input type="range" id="prismatic-drag-radius-px-slider" min="20" max="240" step="2" value="120">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Drag Peak Force</span>
+                                <span class="control-value" id="prismatic-drag-peak-force-value">4.00</span>
+                            </div>
+                            <input type="range" id="prismatic-drag-peak-force-slider" min="0" max="8" step="0.1" value="4.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Target Phase</span>
+                                <span class="control-value" id="prismatic-target-phase-value">0.00</span>
+                            </div>
+                            <input type="range" id="prismatic-target-phase-slider" min="0" max="6.28318" step="0.01" value="0.0">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Force Falloff</span>
+                                <span class="control-value" id="interaction-force-falloff-value">1.00</span>
+                            </div>
+                            <input type="range" id="interaction-force-falloff-slider" min="0.2" max="4" step="0.05" value="1.0">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label" style="align-items:center; gap:8px;">
+                                <span>Reactive Audio</span>
+                                <input type="checkbox" id="audio-empyrean-enabled-toggle" style="width:auto;">
+                            </label>
+                            <button id="audio-empyrean-start-stop-btn" class="small-btn">Start Audio</button>
+                            <div class="control-hint">Audio uses shared phase-energy bins (output-only).</div>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Audio Master</span>
+                                <span class="control-value" id="audio-empyrean-master-value">0.55</span>
+                            </div>
+                            <input type="range" id="audio-empyrean-master-slider" min="0" max="1" step="0.01" value="0.55">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Audio Bells</span>
+                                <span class="control-value" id="audio-empyrean-bells-value">0.45</span>
+                            </div>
+                            <input type="range" id="audio-empyrean-bells-slider" min="0" max="1" step="0.01" value="0.45">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Audio Bass</span>
+                                <span class="control-value" id="audio-empyrean-bass-value">0.50</span>
+                            </div>
+                            <input type="range" id="audio-empyrean-bass-slider" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Reverb Mix</span>
+                                <span class="control-value" id="audio-empyrean-reverb-mix-value">0.45</span>
+                            </div>
+                            <input type="range" id="audio-empyrean-reverb-mix-slider" min="0" max="1" step="0.01" value="0.45">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Reverb Time</span>
+                                <span class="control-value" id="audio-empyrean-reverb-time-value">8.00</span>
+                            </div>
+                            <input type="range" id="audio-empyrean-reverb-time-slider" min="1" max="20" step="0.25" value="8">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">
+                                <span>Musical Mode</span>
+                            </div>
+                            <select id="audio-empyrean-mode-select">
+                                <option value="ambient">Ambient Hall</option>
+                                <option value="pulse">Pulse Weave</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label" style="align-items:center; gap:8px;">
+                                <span>A/V Coherence Lock</span>
+                                <input type="checkbox" id="audio-coherence-lock-toggle" style="width:auto;" checked>
+                            </label>
+                            <div class="control-hint">If on, Prismatic audio follows Prismatic Style view.</div>
+                        </div>
+                        <div style="font-size: 10px; color: #888;" id="audio-source-status">Audio source: active layer feature bus</div>
+                    </div>
+
                     <div class="panel-card">
                         <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
                             <span>Scale Modulation</span>
@@ -3263,6 +3496,7 @@
                 <kbd>Shift</kbd>+<kbd>K</kbd> Go to Kc<br>
                 <br>
                 <strong>Mouse (2D Mode)</strong><br>
+                Left-drag: prismatic force<br>
                 Cmd+Drag: draw<br>
                 Cmd+Shift+Drag: erase<br>
                 Scroll to zoom (towards cursor)<br>

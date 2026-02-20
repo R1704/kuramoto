@@ -30,11 +30,13 @@ export function resetSimulation(sim, STATE, lastExternalCanvas = null) {
     if (STATE.manifoldMode === 's3') {
         applyS3Pattern(sim, thetaPattern, null, null, makeRng(STATE.seed, `s3:${thetaPattern}`));
         applyOmega3Pattern(sim, omegaPattern, omegaAmp, null, null, makeRng(STATE.seed, `s3omega:${omegaPattern}`));
+        if (typeof sim.writePrismaticState === 'function') sim.writePrismaticState();
         return;
     }
     if (STATE.manifoldMode === 's2') {
         applyS2Pattern(sim, thetaPattern, null, null, makeRng(STATE.seed, `s2:${thetaPattern}`));
         applyOmegaVecPattern(sim, omegaPattern, omegaAmp, null, null, makeRng(STATE.seed, `s2omega:${omegaPattern}`));
+        if (typeof sim.writePrismaticState === 'function') sim.writePrismaticState();
         return;
     }
     if (STATE.manifoldMode !== 's1') {
@@ -45,6 +47,7 @@ export function resetSimulation(sim, STATE, lastExternalCanvas = null) {
     const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
     applyThetaPattern(sim, thetaPattern, null, null, thetaRng, STATE, lastExternalCanvas);
     applyOmegaPattern(sim, omegaPattern, omegaAmp, null, null, omegaRng, STATE);
+    if (typeof sim.writePrismaticState === 'function') sim.writePrismaticState();
 }
 
 /**
