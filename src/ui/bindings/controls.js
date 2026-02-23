@@ -608,7 +608,29 @@ export function bindControls() {
                 this.updateDisplay(); // Update visibility of rule-specific controls
             });
         }
-        
+
+        const growthModeSelect = document.getElementById('growth-mode-select');
+        if (growthModeSelect) {
+            growthModeSelect.addEventListener('change', () => {
+                this.state.growthMode = parseInt(growthModeSelect.value);
+                this.cb.onParamChange();
+            });
+        }
+
+        // Growth params with 3-decimal precision display
+        for (const [id, key] of [['growth-mu-slider', 'growthMu'], ['growth-sigma-slider', 'growthSigma']]) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            this.elements[key] = el;
+            el.addEventListener('input', () => {
+                const val = parseFloat(el.value);
+                this.state[key] = val;
+                const disp = document.getElementById(id.replace('slider', 'value'));
+                if (disp) disp.textContent = val.toFixed(3);
+                this.cb.onParamChange();
+            });
+        }
+
         bind('data-layer-select', 'colormap', 'int', 'change');
         bind('palette-select', 'colormapPalette', 'int', 'change');
 
@@ -625,6 +647,45 @@ export function bindControls() {
                 this.updateDisplay();
             });
         }
+        // Organism detection controls
+        const organismsToggle = document.getElementById('organisms-enabled-toggle');
+        if (organismsToggle) {
+            organismsToggle.addEventListener('change', () => {
+                this.state.organismsEnabled = !!organismsToggle.checked;
+                this.cb.onParamChange();
+                this.updateDisplay();
+            });
+        }
+        const organismOverlayToggle = document.getElementById('organism-overlay-toggle');
+        if (organismOverlayToggle) {
+            organismOverlayToggle.addEventListener('change', () => {
+                this.state.organismOverlay = !!organismOverlayToggle.checked;
+                this.cb.onParamChange();
+            });
+        }
+        const organismThresholdSlider = document.getElementById('organism-threshold-slider');
+        if (organismThresholdSlider) {
+            this.elements.organismThreshold = organismThresholdSlider;
+            organismThresholdSlider.addEventListener('input', () => {
+                const val = parseFloat(organismThresholdSlider.value);
+                this.state.organismThreshold = val;
+                const disp = document.getElementById('organism-threshold-value');
+                if (disp) disp.textContent = val.toFixed(2);
+                this.cb.onParamChange();
+            });
+        }
+        const organismMinAreaSlider = document.getElementById('organism-min-area-slider');
+        if (organismMinAreaSlider) {
+            this.elements.organismMinArea = organismMinAreaSlider;
+            organismMinAreaSlider.addEventListener('input', () => {
+                const val = parseInt(organismMinAreaSlider.value);
+                this.state.organismMinArea = val;
+                const disp = document.getElementById('organism-min-area-value');
+                if (disp) disp.textContent = val;
+                this.cb.onParamChange();
+            });
+        }
+
         // Surface mode (3D)
         const surfaceSelect = getEl('surface-mode-select');
         if (surfaceSelect) {

@@ -44,7 +44,8 @@
 
         #canvas,
         #graph-overlay,
-        #rc-task-overlay {
+        #rc-task-overlay,
+        #organism-overlay {
             position: absolute;
             left: 0;
             top: 0;
@@ -962,6 +963,12 @@
             display: block;
             z-index: 4;
         }
+
+        #organism-overlay {
+            pointer-events: none;
+            display: none;
+            z-index: 3;
+        }
     </style>
 </head>
     <body>
@@ -971,6 +978,7 @@
                     <canvas id="canvas" width="1000" height="800"></canvas>
                     <canvas id="graph-overlay" width="1000" height="800"></canvas>
                     <canvas id="rc-task-overlay" width="1000" height="800"></canvas>
+                    <canvas id="organism-overlay" width="1000" height="800"></canvas>
                     <div id="render-mode-indicator"></div>
                 </div>
             </div>
@@ -1106,6 +1114,7 @@
                                 <option value="3">3: Harmonics (2nd+3rd)</option>
                                 <option value="4">4: Mexican-Hat Kernel</option>
                                 <option value="5">5: Delay-Coupled</option>
+                                <option value="6">6: Lenia Growth</option>
                             </select>
                             <div id="rule-desc" style="font-size: 10px; color: #888; line-height: 1.4;">
                                 Classic: dθ/dt = ω + K·sin(θⱼ - θᵢ)
@@ -1148,6 +1157,35 @@
                                 <span class="control-value" id="delay-value">10</span>
                             </div>
                             <input type="range" id="delay-slider" min="1" max="30" step="1" value="10">
+                        </div>
+                        <div id="lenia-controls" style="display: none;">
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Growth μ (center)</span>
+                                    <span class="control-value" id="growth-mu-value">0.150</span>
+                                </div>
+                                <input type="range" id="growth-mu-slider" min="0" max="0.5" step="0.001" value="0.15">
+                                <div class="control-hint">Center of growth function bell curve.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Growth σ (width)</span>
+                                    <span class="control-value" id="growth-sigma-value">0.015</span>
+                                </div>
+                                <input type="range" id="growth-sigma-slider" min="0.001" max="0.1" step="0.001" value="0.015">
+                                <div class="control-hint">Width of growth function bell curve.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Growth Function</span>
+                                </div>
+                                <select id="growth-mode-select">
+                                    <option value="0">Gaussian</option>
+                                    <option value="1">Step</option>
+                                    <option value="2">Double-Gaussian</option>
+                                </select>
+                                <div class="control-hint">Shape of growth mapping applied to convolution result.</div>
+                            </div>
                         </div>
                         <div class="control-group">
                             <label class="control-label" style="align-items:center; gap:8px;">
@@ -2503,6 +2541,13 @@
                         <button class="preset-btn" data-preset="prismatic_aether_v19">🎼 Prismatic Aether v19</button>
                     </div>
 
+                    <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Lenia / Artificial Life</div>
+                    <div class="button-group">
+                        <button class="preset-btn" data-preset="lenia_orbium" style="background: linear-gradient(135deg, #1a3a5a, #2d5a1a);">🦠 Orbium</button>
+                        <button class="preset-btn" data-preset="lenia_geminium" style="background: linear-gradient(135deg, #3a1a5a, #1a5a3a);">🧬 Geminium</button>
+                        <button class="preset-btn" data-preset="lenia_scutium" style="background: linear-gradient(135deg, #5a3a1a, #1a3a5a);">🛡️ Scutium</button>
+                    </div>
+
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Discovery Presets</div>
                     <div class="button-group">
                         <button class="preset-btn" data-preset="discovery_flux_low">Flux Ladder 1</button>
@@ -3113,6 +3158,52 @@
                         <div class="viz-section">
                             <div class="viz-title">χ(t) = N·Var(Local R̄)</div>
                             <canvas id="chi-plot" width="280" height="80" style="width: 100%; height: 80px; border-radius: 4px;"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="panel-card" id="organisms-section">
+                        <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                            <span>Organisms</span>
+                            <label style="display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:#aaa;">
+                                <span>Detect</span>
+                                <input type="checkbox" id="organisms-enabled-toggle" style="width:auto;">
+                            </label>
+                        </div>
+                        <div id="organisms-content">
+                            <div class="stats-grid">
+                                <div class="stat-row">
+                                    <span class="stat-label">Count:</span>
+                                    <span class="stat-value" id="organism-count">0</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Born / Died:</span>
+                                    <span class="stat-value" id="organism-lifecycle">0 / 0</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Tracked:</span>
+                                    <span class="stat-value" id="organism-tracked">0</span>
+                                </div>
+                            </div>
+                            <div class="control-group" style="margin-top: 8px;">
+                                <div class="control-label">
+                                    <span>Detection Threshold (R)</span>
+                                    <span class="control-value" id="organism-threshold-value">0.50</span>
+                                </div>
+                                <input type="range" id="organism-threshold-slider" min="0.1" max="0.95" step="0.01" value="0.5">
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Min Area</span>
+                                    <span class="control-value" id="organism-min-area-value">4</span>
+                                </div>
+                                <input type="range" id="organism-min-area-slider" min="1" max="50" step="1" value="4">
+                            </div>
+                            <div class="control-group">
+                                <label class="control-label" style="align-items:center; gap:8px;">
+                                    <span>Show Overlay</span>
+                                    <input type="checkbox" id="organism-overlay-toggle" style="width:auto;" checked>
+                                </label>
+                            </div>
                         </div>
                     </div>
 

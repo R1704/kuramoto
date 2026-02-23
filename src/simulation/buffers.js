@@ -305,10 +305,10 @@ export function writeLayerParams(layers) {
             data[base + 49] = lp?.orientLinear ?? 0.0;
             data[base + 50] = lp?.layerCouplingUp ?? 0.0;
             data[base + 51] = lp?.layerCouplingDown ?? 0.0;
-            // Padding to 56 floats (224 bytes, 16-byte aligned for WGSL array)
-            data[base + 52] = 0;
-            data[base + 53] = 0;
-            data[base + 54] = 0;
+            // Lenia growth function parameters (indices 52-54)
+            data[base + 52] = lp?.growthMu ?? 0.15;
+            data[base + 53] = lp?.growthSigma ?? 0.015;
+            data[base + 54] = lp?.growthMode ?? 0;
             data[base + 55] = 0;
         }
         this.device.queue.writeBuffer(this.layerParamsBuf, 0, data);

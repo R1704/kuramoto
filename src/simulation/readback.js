@@ -129,6 +129,38 @@ export async function processPrismaticMetricsReadback() {
         }
 }
 
+export async function readOrderField() {
+        if (this.thetaReadPending) return null;
+        this.thetaReadPending = true;
+
+        try {
+            // orderBuf is a STORAGE buffer with one f32 per cell
+            const byteSize = this.N * 4;
+            if (!this.orderReadbackBuf || this.orderReadbackBuf.size !== byteSize) {
+                if (this.orderReadbackBuf) this.orderReadbackBuf.destroy();
+                this.orderReadbackBuf = this.device.createBuffer({
+                    size: byteSize,
+                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+                });
+            }
+
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyBufferToBuffer(this.orderBuf, 0, this.orderReadbackBuf, 0, byteSize);
+            this.device.queue.submit([encoder.finish()]);
+
+            await this.orderReadbackBuf.mapAsync(GPUMapMode.READ);
+            const data = new Float32Array(this.orderReadbackBuf.getMappedRange().slice(0));
+            this.orderReadbackBuf.unmap();
+
+            return data;
+        } catch (e) {
+            console.warn('readOrderField failed:', e);
+            return null;
+        } finally {
+            this.thetaReadPending = false;
+        }
+}
+
 export function getLastGlobalOrder() {
         return this.lastGlobalOrder;
 }

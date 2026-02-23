@@ -151,6 +151,11 @@ export function createInitialState() {
         kernelSpatialFreqAngle: 0.0, // spatial frequency direction (radians)
         kernelGaborPhase: 0.0, // phase offset (radians)
 
+        // Lenia growth function parameters (Rule 6)
+        growthMu: 0.15, // center of growth function bell curve
+        growthSigma: 0.015, // width of growth function bell curve
+        growthMode: 0, // 0=gaussian, 1=step, 2=double-gaussian
+
         // Reservoir Computing parameters
         rcEnabled: false, // Master toggle for RC mode
         rcInputRegion: 'center', // 'left', 'top', 'center', 'random', 'gradient' - center works best with periodic boundaries
@@ -167,6 +172,12 @@ export function createInitialState() {
         rcTrainingSamples: 0, // Number of samples collected
         rcNRMSE: null, // Performance metric after training
         rcTestNRMSE: null,
+
+        // Organism detection
+        organismsEnabled: false,
+        organismOverlay: true,
+        organismThreshold: 0.5,
+        organismMinArea: 4,
 
         // Visualization toggles
         phaseSpaceEnabled: true,

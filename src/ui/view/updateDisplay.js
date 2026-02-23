@@ -105,7 +105,15 @@ export function updateDisplay() {
         const analysisGrid = getEl('analysis-grid');
         if (analysisGrid) analysisGrid.style.opacity = this.state.showStatistics ? '1' : '0.7';
 
-        const manifoldSelect = getEl('manifold-select');
+    // Organisms panel
+    const organismsToggle = getEl('organisms-enabled-toggle');
+    if (organismsToggle) organismsToggle.checked = !!this.state.organismsEnabled;
+    const organismOverlayToggle = getEl('organism-overlay-toggle');
+    if (organismOverlayToggle) organismOverlayToggle.checked = !!this.state.organismOverlay;
+    update('organism-threshold-slider', this.state.organismThreshold);
+    update('organism-min-area-slider', this.state.organismMinArea);
+
+    const manifoldSelect = getEl('manifold-select');
         if (manifoldSelect) manifoldSelect.value = this.state.manifoldMode || 's1';
         const gaugeEnabledToggle = getEl('gauge-enabled-toggle');
         if (gaugeEnabledToggle) gaugeEnabledToggle.checked = !!this.state.gaugeEnabled;
@@ -422,9 +430,24 @@ export function updateDisplay() {
         
         const delayControl = getEl('delay-control');
         if (delayControl) delayControl.style.display = this.state.ruleMode === 5 ? 'flex' : 'none';
-        
-        const kernelSection = getEl('kernel-section');
-        const showKernel = this.state.ruleMode === 4 || this.state.layerKernelEnabled;
+
+    // Lenia growth controls
+    const leniaControls = getEl('lenia-controls');
+    if (leniaControls) leniaControls.style.display = this.state.ruleMode === 6 ? 'block' : 'none';
+    // Growth params use 3-decimal precision
+    const growthMuSlider = getEl('growth-mu-slider');
+    if (growthMuSlider) growthMuSlider.value = this.state.growthMu;
+    const growthMuDisp = getEl('growth-mu-value');
+    if (growthMuDisp && this.state.growthMu != null) growthMuDisp.textContent = this.state.growthMu.toFixed(3);
+    const growthSigmaSlider = getEl('growth-sigma-slider');
+    if (growthSigmaSlider) growthSigmaSlider.value = this.state.growthSigma;
+    const growthSigmaDisp = getEl('growth-sigma-value');
+    if (growthSigmaDisp && this.state.growthSigma != null) growthSigmaDisp.textContent = this.state.growthSigma.toFixed(3);
+    const growthModeSelect = getEl('growth-mode-select');
+    if (growthModeSelect) growthModeSelect.value = this.state.growthMode;
+
+    const kernelSection = getEl('kernel-section');
+    const showKernel = this.state.ruleMode === 4 || this.state.ruleMode === 6 || this.state.layerKernelEnabled;
         if (kernelSection) kernelSection.style.display = showKernel ? 'flex' : 'none';
         const kernelVisuals = getEl('kernel-visuals');
         if (kernelVisuals) kernelVisuals.style.display = showKernel ? 'flex' : 'none';
@@ -527,8 +550,8 @@ export function updateDisplay() {
             visualizerPanel.style.display = 'flex';
         }
         
-        // Update kernel visualization if Mexican-hat rule is active
-        if (this.state.ruleMode === 4 && this.cb.onDrawKernel) {
+        // Update kernel visualization if kernel-based rule is active
+        if ((this.state.ruleMode === 4 || this.state.ruleMode === 6) && this.cb.onDrawKernel) {
             this.cb.onDrawKernel();
         }
 

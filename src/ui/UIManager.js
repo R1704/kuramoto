@@ -20,7 +20,8 @@ export class UIManager {
             'Curvature-aware: Stronger coupling at phase gradients',
             'Harmonics: Uses 2nd+3rd harmonics for multi-clusters',
             'Mexican-hat: Short excitation + long inhibition',
-            'Delay-coupled: Uses delayed phase from past timesteps'
+            'Delay-coupled: Uses delayed phase from past timesteps',
+            'Lenia: G(K*θ) — growth function on kernel convolution'
         ];
 
         this.bindControls();

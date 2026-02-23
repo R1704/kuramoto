@@ -8,6 +8,7 @@ export function initEventWiring({
     renderer,
     graphOverlay,
     rcOverlay,
+    organismOverlay,
     runtime,
 }) {
     const resizeCanvasesToDisplay = () => {
@@ -38,6 +39,13 @@ export function initEventWiring({
             if (rcOverlay.width !== w || rcOverlay.height !== h) {
                 rcOverlay.width = w;
                 rcOverlay.height = h;
+            }
+        }
+
+        if (organismOverlay) {
+            if (organismOverlay.width !== w || organismOverlay.height !== h) {
+                organismOverlay.width = w;
+                organismOverlay.height = h;
             }
         }
     };

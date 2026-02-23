@@ -830,4 +830,125 @@ export const Presets = {
             sim.writeGaugeField(ax, ay);
         }
     },
+
+    // --- Lenia / Artificial Life presets ---
+
+    lenia_orbium: (state, sim, rng = null) => {
+        // Orbium-style: smooth Gaussian kernel + narrow growth function
+        // Produces stable, moving soliton-like organisms
+        state.ruleMode = 6;
+        state.K0 = 0.5;
+        state.sigma = 2.0;
+        state.sigma2 = 2.5;
+        state.beta = 0.3;
+        state.kernelShape = 0; // isotropic Gaussian
+        state.growthMu = 0.15;
+        state.growthSigma = 0.015;
+        state.growthMode = 0; // Gaussian
+        state.globalCoupling = false;
+        state.dt = 0.05;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+
+        const N = sim.N;
+        const size = Math.sqrt(N);
+        const theta = new Float32Array(N);
+        const omega = new Float32Array(N);
+        const rand = rng ? rng.float : Math.random;
+
+        // Seed: Gaussian blob in center
+        const cx = size / 2, cy = size / 2;
+        const blobR = size * 0.08;
+        for (let i = 0; i < N; i++) {
+            const x = i % size, y = Math.floor(i / size);
+            const dx = x - cx, dy = y - cy;
+            const d2 = dx * dx + dy * dy;
+            theta[i] = Math.PI * 2.0 * Math.exp(-d2 / (2.0 * blobR * blobR));
+            omega[i] = 0;
+        }
+
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+    },
+
+    lenia_geminium: (state, sim, rng = null) => {
+        // Geminium-style: double-Gaussian growth for excitation-inhibition
+        // Can produce splitting/replicating organisms
+        state.ruleMode = 6;
+        state.K0 = 0.6;
+        state.sigma = 1.8;
+        state.sigma2 = 3.0;
+        state.beta = 0.5;
+        state.kernelShape = 0;
+        state.growthMu = 0.12;
+        state.growthSigma = 0.02;
+        state.growthMode = 2; // Double-Gaussian
+        state.globalCoupling = false;
+        state.dt = 0.04;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+
+        const N = sim.N;
+        const size = Math.sqrt(N);
+        const theta = new Float32Array(N);
+        const omega = new Float32Array(N);
+        const rand = rng ? rng.float : Math.random;
+
+        // Seed: two close blobs
+        const cx1 = size * 0.45, cy1 = size / 2;
+        const cx2 = size * 0.55, cy2 = size / 2;
+        const blobR = size * 0.06;
+        for (let i = 0; i < N; i++) {
+            const x = i % size, y = Math.floor(i / size);
+            const d1 = (x - cx1) ** 2 + (y - cy1) ** 2;
+            const d2 = (x - cx2) ** 2 + (y - cy2) ** 2;
+            theta[i] = Math.PI * 2.0 * (
+                Math.exp(-d1 / (2.0 * blobR * blobR)) +
+                Math.exp(-d2 / (2.0 * blobR * blobR))
+            );
+            omega[i] = 0;
+        }
+
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+    },
+
+    lenia_scutium: (state, sim, rng = null) => {
+        // Scutium-style: step growth function + wider kernel
+        // Produces shield-shaped stable structures
+        state.ruleMode = 6;
+        state.K0 = 0.4;
+        state.sigma = 2.5;
+        state.sigma2 = 2.0;
+        state.beta = 0.4;
+        state.kernelShape = 0;
+        state.growthMu = 0.18;
+        state.growthSigma = 0.025;
+        state.growthMode = 1; // Step
+        state.globalCoupling = false;
+        state.dt = 0.04;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+
+        const N = sim.N;
+        const size = Math.sqrt(N);
+        const theta = new Float32Array(N);
+        const omega = new Float32Array(N);
+        const rand = rng ? rng.float : Math.random;
+
+        // Seed: ring pattern
+        const cx = size / 2, cy = size / 2;
+        const ringR = size * 0.1;
+        const ringW = size * 0.03;
+        for (let i = 0; i < N; i++) {
+            const x = i % size, y = Math.floor(i / size);
+            const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+            const ring = Math.exp(-((d - ringR) ** 2) / (2.0 * ringW * ringW));
+            theta[i] = Math.PI * 2.0 * ring;
+            omega[i] = 0;
+        }
+
+        sim.writeTheta(theta);
+        sim.writeOmega(omega);
+    },
 };
