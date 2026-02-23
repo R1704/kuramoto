@@ -66,6 +66,11 @@ export function makeLayerParamsFromState(state) {
         // Inter-layer coupling
         layerCouplingUp: state.layerCouplingUp ?? 0.0,
         layerCouplingDown: state.layerCouplingDown ?? 0.0,
+
+        // Lenia growth function
+        growthMu: state.growthMu ?? 0.15,
+        growthSigma: state.growthSigma ?? 0.015,
+        growthMode: state.growthMode ?? 0,
     };
 }
 
@@ -136,7 +141,12 @@ export function applyLayerParamsToState(state, layerIdx) {
     // Apply inter-layer coupling with defaults
     state.layerCouplingUp = lp.layerCouplingUp ?? 0.0;
     state.layerCouplingDown = lp.layerCouplingDown ?? 0.0;
-    
+
+    // Apply Lenia growth params
+    state.growthMu = lp.growthMu ?? 0.15;
+    state.growthSigma = lp.growthSigma ?? 0.015;
+    state.growthMode = lp.growthMode ?? 0;
+
     return true;
 }
 

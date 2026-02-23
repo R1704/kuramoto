@@ -355,3 +355,107 @@ export function drawGraphOverlay(topology, options) {
         graphOverlayCtx.fillText(line4, bx + 6, by + 55);
     }
 }
+
+/**
+ * Draw organism overlay: bounding boxes, centroids, and track IDs.
+ */
+export function drawOrganismOverlay(options) {
+    const {
+        canvas: overlayCanvas,
+        ctx,
+        STATE,
+        organisms,
+        tracker,
+        resizeCanvasesToDisplay,
+    } = options;
+
+    if (!ctx || !overlayCanvas) return;
+    resizeCanvasesToDisplay();
+    const w = overlayCanvas.width;
+    const h = overlayCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!STATE.organismsEnabled || !STATE.organismOverlay || !organisms?.structures) {
+        overlayCanvas.style.display = 'none';
+        return;
+    }
+
+    overlayCanvas.style.display = 'block';
+    const grid = STATE.gridSize;
+    const zoom = STATE.zoom ?? 1;
+    const panX = STATE.panX ?? 0;
+    const panY = STATE.panY ?? 0;
+    const tracks = organisms.tracks || [];
+
+    // Track ID → color mapping (consistent per-track)
+    const trackColors = [
+        'rgba(0, 255, 128, 0.8)',
+        'rgba(255, 128, 0, 0.8)',
+        'rgba(0, 200, 255, 0.8)',
+        'rgba(255, 64, 255, 0.8)',
+        'rgba(255, 255, 0, 0.8)',
+        'rgba(128, 255, 0, 0.8)',
+        'rgba(255, 128, 128, 0.8)',
+        'rgba(128, 128, 255, 0.8)',
+    ];
+
+    // Draw bounding boxes for structures
+    for (let i = 0; i < organisms.structures.length; i++) {
+        const s = organisms.structures[i];
+        const color = trackColors[i % trackColors.length];
+
+        // Bounding box corners to screen
+        const tl = simCellToScreenPx(s.boundingBox.minC, s.boundingBox.minR, grid, w, h, zoom, panX, panY);
+        const br = simCellToScreenPx(s.boundingBox.maxC + 1, s.boundingBox.maxR + 1, grid, w, h, zoom, panX, panY);
+
+        if (!tl.visible && !br.visible) continue;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        ctx.setLineDash([]);
+
+        // Centroid dot
+        const cp = simCellToScreenPx(s.centroidX, s.centroidY, grid, w, h, zoom, panX, panY);
+        if (cp.visible) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(cp.x, cp.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // Draw track labels
+    ctx.font = '10px monospace';
+    ctx.textBaseline = 'bottom';
+    for (const track of tracks) {
+        const latest = track.history[track.history.length - 1];
+        if (!latest) continue;
+        const color = trackColors[(track.id - 1) % trackColors.length];
+        const cp = simCellToScreenPx(latest.centroidX, latest.centroidY, grid, w, h, zoom, panX, panY);
+        if (!cp.visible) continue;
+
+        ctx.fillStyle = color;
+        ctx.textAlign = 'left';
+        const label = `#${track.id} A=${latest.area}`;
+        ctx.fillText(label, cp.x + 5, cp.y - 2);
+
+        // Draw velocity vector
+        if (latest.velocity > 0.5) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(cp.x, cp.y);
+            ctx.lineTo(cp.x + latest.vx * 5, cp.y + latest.vy * 5);
+            ctx.stroke();
+        }
+    }
+
+    // Organism count overlay text
+    ctx.fillStyle = 'rgba(0, 255, 128, 0.9)';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`organisms: ${organisms.count || 0}`, 6, 6);
+}

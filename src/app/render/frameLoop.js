@@ -1,4 +1,4 @@
-import { drawRCTaskOverlay, drawGraphOverlay } from '../../core/overlays.js';
+import { drawRCTaskOverlay, drawGraphOverlay, drawOrganismOverlay } from '../../core/overlays.js';
 import { canUseGaugeOverlay } from '../../utils/gaugeSupport.js';
 
 export function createFrameLoop(ctx) {
@@ -147,6 +147,18 @@ export function createFrameLoop(ctx) {
                 runtime.overlayDirty = false;
             }
 
+            // Organism overlay
+            if (ctx.organismOverlay && ctx.organismOverlayCtx && STATE.viewMode === 1) {
+                drawOrganismOverlay({
+                    canvas: ctx.organismOverlay,
+                    ctx: ctx.organismOverlayCtx,
+                    STATE,
+                    organisms: runtime.organisms,
+                    tracker: ctx.structureTracker,
+                    resizeCanvasesToDisplay,
+                });
+            }
+
             if (!rcSweepActive && !rcModeCompareActive && STATE.rcEnabled && !STATE.paused && STATE.manifoldMode === 's1') {
                 if (STATE.rcTraining || STATE.rcInference) {
                     const nowMs = performance.now();
@@ -263,6 +275,45 @@ export function createFrameLoop(ctx) {
                         runtime.phaseSpacePending = false;
                     });
                 }
+            }
+
+            // Organism detection (throttled)
+            if (STATE.organismsEnabled && !runtime.organismsReadPending && ctx.structureDetector && ctx.structureTracker
+                && (frameNow - (runtime.lastOrganismDetectionMs || 0)) >= (config.ORGANISM_DETECTION_MIN_MS || 200)) {
+                // Sync detector params from state
+                ctx.structureDetector.threshold = STATE.organismThreshold ?? 0.5;
+                ctx.structureDetector.minArea = STATE.organismMinArea ?? 4;
+                runtime.organismsReadPending = true;
+                sim.readOrderField().then((orderData) => {
+                    if (orderData) {
+                        const gridSize = sim.gridSize;
+                        const layerSize = gridSize * gridSize;
+                        const layer = getActiveLayerIndex();
+                        const layerOrder = orderData.subarray(layer * layerSize, (layer + 1) * layerSize);
+                        const structures = ctx.structureDetector.detect(layerOrder, gridSize);
+                        const trackResult = ctx.structureTracker.update(structures, gridSize);
+                        runtime.organisms = {
+                            structures,
+                            tracks: trackResult.active,
+                            born: trackResult.born,
+                            died: trackResult.died,
+                            count: trackResult.active.length,
+                        };
+                        runtime.lastOrganismDetectionMs = frameNow;
+                        runtime.overlayDirty = true;
+                        // Update organisms panel display
+                        const countEl = document.getElementById('organism-count');
+                        if (countEl) countEl.textContent = trackResult.active.length;
+                        const lifecycleEl = document.getElementById('organism-lifecycle');
+                        if (lifecycleEl) lifecycleEl.textContent = `${trackResult.born} / ${trackResult.died}`;
+                        const trackedEl = document.getElementById('organism-tracked');
+                        if (trackedEl) trackedEl.textContent = trackResult.totalTracked;
+                    }
+                }).catch((e) => {
+                    console.warn('Organism detection error:', e);
+                }).finally(() => {
+                    runtime.organismsReadPending = false;
+                });
             }
 
             if (sim.prismaticMetricsPending && !runtime.prismaticMetricsReadPending) {

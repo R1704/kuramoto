@@ -38,6 +38,7 @@ import { initSimulationRuntime } from './runtime/initSimulation.js';
 import { initExperimentControllers } from './runtime/initControllers.js';
 import { screenPxToSimCell, projectScreenToSimCell3D } from '../core/index.js';
 import { EmpyreanAudioEngine } from '../audio/EmpyreanAudioEngine.js';
+import { StructureDetector, StructureTracker } from '../organisms/index.js';
 
 const STATE = createInitialState();
 
@@ -90,6 +91,13 @@ async function init() {
     let lyapunovCalc = runtimeInit.lyapunovCalc;
     let reservoir = runtimeInit.reservoir;
     const audioEngine = new EmpyreanAudioEngine();
+    const structureDetector = new StructureDetector({
+        threshold: STATE.organismThreshold,
+        minArea: STATE.organismMinArea,
+    });
+    const structureTracker = new StructureTracker();
+    const organismOverlay = document.getElementById('organism-overlay');
+    const organismOverlayCtx = organismOverlay ? organismOverlay.getContext('2d') : null;
     reservoir.setSeed?.(STATE.seed);
     let lastViewMode = STATE.viewMode;
     let lastColormap = STATE.colormap;
@@ -299,6 +307,7 @@ async function init() {
         renderer,
         graphOverlay,
         rcOverlay,
+        organismOverlay,
         runtime,
     });
 
@@ -2156,10 +2165,15 @@ async function init() {
         rcDotTrail,
         rcDotTrailMax,
         runtime,
+        structureDetector,
+        structureTracker,
+        organismOverlay,
+        organismOverlayCtx,
         config: {
             STATS_READBACK_MIN_MS: 40,
             PHASE_SAMPLE_INTERVAL: 10,
             RC_READ_MIN_MS: 40,
+            ORGANISM_DETECTION_MIN_MS: 200,
         }
     });
 

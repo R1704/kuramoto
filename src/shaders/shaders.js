@@ -79,10 +79,10 @@ struct LayerParams {
     // Inter-layer coupling (per-layer)
     layer_coupling_up: f32,
     layer_coupling_down: f32,
-    // Padding to 56 floats (224 bytes, multiple of 16)
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    // Lenia growth function parameters (indices 52-54)
+    growth_mu: f32,
+    growth_sigma: f32,
+    growth_mode: f32,
     _pad3: f32,
 }
 
@@ -828,6 +828,78 @@ fn rule_delay(local_c: i32, local_r: i32, global_c: u32, global_r: u32, layer: i
     return lp.K0 * (sum / max(cnt, 1e-5));
 }
 
+// Lenia growth functions
+fn growth_gaussian(u: f32, mu: f32, sigma: f32) -> f32 {
+    let d = u - mu;
+    return 2.0 * exp(-(d * d) / (2.0 * sigma * sigma)) - 1.0;
+}
+
+fn growth_step(u: f32, mu: f32, sigma: f32) -> f32 {
+    let d = abs(u - mu);
+    return select(-1.0, 1.0, d < sigma);
+}
+
+fn growth_double(u: f32, mu: f32, sigma: f32) -> f32 {
+    // Double-Gaussian: excitation at mu, inhibition at 2*mu
+    let d1 = u - mu;
+    let d2 = u - 2.0 * mu;
+    let g1 = exp(-(d1 * d1) / (2.0 * sigma * sigma));
+    let g2 = exp(-(d2 * d2) / (2.0 * sigma * sigma));
+    return 2.0 * (g1 - 0.5 * g2) - 1.0;
+}
+
+fn growth_select(u: f32, mu: f32, sigma: f32, mode: i32) -> f32 {
+    if (mode == 1) { return growth_step(u, mu, sigma); }
+    if (mode == 2) { return growth_double(u, mu, sigma); }
+    return growth_gaussian(u, mu, sigma);
+}
+
+// Rule 6: Lenia-style growth
+// Convolve raw field values first, then apply growth function to the aggregate
+fn rule_lenia(local_c: i32, local_r: i32, global_c: i32, global_r: i32, cols: i32, rows: i32, layer: i32, t: f32, i: u32, lp: LayerParams) -> f32 {
+    var sum = 0.0; var wtotal = 0.0;
+
+    let rng_ext = i32(lp.sigma2 * 3.0);
+    let mu = lp.growth_mu;
+    let sigma_g = lp.growth_sigma;
+    let gmode = i32(lp.growth_mode);
+
+    // Convolve raw theta values (not phase differences) with kernel
+    if (rng_ext <= i32(HALO)) {
+        for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
+            for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
+                if (dr == 0 && dc == 0) { continue; }
+                let theta_j = loadThetaShared(local_c + dc, local_r + dr);
+                let w = mexhat_weight(f32(dc), f32(dr), lp);
+                // Use raw theta value (normalized to 0-1 range)
+                sum = sum + w * (theta_j / (2.0 * 3.14159265));
+                wtotal = wtotal + abs(w);
+            }
+        }
+    } else {
+        for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
+            for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
+                if (dr == 0 && dc == 0) { continue; }
+                let theta_j = loadThetaGlobal(global_c + dc, global_r + dr, layer, cols, rows);
+                let w = mexhat_weight(f32(dc), f32(dr), lp);
+                sum = sum + w * (theta_j / (2.0 * 3.14159265));
+                wtotal = wtotal + abs(w);
+            }
+        }
+    }
+
+    // Normalize convolution result
+    var u = 0.0;
+    if (wtotal > 0.0) {
+        u = sum / wtotal;
+    }
+
+    // Apply growth function to aggregate
+    let g = growth_select(u, mu, sigma_g, gmode);
+
+    return lp.K0 * g;
+}
+
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) id: vec3<u32>,
         @builtin(local_invocation_id) lid: vec3<u32>,
@@ -881,6 +953,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     else if (mode == 3) { dtheta = rule_harmonics(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, lp); }
     else if (mode == 4) { dtheta = rule_kernel(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, i, lp); }
     else if (mode == 5) { dtheta = rule_delay(local_c, local_r, global_c, global_r, i32(layer), cols, rows, rng, t, i, lp); }
+    else if (mode == 6) { dtheta = rule_lenia(local_c, local_r, i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, i, lp); }
 
     // Inter-layer coupling (same-cell or kernel-based)
     var inter_sum = 0.0;
@@ -1257,9 +1330,9 @@ struct LayerParams {
     orient_linear: f32,
     layer_coupling_up: f32,
     layer_coupling_down: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    growth_mu: f32,
+    growth_sigma: f32,
+    growth_mode: f32,
     _pad3: f32,
 }
 
@@ -1455,9 +1528,9 @@ struct LayerParams {
     orient_linear: f32,
     layer_coupling_up: f32,
     layer_coupling_down: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    growth_mu: f32,
+    growth_sigma: f32,
+    growth_mode: f32,
     _pad3: f32,
 }
 

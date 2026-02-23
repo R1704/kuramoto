@@ -31,6 +31,7 @@ import {
     getLastGlobalOrder as getLastGlobalOrderFn,
     getLastLocalStats as getLastLocalStatsFn,
     readTheta as readThetaFn,
+    readOrderField as readOrderFieldFn,
     readS2 as readS2Fn,
     readS3 as readS3Fn,
     readGaugeField as readGaugeFieldFn,
@@ -504,6 +505,10 @@ export class Simulation {
 
     async readTheta() {
         return readThetaFn.call(this);
+    }
+
+    async readOrderField() {
+        return readOrderFieldFn.call(this);
     }
 
     async readS2() {

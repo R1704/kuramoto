@@ -152,6 +152,14 @@ export function updateDisplay() {
         const analysisGrid = document.getElementById('analysis-grid');
         if (analysisGrid) analysisGrid.style.opacity = this.state.showStatistics ? '1' : '0.7';
 
+        // Organisms panel
+        const organismsToggle = document.getElementById('organisms-enabled-toggle');
+        if (organismsToggle) organismsToggle.checked = !!this.state.organismsEnabled;
+        const organismOverlayToggle = document.getElementById('organism-overlay-toggle');
+        if (organismOverlayToggle) organismOverlayToggle.checked = !!this.state.organismOverlay;
+        update('organism-threshold-slider', this.state.organismThreshold);
+        update('organism-min-area-slider', this.state.organismMinArea);
+
         const manifoldSelect = document.getElementById('manifold-select');
         if (manifoldSelect) manifoldSelect.value = this.state.manifoldMode || 's1';
         const gaugeEnabledToggle = document.getElementById('gauge-enabled-toggle');
@@ -456,9 +464,24 @@ export function updateDisplay() {
         
         const delayControl = document.getElementById('delay-control');
         if (delayControl) delayControl.style.display = this.state.ruleMode === 5 ? 'flex' : 'none';
-        
+
+        // Lenia growth controls
+        const leniaControls = document.getElementById('lenia-controls');
+        if (leniaControls) leniaControls.style.display = this.state.ruleMode === 6 ? 'block' : 'none';
+        // Growth params use 3-decimal precision
+        const growthMuSlider = document.getElementById('growth-mu-slider');
+        if (growthMuSlider) growthMuSlider.value = this.state.growthMu;
+        const growthMuDisp = document.getElementById('growth-mu-value');
+        if (growthMuDisp && this.state.growthMu != null) growthMuDisp.textContent = this.state.growthMu.toFixed(3);
+        const growthSigmaSlider = document.getElementById('growth-sigma-slider');
+        if (growthSigmaSlider) growthSigmaSlider.value = this.state.growthSigma;
+        const growthSigmaDisp = document.getElementById('growth-sigma-value');
+        if (growthSigmaDisp && this.state.growthSigma != null) growthSigmaDisp.textContent = this.state.growthSigma.toFixed(3);
+        const growthModeSelect = document.getElementById('growth-mode-select');
+        if (growthModeSelect) growthModeSelect.value = this.state.growthMode;
+
         const kernelSection = document.getElementById('kernel-section');
-        const showKernel = this.state.ruleMode === 4 || this.state.layerKernelEnabled;
+        const showKernel = this.state.ruleMode === 4 || this.state.ruleMode === 6 || this.state.layerKernelEnabled;
         if (kernelSection) kernelSection.style.display = showKernel ? 'flex' : 'none';
         const kernelVisuals = document.getElementById('kernel-visuals');
         if (kernelVisuals) kernelVisuals.style.display = showKernel ? 'flex' : 'none';
@@ -625,8 +648,8 @@ export function updateDisplay() {
             visualizerPanel.style.display = 'flex';
         }
         
-        // Update kernel visualization if Mexican-hat rule is active
-        if (this.state.ruleMode === 4 && this.cb.onDrawKernel) {
+        // Update kernel visualization if kernel-based rule is active
+        if ((this.state.ruleMode === 4 || this.state.ruleMode === 6) && this.cb.onDrawKernel) {
             this.cb.onDrawKernel();
         }
 
