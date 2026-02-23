@@ -147,7 +147,6 @@ export const Presets = {
         state.prismaticDragRadiusPx = 120;
         state.prismaticDragPeakForce = 4.0;
         state.prismaticTargetPhase = 0.0;
-        state.prismaticCellPx = 24;
         state.prismaticTrailFade = 0.15;
         state.prismaticGlowScale = 50;
         state.prismaticCoreThreshold = 0.4;

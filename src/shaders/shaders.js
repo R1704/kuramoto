@@ -2048,26 +2048,26 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         if (interaction_params.prismatic_style_enabled < 0.5) {
             color = base_color;
         } else {
-            let span = max(1, i32(round(interaction_params.prismatic_cell_px / 8.0)));
-            let qc = clamp((c / span) * span + span / 2, 0, cols - 1);
-            let qr = clamp((r / span) * span + span / 2, 0, rows - 1);
+            let qc = c;
+            let qr = r;
             let cell_theta = textureLoad(theta_tex, vec2<i32>(qc, qr), i32(active_layer), 0).r;
             let pr = loadPrismaticRender(qc, qr, active_layer, cols, rows);
             let e_dyn = max(0.0, pr.y);
             let e = select(clamp(gradient * 1.8, 0.0, 1.0), e_dyn, interaction_params.prismatic_dynamics_enabled > 0.5);
             let hue = fract(cell_theta / 6.28318530718);
-            let dx_cell = abs(f32(c - qc));
-            let dy_cell = abs(f32(r - qr));
-            let dist_cell = sqrt(dx_cell * dx_cell + dy_cell * dy_cell);
-            let radius = max(1.0, e * interaction_params.prismatic_glow_scale / 10.0);
+            let cell_ux = (f32(qc) + 0.5) / params.cols;
+            let cell_vy = (f32(qr) + 0.5) / params.rows;
+            let dxp = abs(uv.x - cell_ux) * params.cols;
+            let dyp = abs(uv.y - cell_vy) * params.rows;
+            let dist_cell = sqrt(dxp * dxp + dyp * dyp);
+            let radius = max(1.0, e * interaction_params.prismatic_glow_scale);
             let w = clamp(1.0 - dist_cell / radius, 0.0, 1.0);
             var base = hsv_to_rgb(hue, 0.8, 0.9);
             base = base * (0.15 + 0.85 * w);
             if (e > interaction_params.prismatic_core_threshold) {
-                let core = clamp((e - interaction_params.prismatic_core_threshold) / max(0.01, 1.0 - interaction_params.prismatic_core_threshold), 0.0, 1.0);
                 let core_radius = radius * max(0.05, interaction_params.prismatic_core_scale);
-                let core_w = clamp(1.0 - dist_cell / max(0.001, core_radius), 0.0, 1.0);
-                base = mix(base, vec3<f32>(1.0, 1.0, 1.0), core * core_w * 0.7);
+                let core = clamp(1.0 - dist_cell / max(0.001, core_radius), 0.0, 1.0);
+                base = mix(base, vec3<f32>(1.0, 1.0, 1.0), core * 0.7);
             }
             let style = clamp(base, vec3<f32>(0.0), vec3<f32>(1.0));
             let blend = clamp(interaction_params.prismatic_style_blend, 0.0, 1.0);
@@ -3355,13 +3355,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         if (interaction_params_2d.prismatic_style_enabled < 0.5) {
             col3 = base_color;
         } else {
-            let cell_px = max(1.0, interaction_params_2d.prismatic_cell_px);
-            let cell_u = cell_px / max(1.0, params.cols);
-            let cell_v = cell_px / max(1.0, params.rows);
-            let cell_ux = floor(uv.x / cell_u) * cell_u + 0.5 * cell_u;
-            let cell_vy = floor(uv.y / cell_v) * cell_v + 0.5 * cell_v;
-            let cell_c = clamp(i32(cell_ux * params.cols), 0, cols - 1);
-            let cell_r = clamp(i32(cell_vy * params.rows), 0, rows - 1);
+            let cell_c = c;
+            let cell_r = r;
+            let cell_ux = (f32(cell_c) + 0.5) / params.cols;
+            let cell_vy = (f32(cell_r) + 0.5) / params.rows;
             let cell_theta = sample_theta_wrapped(cell_c, cell_r, cols, rows, active_layer);
             let pr = sample_prismatic_wrapped(cell_c, cell_r, cols, rows, active_layer);
             let e_dyn = max(0.0, pr.y);

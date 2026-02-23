@@ -21,11 +21,16 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 - Reservoir: `src/reservoir/{ReservoirComputer,ReservoirIO,OnlineLearner,RidgeRegression,RCTasks}.js` (input injection modes + sparse readout + online RLS).
 
 ## Interaction primer (what exists today)
-- Draw/erase: Cmd+drag draws random phase seeds; Cmd+Shift+drag erases.
+- Force injection: left-drag injects local force (S1 + grid).
+- 3D pan: Cmd+left-drag pans camera (right-drag pan retained).
 - 2D navigation: scroll zoom anchored to cursor; double-click resets zoom/pan.
 - 3D surface modes: Continuous Mesh vs Instanced Quads.
 - Color = Data layer × Palette: palettes cycle with `C`; data layer cycles with Shift+`C`.
 - RC injection modes: `freq_mod`, `phase_drive`, `coupling_mod`.
+
+## Spectral analysis design notes (planning only)
+- **Temporal spectral analysis:** run short-window STFT/FFT over `R(t)`, `dψ/dt`, and gradient energy; use band energy envelopes for smoother audio control and event detection.
+- **Graph spectral analysis:** compute Laplacian eigenspectrum for graph topology mode; track `λ₂` (spectral gap) for synchronizability and inspect leading eigenvectors for community/bottleneck structure.
 
 ## Known issues / correctness risks (must address early)
 - **Multi-layer stats**: ensure layer-aware metrics stay intra-layer (e.g., phase gradient); avoid cross-layer indexing artifacts.

@@ -26,7 +26,6 @@ const CORE_SLIDER_KEYS = [
     ['prismatic-drag-radius-px-slider', 'prismaticDragRadiusPx', 120],
     ['prismatic-drag-peak-force-slider', 'prismaticDragPeakForce', 4.0],
     ['prismatic-target-phase-slider', 'prismaticTargetPhase', 0.0],
-    ['prismatic-cell-px-slider', 'prismaticCellPx', 24],
     ['prismatic-trail-fade-slider', 'prismaticTrailFade', 0.15],
     ['prismatic-glow-scale-slider', 'prismaticGlowScale', 50],
     ['prismatic-core-threshold-slider', 'prismaticCoreThreshold', 0.4],

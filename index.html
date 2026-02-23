@@ -2726,14 +2726,6 @@
 
                     <div class="control-group">
                         <div class="control-label">
-                            <span>Cell Size (px)</span>
-                            <span class="control-value" id="prismatic-cell-px-value">24</span>
-                        </div>
-                        <input type="range" id="prismatic-cell-px-slider" min="4" max="64" step="1" value="24">
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label">
                             <span>Trail Fade</span>
                             <span class="control-value" id="prismatic-trail-fade-value">0.15</span>
                         </div>
@@ -2842,7 +2834,7 @@
                             • Energy: <code>E' = E·decay + |v'|·mix</code><br><br>
                             <strong>Interaction</strong><br>
                             • Left-drag injects local entrainment force<br>
-                            • Cmd+drag remains legacy draw/erase<br>
+                            • Cmd+left-drag pans in 3D<br>
                             • In 3D, drag projects to active layer plane<br><br>
                             Audio is reactive-only and follows the active visualization feature bus.
                         </div>
@@ -2858,7 +2850,7 @@
                                 <span>Interaction Force</span>
                                 <input type="checkbox" id="interaction-force-enabled-toggle" style="width:auto;">
                             </label>
-                            <div class="control-hint">Left-drag injects force (S1 + grid). Cmd+drag is legacy draw/erase.</div>
+                            <div class="control-hint">Left-drag injects force (S1 + grid). Cmd+left-drag pans in 3D.</div>
                         </div>
                         <div class="control-group">
                             <div class="control-label">
@@ -2975,7 +2967,7 @@
                             </label>
                             <div class="control-hint">If on, Prismatic audio follows Prismatic Style view.</div>
                         </div>
-                        <div style="font-size: 10px; color: #888;" id="audio-source-status">Audio source: active layer feature bus</div>
+                        <div style="font-size: 10px; color: #888;" id="audio-source-status">Audio source: active layer feature bus | profile: Phase</div>
                     </div>
 
                     <div class="panel-card">
@@ -3495,10 +3487,10 @@
                 <kbd>K</kbd> Start K-scan<br>
                 <kbd>Shift</kbd>+<kbd>K</kbd> Go to Kc<br>
                 <br>
-                <strong>Mouse (2D Mode)</strong><br>
-                Left-drag: prismatic force<br>
-                Cmd+Drag: draw<br>
-                Cmd+Shift+Drag: erase<br>
+                <strong>Mouse</strong><br>
+                Left-drag: prismatic force (S1 + grid)<br>
+                Cmd+Left-drag (3D): pan<br>
+                Right-drag (3D): pan<br>
                 Scroll to zoom (towards cursor)<br>
                 Double-click to reset view
             </div>

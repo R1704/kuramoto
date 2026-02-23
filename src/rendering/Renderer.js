@@ -592,10 +592,6 @@ fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
         this.prismaticTrailIndex = 0;
     }
 
-    clearDrawOverlay() {
-        // no-op placeholder; draw/erase currently writes directly to theta
-    }
-    
     loadTextureFromCanvas(canvas) {
         // Destroy old texture if it's not the default 1x1
         if (this.externalTexture && this.externalTexture.width > 1) {

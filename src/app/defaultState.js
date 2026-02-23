@@ -99,7 +99,6 @@ export function createInitialState() {
         prismaticDragRadiusPx: 120,
         prismaticDragPeakForce: 4.0,
         prismaticTargetPhase: 0.0,
-        prismaticCellPx: 24,
         prismaticTrailFade: 0.15,
         prismaticGlowScale: 50,
         prismaticCoreThreshold: 0.4,
@@ -110,8 +109,6 @@ export function createInitialState() {
         mouseForcePointerActive: false,
         // Runtime-only projected radius in simulation UV units
         prismaticDragRadiusUV: 0.08,
-        // Interaction primer controls
-        drawMode: 'draw', // 'draw' or 'erase'
         scaleBase: 1.0,
         scaleRadial: 0.0,
         scaleRandom: 0.0,

@@ -114,7 +114,6 @@ Prismatic is now split into **style** and **optional dynamics**.
 - `prismaticStyleEnabled`, `prismaticStyleBlend`, `prismaticStyleBaseLayerMode`
 - Layer 9 is now `Prismatic Style View` over existing simulation state.
 - Style controls:
-  - `prismaticCellPx`
   - `prismaticTrailFade`
   - `prismaticGlowScale`
   - `prismaticCoreThreshold`
@@ -134,7 +133,7 @@ Prismatic is now split into **style** and **optional dynamics**.
   - `prismaticDragPeakForce`
   - `prismaticTargetPhase`
   - `interactionForceFalloff`
-- Left-drag applies local force injection; Cmd+drag remains draw/erase.
+- Left-drag applies local force injection; Cmd+left-drag pans in 3D.
 - 2D uses zoom/pan-aware picking; 3D projects to active-layer plane.
 
 4. **Reactive audio engine**
@@ -1898,6 +1897,7 @@ This implementation includes several powerful extensions beyond the basic Kuramo
 - Height encodes phase: $h(x,y) = 2\sin(\theta(x,y))$
 - Camera controls:
   - **Left-drag**: Rotate camera around grid
+  - **Cmd+left-drag**: Pan camera position
   - **Right-drag**: Pan camera position
   - **Scroll**: Zoom in/out
 
@@ -2088,6 +2088,7 @@ This implementation includes several powerful extensions beyond the basic Kuramo
 
 **3D Mode:**
 - **Orbit**: Left-drag rotates camera on sphere
+- **Pan**: Cmd+left-drag moves target point in world space
 - **Pan**: Right-drag moves target point in world space
 - **Zoom**: Scroll changes camera distance from target
 - Spherical coordinates: (dist, phi, theta)
@@ -2844,3 +2845,15 @@ Smoke checklist targets during manual verification:
 - **Graph spectral analysis**: optional Laplacian eigenspectrum on small grids to report synchronizability and spectral gap.
 - **Particle Kuramoto**: dynamic oscillator positions with distance-based coupling; requires spatial hashing or k-NN.
 - **Higher-dimensional oscillators**: vector states on S^n with geodesic coupling and new rendering modes.
+
+### Spectral Analysis Design Notes
+
+- **Temporal spectral analysis (design-only in current build):**
+  - Apply STFT/FFT to low-dimensional dynamics signals such as `R(t)`, mean phase velocity `dψ/dt`, and phase-gradient energy.
+  - Use resulting band energies and onset envelopes for smoother, less jumpy audio control than raw frame metrics.
+  - Practical defaults: Hann window, 50% overlap, window length 128-512 frames depending on desired latency.
+
+- **Graph spectral analysis (design-only in current build):**
+  - For graph topology mode, analyze the Laplacian `L = D - A` eigenspectrum on small/medium grids.
+  - `λ₂` (algebraic connectivity) provides a synchronizability proxy; larger `λ₂` generally indicates faster global phase locking.
+  - Leading eigenvectors highlight weakly connected communities and bottlenecks; useful for topology diagnostics and preset comparison.

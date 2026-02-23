@@ -368,7 +368,6 @@ export function setInteractionParams(state) {
         const prismaticFriction = Math.max(0.0, Math.min(0.999, state?.prismaticFriction ?? 0.92));
         const prismaticEnergyDecay = Math.max(0.0, Math.min(0.999, state?.prismaticEnergyDecay ?? 0.88));
         const prismaticEnergyMix = Math.max(0.0, state?.prismaticEnergyMix ?? 0.12);
-        const prismaticCellPx = Math.max(1.0, state?.prismaticCellPx ?? 24);
         const prismaticTrailFade = Math.max(0.0, Math.min(1.0, state?.prismaticTrailFade ?? 0.15));
         const prismaticGlowScale = Math.max(1.0, state?.prismaticGlowScale ?? 50);
         const prismaticCoreThreshold = Math.max(0.0, Math.min(1.0, state?.prismaticCoreThreshold ?? 0.4));
@@ -401,7 +400,7 @@ export function setInteractionParams(state) {
                 prismaticFriction,
                 prismaticEnergyDecay,
                 prismaticEnergyMix,
-                prismaticCellPx,
+                1.0, // Deprecated prismatic_cell_px uniform slot (fixed to per-sim-cell behavior)
                 prismaticTrailFade,
                 prismaticGlowScale,
                 prismaticCoreThreshold,

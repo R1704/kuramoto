@@ -83,7 +83,6 @@ export function bindControls() {
             ['prismatic-drag-radius-px-slider', 'prismaticDragRadiusPx', 'int'],
             ['prismatic-drag-peak-force-slider', 'prismaticDragPeakForce'],
             ['prismatic-target-phase-slider', 'prismaticTargetPhase'],
-            ['prismatic-cell-px-slider', 'prismaticCellPx', 'int'],
             ['prismatic-trail-fade-slider', 'prismaticTrailFade'],
             ['prismatic-glow-scale-slider', 'prismaticGlowScale', 'int'],
             ['prismatic-core-threshold-slider', 'prismaticCoreThreshold'],

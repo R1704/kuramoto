@@ -360,7 +360,6 @@ async function init() {
     initDrawing({
         canvas,
         state: STATE,
-        getSimulation: () => sim,
         getDrawCellFromEvent,
         onPointerUpdate: onDrawPointerUpdate
     });
@@ -854,12 +853,6 @@ async function init() {
             downloadCSV(csv, 'kuramoto_phase_diagram.csv');
         },
         ...rcCallbacks,
-        onDrawMode: (mode) => {
-            STATE.drawMode = mode;
-        },
-        onClearCanvas: () => {
-            if (renderer.clearDrawOverlay) renderer.clearDrawOverlay();
-        },
         onEmpyreanAudioToggle: async () => {
             try {
                 const running = await audioEngine.toggleRunning();

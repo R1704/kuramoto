@@ -49,7 +49,7 @@ export function applyGaugePrismaticAudioGating({ state, getEl }) {
     for (const id of ['prismatic-drag-radius-px-slider', 'prismatic-drag-peak-force-slider', 'prismatic-target-phase-slider', 'interaction-force-falloff-slider']) {
         setDisabled(getEl, id, state.manifoldMode !== 's1' || !state.interactionForceEnabled || state.topologyMode !== 'grid');
     }
-    for (const id of ['prismatic-style-blend-slider', 'prismatic-style-base-select', 'prismatic-cell-px-slider', 'prismatic-trail-fade-slider', 'prismatic-glow-scale-slider', 'prismatic-core-threshold-slider', 'prismatic-core-scale-slider']) {
+    for (const id of ['prismatic-style-blend-slider', 'prismatic-style-base-select', 'prismatic-trail-fade-slider', 'prismatic-glow-scale-slider', 'prismatic-core-threshold-slider', 'prismatic-core-scale-slider']) {
         setDisabled(getEl, id, state.manifoldMode !== 's1' || !state.prismaticStyleEnabled);
     }
 

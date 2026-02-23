@@ -131,11 +131,24 @@ export function updateDisplay() {
         if (audioStartStopBtn) audioStartStopBtn.textContent = this.state.audioEmpyreanRunning ? 'Stop Audio' : 'Start Audio';
         const audioSourceStatus = getEl('audio-source-status');
         if (audioSourceStatus) {
+            const layerNames = [
+                'Phase',
+                'Velocity',
+                'Curvature',
+                'Order',
+                'Chirality',
+                'Phase+Gradient',
+                'Image Texture',
+                'Gauge Flux',
+                'Covariant Gradient',
+                'Prismatic Style'
+            ];
+            const layerIdx = Math.max(0, Math.min(layerNames.length - 1, Math.round(this.state.colormap || 0)));
             const source = (this.state.colormap === 9 && this.state.prismaticStyleEnabled)
                 ? 'Active Prismatic style bus'
                 : 'Active layer/style bus';
             const lockTxt = this.state.audioCoherenceLock === false ? 'unlock' : 'lock';
-            audioSourceStatus.textContent = `Audio source: ${source} (${lockTxt}, ~36ms)`;
+            audioSourceStatus.textContent = `Audio source: ${source} | profile: ${layerNames[layerIdx]} (${lockTxt}, ~36ms)`;
         }
         const gaugeInitPatternSelect = getEl('gauge-init-pattern-select');
         if (gaugeInitPatternSelect) gaugeInitPatternSelect.value = this.state.gaugeInitPattern || 'zero';

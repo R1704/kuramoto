@@ -54,13 +54,12 @@ export class Camera {
             if (window.__KURAMOTO_PRISMATIC_POINTER_ACTIVE__) {
                 return;
             }
-            if (e.metaKey) {
-                // Allow draw/erase without moving camera
-                return;
-            }
-            // In 2D mode, left-click pans; in 3D mode, left-click rotates
+            // In 2D mode, left-click pans; in 3D mode, left-click rotates.
+            // Cmd+left-drag in 3D is reserved for panning.
             if (e.button === 0) {
                 if (this.viewMode === 1) {
+                    this.pan = true;
+                } else if (e.metaKey) {
                     this.pan = true;
                 } else {
                     this.drag = true;
@@ -72,8 +71,7 @@ export class Camera {
             this.mx = e.clientX; this.my = e.clientY;
         };
         canvas.onmousemove = e => {
-            // If user is holding Cmd for drawing/erasing, never move camera
-            if (e.metaKey || window.__KURAMOTO_PRISMATIC_POINTER_ACTIVE__) { this.drag = false; this.pan = false; return; }
+            if (window.__KURAMOTO_PRISMATIC_POINTER_ACTIVE__) { this.drag = false; this.pan = false; return; }
             if (this.drag) {
                 this.theta -= (e.clientX - this.mx) * 0.01;
                 this.phi = Math.max(0.1, Math.min(3.04, this.phi + (e.clientY - this.my) * 0.01));

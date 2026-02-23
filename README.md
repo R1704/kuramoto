@@ -150,7 +150,8 @@ Gauge controls and effects:
   - `prismaticDynamicsEnabled` enables optional inertial dynamics branch (grid-only).
 - **Interaction force**:
   - Left-drag injects local force when `interactionForceEnabled` is on.
-  - Cmd+drag / Cmd+Shift+drag remain draw/erase.
+  - Cmd+left-drag pans in 3D.
+  - Right-drag pan in 3D is retained.
   - 2D uses zoom/pan-aware picking; 3D projects rays to active-layer plane.
 - **Reactive audio**:
   - FM bells + sub-bass + delay/reverb.
@@ -273,6 +274,7 @@ Grid resizing uses intelligent interpolation:
 
 - **3D Mode** (default): Height field where height = 2·sin(θ)
   - Orbit camera with left-drag
+  - Pan with Cmd+left-drag
   - Pan with right-drag
   - Zoom with scroll
   
@@ -411,12 +413,23 @@ Spatial coupling kernel with multiple shape options:
 - **Z**: Reset zoom/pan to default
 - **+** / **=**: Zoom in
 - **-**: Zoom out
-- **Cmd+Drag**: Draw; **Cmd+Shift+Drag**: Erase (2D & 3D, camera ignores Cmd)
 
 ### Camera (3D Mode)
 - **Left-drag**: Rotate
+- **Cmd+Left-drag**: Pan
 - **Right-drag**: Pan
 - **Scroll**: Zoom
+
+## Spectral Analysis Notes
+
+- **Temporal spectral analysis (design note)**:
+  - Run short-window FFT/STFT on signals like `R(t)`, mean phase velocity `dψ/dt`, and gradient energy.
+  - Use this to derive stable bands/onsets for audio mapping, instead of relying only on instantaneous metrics.
+  - Recommended starting point: Hann window, 50% overlap, 128-512 frame windows depending on responsiveness target.
+- **Graph spectral analysis (design note)**:
+  - For graph topology mode, compute Laplacian eigenspectrum on small grids to extract spectral gap `λ₂` and dominant eigenmodes.
+  - `λ₂` is a synchronizability proxy (higher often means easier global locking); leading eigenvectors localize weakly connected regions.
+  - Use this for diagnostics/preset comparison rather than per-frame audio control.
 
 ## 🎭 Presets
 
