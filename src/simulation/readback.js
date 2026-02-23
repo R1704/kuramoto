@@ -91,8 +91,24 @@ export async function processPrismaticMetricsReadback() {
             const coherence = Number.isFinite(raw[17]) ? raw[17] : 0;
             const gradient = Number.isFinite(raw[18]) ? raw[18] : 0;
             const order = Number.isFinite(raw[19]) ? raw[19] : 0;
-            const phaseBins = new Float32Array(8);
-            const phasePans = new Float32Array(8);
+            if (!this.prismaticMetricsScratch) {
+                this.prismaticMetricsScratch = {
+                    phaseBins: new Float32Array(8),
+                    phasePans: new Float32Array(8),
+                    out: {
+                        phaseBins: null,
+                        phasePans: null,
+                        intensity: 0,
+                        coherence: 0,
+                        gradient: 0,
+                        order: 0
+                    }
+                };
+                this.prismaticMetricsScratch.out.phaseBins = this.prismaticMetricsScratch.phaseBins;
+                this.prismaticMetricsScratch.out.phasePans = this.prismaticMetricsScratch.phasePans;
+            }
+            const phaseBins = this.prismaticMetricsScratch.phaseBins;
+            const phasePans = this.prismaticMetricsScratch.phasePans;
             for (let i = 0; i < 8; i++) {
                 phaseBins[i] = Number.isFinite(bins[i]) ? bins[i] : 0;
                 const p = Number.isFinite(pans[i]) ? pans[i] : 0;
@@ -100,14 +116,11 @@ export async function processPrismaticMetricsReadback() {
             }
             this.prismaticMetricsPending = false;
             this.prismaticMetricsMapping = false;
-            return {
-                phaseBins,
-                phasePans,
-                intensity: Math.max(0, Math.min(1, intensity)),
-                coherence: Math.max(0, Math.min(1, coherence)),
-                gradient: Math.max(0, Math.min(1, gradient)),
-                order: Math.max(0, Math.min(1, order))
-            };
+            this.prismaticMetricsScratch.out.intensity = Math.max(0, Math.min(1, intensity));
+            this.prismaticMetricsScratch.out.coherence = Math.max(0, Math.min(1, coherence));
+            this.prismaticMetricsScratch.out.gradient = Math.max(0, Math.min(1, gradient));
+            this.prismaticMetricsScratch.out.order = Math.max(0, Math.min(1, order));
+            return this.prismaticMetricsScratch.out;
         } catch (e) {
             console.warn('processPrismaticMetricsReadback failed:', e);
             this.prismaticMetricsPending = false;

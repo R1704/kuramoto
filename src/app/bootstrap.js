@@ -38,6 +38,11 @@ import { initSimulationRuntime } from './runtime/initSimulation.js';
 import { initExperimentControllers } from './runtime/initControllers.js';
 import { screenPxToSimCell, projectScreenToSimCell3D } from '../core/index.js';
 import { EmpyreanAudioEngine } from '../audio/EmpyreanAudioEngine.js';
+import { createRunnerGuard, isAnyRunnerActive } from './runtime/runnerGuards.js';
+import { applyLayerStateToSimulation, applyStateToSimulation } from './runtime/simSync.js';
+import { runStartupSmokeChecks } from './runtime/smokeChecks.js';
+import { createAnalysisCallbacks } from './runtime/callbacksAnalysis.js';
+import { createRCCallbacks } from './runtime/callbacksRC.js';
 
 const STATE = createInitialState();
 
@@ -383,9 +388,37 @@ async function init() {
         stateAdapter.syncURL(true);
     };
 
+    const isActionBlocked = createRunnerGuard(
+        () => experimentRunner,
+        () => rcCritSweepRunner,
+        () => rcModeCompareRunner
+    );
+
+    const analysisCallbacks = createAnalysisCallbacks({
+        STATE,
+        stateAdapter,
+        isActionBlocked,
+        getDiscoverySweepController: () => discoverySweepController,
+        getDiscoverySweepLastExport: () => discoverySweepLastExport,
+        setSweepUIState: (...args) => setSweepUIState(...args),
+        downloadJSON,
+        downloadCSV,
+        captureCompareSnapshot: (slot) => captureCompareSnapshot(slot),
+        restoreCompareSnapshot: (slot) => restoreCompareSnapshot(slot)
+    });
+
+    const rcCallbacks = createRCCallbacks({
+        STATE,
+        sim,
+        reservoir,
+        writeRCInputWeights,
+        updateRCDisplay,
+        stateAdapter
+    });
+
     ui = new UIManager(STATE, {
         onParamChange: () => { 
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             if (STATE.manifoldMode !== 's1') {
                 if (STATE.ruleMode !== 0) STATE.ruleMode = 0;
                 if (STATE.harmonicA !== 0.0) STATE.harmonicA = 0.0;
@@ -444,12 +477,17 @@ async function init() {
                 renderer.resetPrismaticTrail?.();
                 lastPrismaticStyleEnabled = !!STATE.prismaticStyleEnabled;
             }
-            normalizeSelectedLayers(STATE, STATE.layerCount);
-            syncStateToLayerParams(STATE, STATE.selectedLayers);
-            sim.writeLayerParams(STATE.layerParams);
-            sim.updateFullParams(STATE);
-            sim.setManifoldMode(STATE.manifoldMode);
-            renderer.invalidateBindGroup();
+            applyLayerStateToSimulation({
+                state: STATE,
+                sim,
+                normalizeSelectedLayers,
+                syncStateToLayerParams
+            });
+            applyStateToSimulation({
+                state: STATE,
+                sim,
+                renderer
+            });
             // Update UI visibility and pattern options based on manifold
             if (ui?.updateManifoldVisibility) ui.updateManifoldVisibility(STATE.manifoldMode);
             if (ui?.updatePatternOptions) ui.updatePatternOptions(STATE.manifoldMode);
@@ -462,7 +500,7 @@ async function init() {
             stateAdapter.syncURL(true);
         },
         onApplyGaugeInit: async () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             if (STATE.manifoldMode !== 's1' || !STATE.gaugeEnabled) return;
             normalizeSelectedLayers(STATE, STATE.layerCount);
             const targets = STATE.selectedLayers;
@@ -493,22 +531,25 @@ async function init() {
                 baseGauge,
                 rng
             );
-            sim.updateFullParams(STATE);
-            stateAdapter.syncURL(true);
+            applyStateToSimulation({
+                state: STATE,
+                sim,
+                syncURL: () => stateAdapter.syncURL(true)
+            });
         },
         onTopologyChange: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             regenerateTopology();
             stateAdapter.syncURL(true);
         },
         onTopologyRegenerate: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             STATE.topologySeed = (STATE.topologySeed || 1) + 1;
             regenerateTopology();
             stateAdapter.syncURL(true);
         },
         onApplyInit: async () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             normalizeSelectedLayers(STATE, STATE.layerCount);
             const targets = STATE.selectedLayers;
             const thetaPattern = document.getElementById('theta-pattern-select')?.value || STATE.thetaPattern || 'random';
@@ -567,8 +608,7 @@ async function init() {
         onSurfaceModeChange: (mode) => {
             STATE.surfaceMode = mode;
             renderer.setMeshMode(mode);
-            sim.updateFullParams(STATE);
-            sim.setManifoldMode(STATE.manifoldMode);
+            applyStateToSimulation({ state: STATE, sim });
             updateRenderModeIndicator();
             stateAdapter.syncURL(true);
         },
@@ -576,7 +616,7 @@ async function init() {
             STATE.phaseSpaceEnabled = enabled;
         },
         onSeedChange: (seed) => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             STATE.seed = normalizeSeed(seed);
             reservoir.setSeed?.(STATE.seed);
             if (STATE.manifoldMode === 's2') {
@@ -587,60 +627,14 @@ async function init() {
             stateAdapter.syncURL(true);
         },
         onReseed: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             STATE.seed = cryptoSeedFallback();
             reservoir.setSeed?.(STATE.seed);
             resetSimulation(sim, STATE, lastExternalCanvas);
             if (ui?.updateDisplay) ui.updateDisplay();
             stateAdapter.syncURL(true);
         },
-        onExperimentConfigChange: () => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
-            stateAdapter.syncURL(true);
-        },
-        onSweepConfigChange: () => {
-            stateAdapter.syncURL(true);
-        },
-        onRunSweep: async () => {
-            if (!discoverySweepController || discoverySweepController.isRunning()) return;
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
-            if (!STATE.showStatistics) {
-                alert('Enable statistics to run parameter sweep.');
-                return;
-            }
-            const param = STATE.sweepParam || 'gaugeCharge';
-            const from = Number.isFinite(STATE.sweepFrom) ? STATE.sweepFrom : 0;
-            const to = Number.isFinite(STATE.sweepTo) ? STATE.sweepTo : 2;
-            const steps = Number.isFinite(STATE.sweepSteps) ? STATE.sweepSteps : 5;
-            const settleFrames = Number.isFinite(STATE.sweepSettleFrames) ? STATE.sweepSettleFrames : 180;
-            setSweepUIState(true, 'running (0/0)');
-            await discoverySweepController.run({ param, from, to, steps, settleFrames });
-            stateAdapter.syncURL(true);
-        },
-        onCancelSweep: () => {
-            if (!discoverySweepController || !discoverySweepController.isRunning()) return;
-            discoverySweepController.cancel();
-            setSweepUIState(true, 'canceling...');
-        },
-        onExportSweepJSON: () => {
-            if (!discoverySweepLastExport) return;
-            const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            downloadJSON(discoverySweepLastExport, `kuramoto_sweep_${ts}.json`);
-        },
-        onExportSweepCSV: () => {
-            if (!discoverySweepController) return;
-            const csv = discoverySweepController.exportCSV();
-            const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            downloadCSV(csv, `kuramoto_sweep_${ts}.csv`);
-        },
-        onCompareCapture: (slot) => {
-            if (slot !== 'a' && slot !== 'b') return;
-            void captureCompareSnapshot(slot);
-        },
-        onCompareRestore: (slot) => {
-            if (slot !== 'a' && slot !== 'b') return;
-            void restoreCompareSnapshot(slot);
-        },
+        ...analysisCallbacks,
         onURLSync: () => {
             stateAdapter.syncURL(true);
         },
@@ -746,14 +740,10 @@ async function init() {
             }
         },
         onResizeGrid: async (newSize) => {
-            if (experimentRunner && experimentRunner.isRunning()) {
-                experimentRunner.cancel();
-            }
-            if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
-                rcCritSweepRunner.cancel();
-            }
-            if (rcModeCompareRunner && rcModeCompareRunner.isRunning()) {
-                rcModeCompareRunner.cancel();
+            if (isAnyRunnerActive(experimentRunner, rcCritSweepRunner, rcModeCompareRunner)) {
+                experimentRunner?.cancel?.();
+                rcCritSweepRunner?.cancel?.();
+                rcModeCompareRunner?.cancel?.();
             }
             if (gridResizeInProgress) {
                 return;
@@ -798,19 +788,15 @@ async function init() {
             sim.setManifoldMode(STATE.manifoldMode);
         },
         onLayerCountChange: (newCount) => {
-            if (experimentRunner && experimentRunner.isRunning()) {
-                experimentRunner.cancel();
-            }
-            if (rcCritSweepRunner && rcCritSweepRunner.isRunning()) {
-                rcCritSweepRunner.cancel();
-            }
-            if (rcModeCompareRunner && rcModeCompareRunner.isRunning()) {
-                rcModeCompareRunner.cancel();
+            if (isAnyRunnerActive(experimentRunner, rcCritSweepRunner, rcModeCompareRunner)) {
+                experimentRunner?.cancel?.();
+                rcCritSweepRunner?.cancel?.();
+                rcModeCompareRunner?.cancel?.();
             }
             void rebuildLayerCount(newCount);
         },
         onLayerSelect: (layerIdx, selected, prevSelected, prevActive) => {
-            if ((experimentRunner && experimentRunner.isRunning()) || (rcCritSweepRunner && rcCritSweepRunner.isRunning()) || (rcModeCompareRunner && rcModeCompareRunner.isRunning())) return;
+            if (isActionBlocked()) return;
             // Use passed previous selection (UI already updated STATE before calling us)
             const prev = Array.isArray(prevSelected) && prevSelected.length > 0
                 ? prevSelected
@@ -823,8 +809,7 @@ async function init() {
             normalizeSelectedLayers(STATE, STATE.layerCount);
             applyLayerParamsToState(STATE, layerIdx);
             sim.writeLayerParams(STATE.layerParams);
-            sim.updateFullParams(STATE);
-            sim.setManifoldMode(STATE.manifoldMode);
+            applyStateToSimulation({ state: STATE, sim });
             drawKernel(STATE);
             if (ui?.updateDisplay) ui.updateDisplay();
             stateAdapter.syncURL(true);
@@ -849,8 +834,7 @@ async function init() {
             }
             if (stats.estimatedKc) {
                 STATE.K0 = stats.estimatedKc;
-                sim.updateFullParams(STATE);
-                sim.setManifoldMode(STATE.manifoldMode);
+                applyStateToSimulation({ state: STATE, sim });
                 ui.updateDisplay();
             }
         },
@@ -869,71 +853,7 @@ async function init() {
             const csv = stats.exportPhaseDiagramCSV();
             downloadCSV(csv, 'kuramoto_phase_diagram.csv');
         },
-        // Reservoir Computing callbacks
-        onRCEnable: (enabled) => {
-            STATE.rcEnabled = enabled;
-            if (enabled) {
-                reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-                // Write input weights to GPU
-                const weights = reservoir.getInputWeights();
-                const nonZero = weights.filter(w => w > 0).length;
-                const maxWeight = Math.max(...weights);
-                console.log(`RC enabled: ${nonZero} input neurons, max weight=${maxWeight.toFixed(3)}, region=${STATE.rcInputRegion}`);
-                writeRCInputWeights();
-            } else {
-                // Clear input signal when disabling RC
-                sim.setInputSignal(0);
-                console.log('RC disabled');
-            }
-            stateAdapter.syncURL(true);
-        },
-        onRCConfigure: () => {
-            reservoir.setFeatureBudget(STATE.rcMaxFeatures);
-            reservoir.setHistoryLength(STATE.rcHistoryLength);
-            reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-            reservoir.setTask(STATE.rcTask);
-            // Write input weights to GPU
-            writeRCInputWeights();
-            stateAdapter.syncURL(true);
-        },
-        onRCStartTraining: () => {
-            if (!STATE.rcEnabled) {
-                alert('Enable Reservoir Computing first');
-                return;
-            }
-            reservoir.setFeatureBudget(STATE.rcMaxFeatures);
-            reservoir.setHistoryLength(STATE.rcHistoryLength);
-            reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
-            reservoir.setTask(STATE.rcTask);
-            // Write input weights to GPU
-            writeRCInputWeights();
-            reservoir.startTraining();
-            STATE.rcTraining = true;
-            STATE.rcInference = false;
-            updateRCDisplay();
-            stateAdapter.syncURL(true);
-        },
-        onRCStopTraining: () => {
-            STATE.rcTraining = false;
-            const nrmse = reservoir.stopTraining();
-            STATE.rcNRMSE = nrmse;
-            updateRCDisplay();
-            stateAdapter.syncURL(true);
-        },
-        onRCStartInference: () => {
-            if (reservoir.startInference()) {
-                STATE.rcInference = true;
-                STATE.rcTraining = false;
-                updateRCDisplay();
-                stateAdapter.syncURL(true);
-            }
-        },
-        onRCStopInference: () => {
-            reservoir.stopInference();
-            STATE.rcInference = false;
-            updateRCDisplay();
-            stateAdapter.syncURL(true);
-        },
+        ...rcCallbacks,
         onDrawMode: (mode) => {
             STATE.drawMode = mode;
         },
@@ -965,6 +885,7 @@ async function init() {
             }
         }
     });
+    runStartupSmokeChecks({ ui, sim });
 
     ({ experimentRunner, experimentController } = initExperimentControllers({
         device,
@@ -990,8 +911,7 @@ async function init() {
         setK: (K) => {
             STATE.K0 = K;
             STATE.frameTime = 0;
-            sim.updateFullParams(STATE);
-            sim.setManifoldMode(STATE.manifoldMode);
+            applyStateToSimulation({ state: STATE, sim });
             if (ui?.updateDisplay) ui.updateDisplay();
         },
         onUpdate: (info) => {
@@ -1019,8 +939,7 @@ async function init() {
         getActiveLayerTheta: (thetaFull) => getActiveLayerThetaForRC(thetaFull),
         setInjectionMode: (mode) => {
             STATE.rcInjectionMode = mode;
-            sim.updateFullParams(STATE);
-            sim.setManifoldMode(STATE.manifoldMode);
+            applyStateToSimulation({ state: STATE, sim });
             if (ui?.updateDisplay) ui.updateDisplay();
         },
         resetSimulation: () => resetSimulation(sim),

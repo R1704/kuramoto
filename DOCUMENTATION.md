@@ -2803,6 +2803,30 @@ src/reservoir.js
 
 ---
 
+## Refactor Validation Notes (JS/UI First)
+
+This release includes internal no-behavior-change refactors focused on orchestration and UI maintainability:
+
+- Added runtime guard/sync helpers:
+  - `src/app/runtime/runnerGuards.js`
+  - `src/app/runtime/simSync.js`
+  - `src/app/runtime/smokeChecks.js`
+- Added UI helper modules:
+  - `src/ui/dom/getEl.js`
+  - `src/ui/bindings/bindHelpers.js`
+  - `src/ui/view/displaySections.js`
+  - `src/ui/view/displayGating.js`
+- Moved URL defaults/schema metadata into:
+  - `src/state/urlSchema.js`
+
+Smoke checklist targets during manual verification:
+- Boot without new runtime/WebGPU validation errors.
+- UI controls still map to identical state keys and callbacks.
+- URL read/write remains backward-compatible.
+- 2D/3D rendering and interaction behavior remains unchanged.
+
+---
+
 **Document Version:** 2.3  
 **Last Updated:** January 2026  
 **Phase Status:** Phase 2 Complete + Reservoir Computing Phase 1  

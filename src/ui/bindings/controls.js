@@ -1,5 +1,8 @@
+import { alignGridSize, bindAction, bindSelect, bindStateValue, bindToggle } from './bindHelpers.js';
+
 export function bindZoomPan() {
-        const canvas = document.getElementById('canvas');
+        const getEl = this.getEl || ((id) => document.getElementById(id));
+        const canvas = getEl('canvas');
         if (!canvas) return;
         
         // Mouse wheel for zoom (in 2D mode)
@@ -36,22 +39,21 @@ export function bindZoomPan() {
 }
 
 export function bindControls() {
-        const bind = (id, key, type = 'float', evt = 'input') => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            this.elements[key] = el;
-            el.addEventListener(evt, () => {
-                let val = type === 'int' ? parseInt(el.value) : parseFloat(el.value);
-                if (type === 'bool') val = el.checked;
-                this.state[key] = val;
-                
-                // Update display value if exists
-                const disp = document.getElementById(id.replace('slider', 'value').replace('select', 'value'));
-                if (disp) disp.textContent = val.toFixed ? val.toFixed(type === 'int' ? 0 : 2) : val;
-                
-                this.cb.onParamChange();
-            });
+        const getEl = this.getEl || ((id) => document.getElementById(id));
+        const callbackProxy = {
+            onParamChange: this.cb.onParamChange,
+            updateDisplay: this.updateDisplay?.bind(this)
         };
+        const bind = (id, key, type = 'float', evt = 'input') => bindStateValue({
+            getEl,
+            elements: this.elements,
+            state: this.state,
+            callbacks: this.cb,
+            id,
+            key,
+            type,
+            evt
+        });
 
         const basicControls = [
             ['k0-slider', 'K0'],
@@ -101,226 +103,173 @@ export function bindControls() {
         ];
         basicControls.forEach(([id, key, type]) => bind(id, key, type || 'float'));
 
-        const layerKernelToggle = document.getElementById('layer-kernel-toggle');
-        if (layerKernelToggle) {
-            layerKernelToggle.addEventListener('change', () => {
-                this.state.layerKernelEnabled = layerKernelToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
+        bindToggle({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'layer-kernel-toggle',
+            key: 'layerKernelEnabled',
+            refreshDisplay: true
+        });
 
         // Topology controls
-        const topologySelect = document.getElementById('topology-select');
-        if (topologySelect) {
-            topologySelect.addEventListener('change', () => {
-                this.state.topologyMode = topologySelect.value;
-                if (this.cb.onTopologyChange) this.cb.onTopologyChange();
-                this.updateDisplay();
+        bindSelect({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'topology-select',
+            key: 'topologyMode',
+            onParam: false,
+            onChange: () => this.cb.onTopologyChange?.(),
+            refreshDisplay: true
+        });
+        bindSelect({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'manifold-select',
+            key: 'manifoldMode'
+        });
+        [
+            'gauge-enabled-toggle:gaugeEnabled',
+            'phase-lag-enabled-toggle:phaseLagEnabled',
+            'prismatic-style-enabled-toggle:prismaticStyleEnabled',
+            'prismatic-dynamics-enabled-toggle:prismaticDynamicsEnabled',
+            'interaction-force-enabled-toggle:interactionForceEnabled',
+            'audio-coherence-lock-toggle:audioCoherenceLock'
+        ].forEach((entry) => {
+            const [id, key] = entry.split(':');
+            bindToggle({
+                getEl,
+                state: this.state,
+                callbacks: callbackProxy,
+                id,
+                key,
+                refreshDisplay: true
             });
-        }
-        const manifoldSelect = document.getElementById('manifold-select');
-        if (manifoldSelect) {
-            manifoldSelect.addEventListener('change', () => {
-                this.state.manifoldMode = manifoldSelect.value;
-                this.cb.onParamChange();
-            });
-        }
-        const gaugeEnabledToggle = document.getElementById('gauge-enabled-toggle');
-        if (gaugeEnabledToggle) {
-            gaugeEnabledToggle.addEventListener('change', () => {
-                this.state.gaugeEnabled = gaugeEnabledToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const gaugeModeSelect = document.getElementById('gauge-mode-select');
-        if (gaugeModeSelect) {
-            gaugeModeSelect.addEventListener('change', () => {
-                this.state.gaugeMode = gaugeModeSelect.value;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const phaseLagEnabledToggle = document.getElementById('phase-lag-enabled-toggle');
-        if (phaseLagEnabledToggle) {
-            phaseLagEnabledToggle.addEventListener('change', () => {
-                this.state.phaseLagEnabled = phaseLagEnabledToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const prismaticStyleEnabledToggle = document.getElementById('prismatic-style-enabled-toggle');
-        if (prismaticStyleEnabledToggle) {
-            prismaticStyleEnabledToggle.addEventListener('change', () => {
-                this.state.prismaticStyleEnabled = prismaticStyleEnabledToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const prismaticDynamicsEnabledToggle = document.getElementById('prismatic-dynamics-enabled-toggle');
-        if (prismaticDynamicsEnabledToggle) {
-            prismaticDynamicsEnabledToggle.addEventListener('change', () => {
-                this.state.prismaticDynamicsEnabled = prismaticDynamicsEnabledToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const interactionForceEnabledToggle = document.getElementById('interaction-force-enabled-toggle');
-        if (interactionForceEnabledToggle) {
-            interactionForceEnabledToggle.addEventListener('change', () => {
-                this.state.interactionForceEnabled = interactionForceEnabledToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const audioEmpyreanEnabledToggle = document.getElementById('audio-empyrean-enabled-toggle');
-        if (audioEmpyreanEnabledToggle) {
-            audioEmpyreanEnabledToggle.addEventListener('change', () => {
-                this.state.audioEmpyreanEnabled = audioEmpyreanEnabledToggle.checked;
-                if (this.cb.onParamChange) this.cb.onParamChange();
-                if (this.cb.onEmpyreanAudioEnabledChange) this.cb.onEmpyreanAudioEnabledChange(audioEmpyreanEnabledToggle.checked);
-                this.updateDisplay();
-            });
-        }
-        const audioEmpyreanStartStopBtn = document.getElementById('audio-empyrean-start-stop-btn');
-        if (audioEmpyreanStartStopBtn) {
-            audioEmpyreanStartStopBtn.addEventListener('click', () => {
-                if (this.cb.onEmpyreanAudioToggle) this.cb.onEmpyreanAudioToggle();
-            });
-        }
-        const audioEmpyreanModeSelect = document.getElementById('audio-empyrean-mode-select');
-        if (audioEmpyreanModeSelect) {
-            audioEmpyreanModeSelect.addEventListener('change', () => {
-                this.state.audioEmpyreanMode = audioEmpyreanModeSelect.value;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const audioCoherenceLockToggle = document.getElementById('audio-coherence-lock-toggle');
-        if (audioCoherenceLockToggle) {
-            audioCoherenceLockToggle.addEventListener('change', () => {
-                this.state.audioCoherenceLock = audioCoherenceLockToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const prismaticStyleBaseSelect = document.getElementById('prismatic-style-base-select');
-        if (prismaticStyleBaseSelect) {
-            prismaticStyleBaseSelect.addEventListener('change', () => {
-                this.state.prismaticStyleBaseLayerMode = prismaticStyleBaseSelect.value;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const gaugeInitPatternSelect = document.getElementById('gauge-init-pattern-select');
-        if (gaugeInitPatternSelect) {
-            gaugeInitPatternSelect.addEventListener('change', () => {
-                this.state.gaugeInitPattern = gaugeInitPatternSelect.value;
-                this.cb.onParamChange();
-            });
-        }
-        const applyGaugeInitBtn = document.getElementById('apply-gauge-init-btn');
-        if (applyGaugeInitBtn) {
-            applyGaugeInitBtn.addEventListener('click', () => {
-                if (this.cb.onApplyGaugeInit) this.cb.onApplyGaugeInit();
-            });
-        }
-        const gaugeGraphSeedInput = document.getElementById('gauge-graph-seed-input');
+        });
+        bindToggle({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'audio-empyrean-enabled-toggle',
+            key: 'audioEmpyreanEnabled',
+            refreshDisplay: true,
+            onChange: (enabled) => this.cb.onEmpyreanAudioEnabledChange?.(enabled)
+        });
+        bindSelect({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'gauge-mode-select',
+            key: 'gaugeMode',
+            refreshDisplay: true
+        });
+        bindSelect({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'audio-empyrean-mode-select',
+            key: 'audioEmpyreanMode',
+            refreshDisplay: true
+        });
+        bindSelect({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'prismatic-style-base-select',
+            key: 'prismaticStyleBaseLayerMode',
+            refreshDisplay: true
+        });
+        bindSelect({
+            getEl,
+            state: this.state,
+            callbacks: callbackProxy,
+            id: 'gauge-init-pattern-select',
+            key: 'gaugeInitPattern'
+        });
+        bindAction({
+            getEl,
+            id: 'audio-empyrean-start-stop-btn',
+            onClick: () => this.cb.onEmpyreanAudioToggle?.()
+        });
+        bindAction({
+            getEl,
+            id: 'apply-gauge-init-btn',
+            onClick: () => this.cb.onApplyGaugeInit?.()
+        });
+        const gaugeGraphSeedInput = getEl('gauge-graph-seed-input');
         if (gaugeGraphSeedInput) {
             gaugeGraphSeedInput.addEventListener('change', () => {
                 const next = Math.max(1, parseInt(gaugeGraphSeedInput.value, 10) || 1);
                 this.state.gaugeGraphSeed = next;
-                const disp = document.getElementById('gauge-graph-seed-value');
+                const disp = getEl('gauge-graph-seed-value');
                 if (disp) disp.textContent = `${next}`;
                 gaugeGraphSeedInput.value = `${next}`;
                 this.cb.onParamChange();
             });
         }
-        const vizAutoNormToggle = document.getElementById('viz-gauge-autonorm-toggle');
-        if (vizAutoNormToggle) {
-            vizAutoNormToggle.addEventListener('change', () => {
-                this.state.vizGaugeAutoNormalize = vizAutoNormToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
+        [
+            'viz-gauge-autonorm-toggle:vizGaugeAutoNormalize',
+            'viz-gauge-signed-flux-toggle:vizGaugeSignedFlux',
+            'overlay-gauge-links-toggle:overlayGaugeLinks',
+            'overlay-plaquette-sign-toggle:overlayPlaquetteSign',
+            'overlay-probe-toggle:overlayProbeEnabled'
+        ].forEach((entry) => {
+            const [id, key] = entry.split(':');
+            bindToggle({
+                getEl,
+                state: this.state,
+                callbacks: callbackProxy,
+                id,
+                key,
+                refreshDisplay: true
             });
-        }
-        const vizSignedFluxToggle = document.getElementById('viz-gauge-signed-flux-toggle');
-        if (vizSignedFluxToggle) {
-            vizSignedFluxToggle.addEventListener('change', () => {
-                this.state.vizGaugeSignedFlux = vizSignedFluxToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const overlayGaugeLinksToggle = document.getElementById('overlay-gauge-links-toggle');
-        if (overlayGaugeLinksToggle) {
-            overlayGaugeLinksToggle.addEventListener('change', () => {
-                this.state.overlayGaugeLinks = overlayGaugeLinksToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const overlayPlaquetteSignToggle = document.getElementById('overlay-plaquette-sign-toggle');
-        if (overlayPlaquetteSignToggle) {
-            overlayPlaquetteSignToggle.addEventListener('change', () => {
-                this.state.overlayPlaquetteSign = overlayPlaquetteSignToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const overlayProbeToggle = document.getElementById('overlay-probe-toggle');
-        if (overlayProbeToggle) {
-            overlayProbeToggle.addEventListener('change', () => {
-                this.state.overlayProbeEnabled = overlayProbeToggle.checked;
-                this.cb.onParamChange();
-                this.updateDisplay();
-            });
-        }
-        const wsKSlider = document.getElementById('ws-k-slider');
+        });
+        const wsKSlider = getEl('ws-k-slider');
         if (wsKSlider) {
             wsKSlider.addEventListener('change', () => {
                 this.state.topologyWSK = parseInt(wsKSlider.value);
-                const disp = document.getElementById('ws-k-value');
+                const disp = getEl('ws-k-value');
                 if (disp) disp.textContent = this.state.topologyWSK;
                 if (this.cb.onTopologyChange) this.cb.onTopologyChange();
             });
         }
-        const wsPSlider = document.getElementById('ws-p-slider');
+        const wsPSlider = getEl('ws-p-slider');
         if (wsPSlider) {
             wsPSlider.addEventListener('change', () => {
                 this.state.topologyWSRewire = parseFloat(wsPSlider.value);
-                const disp = document.getElementById('ws-p-value');
+                const disp = getEl('ws-p-value');
                 if (disp) disp.textContent = this.state.topologyWSRewire.toFixed(2);
                 if (this.cb.onTopologyChange) this.cb.onTopologyChange();
             });
         }
-        const baM0Slider = document.getElementById('ba-m0-slider');
+        const baM0Slider = getEl('ba-m0-slider');
         if (baM0Slider) {
             baM0Slider.addEventListener('change', () => {
                 this.state.topologyBAM0 = parseInt(baM0Slider.value);
-                const disp = document.getElementById('ba-m0-value');
+                const disp = getEl('ba-m0-value');
                 if (disp) disp.textContent = this.state.topologyBAM0;
                 if (this.cb.onTopologyChange) this.cb.onTopologyChange();
             });
         }
-        const baMSlider = document.getElementById('ba-m-slider');
+        const baMSlider = getEl('ba-m-slider');
         if (baMSlider) {
             baMSlider.addEventListener('change', () => {
                 this.state.topologyBAM = parseInt(baMSlider.value);
-                const disp = document.getElementById('ba-m-value');
+                const disp = getEl('ba-m-value');
                 if (disp) disp.textContent = this.state.topologyBAM;
                 if (this.cb.onTopologyChange) this.cb.onTopologyChange();
             });
         }
-        const topologySeedInput = document.getElementById('topology-seed-input');
+        const topologySeedInput = getEl('topology-seed-input');
         if (topologySeedInput) {
             topologySeedInput.addEventListener('change', () => {
                 this.state.topologySeed = parseInt(topologySeedInput.value) || 1;
                 if (this.cb.onTopologyChange) this.cb.onTopologyChange();
             });
         }
-        const topoRegenBtn = document.getElementById('topology-regenerate-btn');
+        const topoRegenBtn = getEl('topology-regenerate-btn');
         if (topoRegenBtn) {
             topoRegenBtn.addEventListener('click', () => {
                 if (this.cb.onTopologyRegenerate) {
@@ -330,7 +279,7 @@ export function bindControls() {
                 }
             });
         }
-        const graphOverlayToggle = document.getElementById('graph-overlay-toggle');
+        const graphOverlayToggle = getEl('graph-overlay-toggle');
         if (graphOverlayToggle) {
             graphOverlayToggle.addEventListener('change', () => {
                 this.state.graphOverlayEnabled = graphOverlayToggle.checked;
@@ -363,7 +312,7 @@ export function bindControls() {
         bind('orient-linear-slider', 'orientLinear');
         
 
-        const activeLayerInput = document.getElementById('active-layer-input');
+        const activeLayerInput = getEl('active-layer-input');
         if (activeLayerInput) {
             activeLayerInput.addEventListener('change', () => {
                 const maxLayer = Math.max(0, (this.state.layerCount ?? 1) - 1);
@@ -387,7 +336,7 @@ export function bindControls() {
                 }
             });
         }
-        const renderAllToggle = document.getElementById('render-all-layers-toggle');
+        const renderAllToggle = getEl('render-all-layers-toggle');
         if (renderAllToggle) {
             renderAllToggle.addEventListener('change', () => {
                 this.state.renderAllLayers = renderAllToggle.checked;
@@ -396,7 +345,7 @@ export function bindControls() {
         }
         
         // Kernel shape controls
-        const kernelShapeSelect = document.getElementById('kernel-shape-select');
+        const kernelShapeSelect = getEl('kernel-shape-select');
         if (kernelShapeSelect) {
             kernelShapeSelect.addEventListener('change', () => {
                 this.state.kernelShape = parseInt(kernelShapeSelect.value);
@@ -432,13 +381,13 @@ export function bindControls() {
         
         // Bind individual ring width/weight sliders
         for (let i = 1; i <= 5; i++) {
-            const widthSlider = document.getElementById(`ring-${i}-width-slider`);
-            const weightSlider = document.getElementById(`ring-${i}-weight-slider`);
+            const widthSlider = getEl(`ring-${i}-width-slider`);
+            const weightSlider = getEl(`ring-${i}-weight-slider`);
             
             if (widthSlider) {
                 widthSlider.addEventListener('input', () => {
                     this.state.kernelRingWidths[i - 1] = parseFloat(widthSlider.value);
-                    const disp = document.getElementById(`ring-${i}-width-value`);
+                    const disp = getEl(`ring-${i}-width-value`);
                     if (disp) disp.textContent = parseFloat(widthSlider.value).toFixed(2);
                     this.cb.onParamChange();
                 });
@@ -447,7 +396,7 @@ export function bindControls() {
             if (weightSlider) {
                 weightSlider.addEventListener('input', () => {
                     this.state.kernelRingWeights[i - 1] = parseFloat(weightSlider.value);
-                    const disp = document.getElementById(`ring-${i}-weight-value`);
+                    const disp = getEl(`ring-${i}-weight-value`);
                     if (disp) disp.textContent = parseFloat(weightSlider.value).toFixed(2);
                     this.cb.onParamChange();
                 });
@@ -455,11 +404,11 @@ export function bindControls() {
         }
         
         // Special handler for kernelRings to update ring control visibility
-        const ringsSlider = document.getElementById('kernel-rings-slider');
+        const ringsSlider = getEl('kernel-rings-slider');
         if (ringsSlider) {
             ringsSlider.addEventListener('input', () => {
                 this.state.kernelRings = parseInt(ringsSlider.value);
-                const disp = document.getElementById('kernel-rings-value');
+                const disp = getEl('kernel-rings-value');
                 if (disp) disp.textContent = this.state.kernelRings;
                 this.updateDisplay(); // Update ring control visibility
                 this.cb.onParamChange();
@@ -467,14 +416,14 @@ export function bindControls() {
         }
         
         // Secondary number of rings slider
-        const secondaryRingsSlider = document.getElementById('secondary-kernel-rings-slider');
+        const secondaryRingsSlider = getEl('secondary-kernel-rings-slider');
         if (secondaryRingsSlider) {
             secondaryRingsSlider.addEventListener('input', () => {
                 this.state.kernelRings = parseInt(secondaryRingsSlider.value);
-                const disp = document.getElementById('secondary-kernel-rings-value');
+                const disp = getEl('secondary-kernel-rings-value');
                 if (disp) disp.textContent = this.state.kernelRings;
                 // Also update primary display
-                const primaryDisp = document.getElementById('kernel-rings-value');
+                const primaryDisp = getEl('kernel-rings-value');
                 if (primaryDisp) primaryDisp.textContent = this.state.kernelRings;
                 this.updateDisplay(); // Update ring control visibility
                 this.cb.onParamChange();
@@ -482,7 +431,7 @@ export function bindControls() {
         }
         
         // Secondary kernel dropdown (no checkbox, -1 = None)
-        const secondaryDropdown = document.getElementById('kernel-secondary-dropdown');
+        const secondaryDropdown = getEl('kernel-secondary-dropdown');
         if (secondaryDropdown) {
             secondaryDropdown.addEventListener('change', () => {
                 const secondaryValue = parseInt(secondaryDropdown.value);
@@ -490,13 +439,13 @@ export function bindControls() {
                 this.state.kernelCompositionEnabled = secondaryValue >= 0; // Enable composition if not "None"
                 
                 // Show/hide secondary kernel parameters
-                const secondaryParams = document.getElementById('secondary-kernel-params');
+                const secondaryParams = getEl('secondary-kernel-params');
                 if (secondaryParams) {
                     secondaryParams.style.display = secondaryValue >= 0 ? 'flex' : 'none';
                 }
                 
                 // Show/hide mix ratio container
-                const mixRatioContainer = document.getElementById('kernel-mix-ratio-container');
+                const mixRatioContainer = getEl('kernel-mix-ratio-container');
                 if (mixRatioContainer) {
                     mixRatioContainer.style.display = secondaryValue >= 0 ? 'block' : 'none';
                 }
@@ -506,116 +455,116 @@ export function bindControls() {
             });
         }
         
-        const mixRatioSlider = document.getElementById('kernel-mix-ratio-slider');
+        const mixRatioSlider = getEl('kernel-mix-ratio-slider');
         if (mixRatioSlider) {
             mixRatioSlider.addEventListener('input', () => {
                 this.state.kernelMixRatio = parseFloat(mixRatioSlider.value);
-                const disp = document.getElementById('kernel-mix-ratio-value');
+                const disp = getEl('kernel-mix-ratio-value');
                 if (disp) disp.textContent = parseFloat(mixRatioSlider.value).toFixed(2);
                 this.cb.onParamChange();
             });
         }
         
         // Update kernel orientation display to show degrees (for anisotropic)
-        const orientationEl = document.getElementById('kernel-orientation-slider');
+        const orientationEl = getEl('kernel-orientation-slider');
         if (orientationEl) {
             orientationEl.addEventListener('input', () => {
                 const radians = parseFloat(orientationEl.value);
                 this.state.kernelOrientation = radians;
-                const disp = document.getElementById('kernel-orientation-value');
+                const disp = getEl('kernel-orientation-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
         // Update asymmetric orientation display (separate slider)
-        const asymmetricOrientationEl = document.getElementById('kernel-asymmetric-orientation-slider');
+        const asymmetricOrientationEl = getEl('kernel-asymmetric-orientation-slider');
         if (asymmetricOrientationEl) {
             asymmetricOrientationEl.addEventListener('input', () => {
                 const radians = parseFloat(asymmetricOrientationEl.value);
                 this.state.kernelAsymmetricOrientation = radians;
-                const disp = document.getElementById('kernel-asymmetric-orientation-value');
+                const disp = getEl('kernel-asymmetric-orientation-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
         // Gabor frequency angle display (in degrees)
-        const freqAngleEl = document.getElementById('kernel-freq-angle-slider');
+        const freqAngleEl = getEl('kernel-freq-angle-slider');
         if (freqAngleEl) {
             freqAngleEl.addEventListener('input', () => {
                 const radians = parseFloat(freqAngleEl.value);
                 this.state.kernelSpatialFreqAngle = radians;
-                const disp = document.getElementById('kernel-freq-angle-value');
+                const disp = getEl('kernel-freq-angle-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
         // Gabor phase display (in degrees)
-        const gaborPhaseEl = document.getElementById('kernel-gabor-phase-slider');
+        const gaborPhaseEl = getEl('kernel-gabor-phase-slider');
         if (gaborPhaseEl) {
             gaborPhaseEl.addEventListener('input', () => {
                 const radians = parseFloat(gaborPhaseEl.value);
                 this.state.kernelGaborPhase = radians;
-                const disp = document.getElementById('kernel-gabor-phase-value');
+                const disp = getEl('kernel-gabor-phase-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
         // Secondary kernel angle displays (all in degrees)
-        const secOrientationEl = document.getElementById('secondary-kernel-orientation-slider');
+        const secOrientationEl = getEl('secondary-kernel-orientation-slider');
         if (secOrientationEl) {
             secOrientationEl.addEventListener('input', () => {
                 const radians = parseFloat(secOrientationEl.value);
                 this.state.kernelOrientation = radians;
-                const disp = document.getElementById('secondary-kernel-orientation-value');
+                const disp = getEl('secondary-kernel-orientation-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 // Also update primary display
-                const primaryDisp = document.getElementById('kernel-orientation-value');
+                const primaryDisp = getEl('kernel-orientation-value');
                 if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
-        const secAsymOrientationEl = document.getElementById('secondary-kernel-asymmetric-orientation-slider');
+        const secAsymOrientationEl = getEl('secondary-kernel-asymmetric-orientation-slider');
         if (secAsymOrientationEl) {
             secAsymOrientationEl.addEventListener('input', () => {
                 const radians = parseFloat(secAsymOrientationEl.value);
                 this.state.kernelAsymmetricOrientation = radians;
-                const disp = document.getElementById('secondary-kernel-asymmetric-orientation-value');
+                const disp = getEl('secondary-kernel-asymmetric-orientation-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 // Also update primary display
-                const primaryDisp = document.getElementById('kernel-asymmetric-orientation-value');
+                const primaryDisp = getEl('kernel-asymmetric-orientation-value');
                 if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
-        const secFreqAngleEl = document.getElementById('secondary-kernel-freq-angle-slider');
+        const secFreqAngleEl = getEl('secondary-kernel-freq-angle-slider');
         if (secFreqAngleEl) {
             secFreqAngleEl.addEventListener('input', () => {
                 const radians = parseFloat(secFreqAngleEl.value);
                 this.state.kernelSpatialFreqAngle = radians;
-                const disp = document.getElementById('secondary-kernel-freq-angle-value');
+                const disp = getEl('secondary-kernel-freq-angle-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 // Also update primary display
-                const primaryDisp = document.getElementById('kernel-freq-angle-value');
+                const primaryDisp = getEl('kernel-freq-angle-value');
                 if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
         }
         
-        const secGaborPhaseEl = document.getElementById('secondary-kernel-gabor-phase-slider');
+        const secGaborPhaseEl = getEl('secondary-kernel-gabor-phase-slider');
         if (secGaborPhaseEl) {
             secGaborPhaseEl.addEventListener('input', () => {
                 const radians = parseFloat(secGaborPhaseEl.value);
                 this.state.kernelGaborPhase = radians;
-                const disp = document.getElementById('secondary-kernel-gabor-phase-value');
+                const disp = getEl('secondary-kernel-gabor-phase-value');
                 if (disp) disp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 // Also update primary display
-                const primaryDisp = document.getElementById('kernel-gabor-phase-value');
+                const primaryDisp = getEl('kernel-gabor-phase-value');
                 if (primaryDisp) primaryDisp.textContent = Math.round(radians * 180 / Math.PI) + '°';
                 this.cb.onParamChange();
             });
@@ -623,16 +572,16 @@ export function bindControls() {
         
         // Secondary multi-ring controls need custom handlers (arrays, not simple bind)
         for (let i = 1; i <= 5; i++) {
-            const widthSlider = document.getElementById(`secondary-kernel-ring${i}-width-slider`);
-            const weightSlider = document.getElementById(`secondary-kernel-ring${i}-weight-slider`);
+            const widthSlider = getEl(`secondary-kernel-ring${i}-width-slider`);
+            const weightSlider = getEl(`secondary-kernel-ring${i}-weight-slider`);
             
             if (widthSlider) {
                 widthSlider.addEventListener('input', () => {
                     this.state.kernelRingWidths[i - 1] = parseFloat(widthSlider.value);
-                    const disp = document.getElementById(`secondary-kernel-ring${i}-width-value`);
+                    const disp = getEl(`secondary-kernel-ring${i}-width-value`);
                     if (disp) disp.textContent = parseFloat(widthSlider.value).toFixed(2);
                     // Also update primary display
-                    const primaryDisp = document.getElementById(`ring-${i}-width-value`);
+                    const primaryDisp = getEl(`ring-${i}-width-value`);
                     if (primaryDisp) primaryDisp.textContent = parseFloat(widthSlider.value).toFixed(2);
                     this.cb.onParamChange();
                 });
@@ -641,10 +590,10 @@ export function bindControls() {
             if (weightSlider) {
                 weightSlider.addEventListener('input', () => {
                     this.state.kernelRingWeights[i - 1] = parseFloat(weightSlider.value);
-                    const disp = document.getElementById(`secondary-kernel-ring${i}-weight-value`);
+                    const disp = getEl(`secondary-kernel-ring${i}-weight-value`);
                     if (disp) disp.textContent = parseFloat(weightSlider.value).toFixed(2);
                     // Also update primary display
-                    const primaryDisp = document.getElementById(`ring-${i}-weight-value`);
+                    const primaryDisp = getEl(`ring-${i}-weight-value`);
                     if (primaryDisp) primaryDisp.textContent = parseFloat(weightSlider.value).toFixed(2);
                     this.cb.onParamChange();
                 });
@@ -652,7 +601,7 @@ export function bindControls() {
         }
         
         // Rule select with special handling to update UI visibility
-        const ruleSelect = document.getElementById('rule-select');
+        const ruleSelect = getEl('rule-select');
         if (ruleSelect) {
             ruleSelect.addEventListener('change', () => {
                 this.state.ruleMode = parseInt(ruleSelect.value);
@@ -665,7 +614,7 @@ export function bindControls() {
         bind('palette-select', 'colormapPalette', 'int', 'change');
 
         // Respect state loaded from URL/defaults; do not force analysis toggles on.
-        const statsToggle = document.getElementById('show-statistics-toggle');
+        const statsToggle = getEl('show-statistics-toggle');
         if (statsToggle) {
             statsToggle.addEventListener('change', () => {
                 this.state.showStatistics = !!statsToggle.checked;
@@ -678,7 +627,7 @@ export function bindControls() {
             });
         }
         // Surface mode (3D)
-        const surfaceSelect = document.getElementById('surface-mode-select');
+        const surfaceSelect = getEl('surface-mode-select');
         if (surfaceSelect) {
             surfaceSelect.addEventListener('change', () => {
                 this.state.surfaceMode = surfaceSelect.value;
@@ -693,7 +642,7 @@ export function bindControls() {
         
         
         // Smoothing mode select
-        const smoothingSelect = document.getElementById('smoothing-mode-select');
+        const smoothingSelect = getEl('smoothing-mode-select');
         if (smoothingSelect) {
             smoothingSelect.addEventListener('change', () => {
                 this.state.smoothingMode = parseInt(smoothingSelect.value);
@@ -704,8 +653,8 @@ export function bindControls() {
         
         // Selects for patterns
         // Import updateURLFromState lazily (avoid circular import issues) and call when patterns change
-        const bindSelect = (id, key) => {
-            const el = document.getElementById(id);
+        const bindPatternSelect = (id, key) => {
+            const el = getEl(id);
             if (!el) return;
             el.addEventListener('change', () => {
                 this.state[key] = el.value;
@@ -717,10 +666,10 @@ export function bindControls() {
             });
         };
         
-        bindSelect('theta-pattern-select', 'thetaPattern');
-        bindSelect('omega-pattern-select', 'omegaPattern');
+        bindPatternSelect('theta-pattern-select', 'thetaPattern');
+        bindPatternSelect('omega-pattern-select', 'omegaPattern');
 
-        const seedInput = document.getElementById('seed-input');
+        const seedInput = getEl('seed-input');
         if (seedInput) {
             seedInput.addEventListener('change', () => {
                 const v = parseInt(seedInput.value);
@@ -733,7 +682,7 @@ export function bindControls() {
                 this.updateDisplay();
             });
         }
-        const reseedBtn = document.getElementById('reseed-btn');
+        const reseedBtn = getEl('reseed-btn');
         if (reseedBtn) {
             reseedBtn.addEventListener('click', () => {
                 if (this.cb.onReseed) {
@@ -742,14 +691,14 @@ export function bindControls() {
             });
         }
 
-        const expWarmup = document.getElementById('exp-warmup-input');
-        const expMeasure = document.getElementById('exp-measure-input');
-        const expSPF = document.getElementById('exp-stepsperframe-input');
-        const expReadback = document.getElementById('exp-readback-input');
-        const expReset = document.getElementById('exp-reset-toggle');
-        const expRunBtn = document.getElementById('exp-run-btn');
-        const expCancelBtn = document.getElementById('exp-cancel-btn');
-        const expExportBtn = document.getElementById('exp-export-btn');
+        const expWarmup = getEl('exp-warmup-input');
+        const expMeasure = getEl('exp-measure-input');
+        const expSPF = getEl('exp-stepsperframe-input');
+        const expReadback = getEl('exp-readback-input');
+        const expReset = getEl('exp-reset-toggle');
+        const expRunBtn = getEl('exp-run-btn');
+        const expCancelBtn = getEl('exp-cancel-btn');
+        const expExportBtn = getEl('exp-export-btn');
 
         const onExpConfig = () => {
             this.state.expWarmupSteps = parseInt(expWarmup?.value || this.state.expWarmupSteps || 0);
@@ -772,12 +721,12 @@ export function bindControls() {
         if (expExportBtn) expExportBtn.addEventListener('click', () => { if (this.cb.onExperimentExport) this.cb.onExperimentExport(); });
 
         // External input controls (image/video)
-        this.externalInputCanvas = document.getElementById('image-preview');
+        this.externalInputCanvas = getEl('image-preview');
         this.externalInputCtx = this.externalInputCanvas ? this.externalInputCanvas.getContext('2d') : null;
-        this.videoElement = document.getElementById('video-input');
+        this.videoElement = getEl('video-input');
         this.videoStream = null;
         
-        const imageUpload = document.getElementById('image-upload');
+        const imageUpload = getEl('image-upload');
         if (imageUpload) {
             imageUpload.addEventListener('change', (e) => {
                 const file = e.target.files[0];
@@ -791,13 +740,13 @@ export function bindControls() {
             });
         }
         
-        const webcamBtn = document.getElementById('webcam-btn');
+        const webcamBtn = getEl('webcam-btn');
         if (webcamBtn) {
             webcamBtn.onclick = () => this.toggleWebcam();
         }
         
         // Show/hide external input controls based on pattern selection
-        const omegaPatternSelect = document.getElementById('omega-pattern-select');
+        const omegaPatternSelect = getEl('omega-pattern-select');
         if (omegaPatternSelect) {
             omegaPatternSelect.addEventListener('change', () => {
                 this.updateDisplay();
@@ -805,38 +754,44 @@ export function bindControls() {
         }
 
         // Time controls
-        const timeDisplay = document.getElementById('time-scale-display');
+        const timeDisplay = getEl('time-scale-display');
         const updateTimeDisplay = () => {
             if(timeDisplay) timeDisplay.textContent = this.state.timeScale.toFixed(1) + '×';
         };
 
-        document.getElementById('slow-btn').onclick = () => {
+        const slowBtn = getEl('slow-btn');
+        if (slowBtn) slowBtn.onclick = () => {
             this.state.timeScale = Math.max(0.1, this.state.timeScale * 0.5);
             updateTimeDisplay();
             this.cb.onParamChange();
         };
-        document.getElementById('fast-btn').onclick = () => {
+        const fastBtn = getEl('fast-btn');
+        if (fastBtn) fastBtn.onclick = () => {
             this.state.timeScale = Math.min(4.0, this.state.timeScale * 2.0);
             updateTimeDisplay();
             this.cb.onParamChange();
         };
-        document.getElementById('normal-btn').onclick = () => {
+        const normalBtn = getEl('normal-btn');
+        if (normalBtn) normalBtn.onclick = () => {
             this.state.timeScale = 1.0;
             updateTimeDisplay();
             this.cb.onParamChange();
         };
         
         // Buttons
-        document.getElementById('pause-btn').onclick = () => this.cb.onPause();
-        document.getElementById('reset-btn').onclick = () => this.cb.onReset();
-        document.getElementById('randomize-btn').onclick = () => this.cb.onRandomize();
+        const pauseBtn = getEl('pause-btn');
+        const resetBtn = getEl('reset-btn');
+        const randomizeBtn = getEl('randomize-btn');
+        if (pauseBtn) pauseBtn.onclick = () => this.cb.onPause();
+        if (resetBtn) resetBtn.onclick = () => this.cb.onReset();
+        if (randomizeBtn) randomizeBtn.onclick = () => this.cb.onRandomize();
         
         // Presets
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.onclick = () => this.cb.onPreset(btn.dataset.preset);
         });
 
-        const applyInitBtn = document.getElementById('apply-init-btn');
+        const applyInitBtn = getEl('apply-init-btn');
         if (applyInitBtn) {
             applyInitBtn.onclick = () => {
                 if (this.cb.onApplyInit) this.cb.onApplyInit();
@@ -844,8 +799,8 @@ export function bindControls() {
         }
         
         // View mode toggle
-        const view3dBtn = document.getElementById('view-3d-btn');
-        const view2dBtn = document.getElementById('view-2d-btn');
+        const view3dBtn = getEl('view-3d-btn');
+        const view2dBtn = getEl('view-2d-btn');
         if (view3dBtn && view2dBtn) {
             view3dBtn.onclick = () => {
                 this.state.viewMode = 0;
@@ -864,19 +819,12 @@ export function bindControls() {
         // Grid size controls - enforce 64-pixel alignment for bytesPerRow texture copy compatibility
         // WebGPU requires bytesPerRow (grid_size * 4 bytes) to be 256-byte aligned
         // So grid_size must be multiple of 64 (64 * 4 = 256)
-        const gridSizeInput = document.getElementById('grid-size-input');
-        const gridSizeSlider = document.getElementById('grid-size-slider');
-        const gridSizeValue = document.getElementById('grid-size-value');
-        const applyGridBtn = document.getElementById('apply-grid-btn');
-        const layerCountInput = document.getElementById('layer-count-input');
-        const applyLayerCountBtn = document.getElementById('apply-layer-count-btn');
-        
-        // Helper to align grid size to nearest multiple of 64
-        const alignGridSize = (size) => {
-            const aligned = Math.round(size / 64) * 64;
-            // Clamp to valid range
-            return Math.max(64, Math.min(1024, aligned));
-        };
+        const gridSizeInput = getEl('grid-size-input');
+        const gridSizeSlider = getEl('grid-size-slider');
+        const gridSizeValue = getEl('grid-size-value');
+        const applyGridBtn = getEl('apply-grid-btn');
+        const layerCountInput = getEl('layer-count-input');
+        const applyLayerCountBtn = getEl('apply-layer-count-btn');
         
         if (gridSizeInput && gridSizeValue) {
             gridSizeInput.oninput = () => {
@@ -938,7 +886,7 @@ export function bindControls() {
         }
         
         // Statistics panel controls
-        const kscanBtn = document.getElementById('kscan-btn');
+        const kscanBtn = getEl('kscan-btn');
         if (kscanBtn) {
             kscanBtn.onclick = () => {
                 if (this.cb.onStartKScan) {
@@ -947,7 +895,7 @@ export function bindControls() {
             };
         }
         
-        const findKcBtn = document.getElementById('findkc-btn');
+        const findKcBtn = getEl('findkc-btn');
         if (findKcBtn) {
             findKcBtn.onclick = () => {
                 if (this.cb.onFindKc) {
@@ -956,7 +904,7 @@ export function bindControls() {
             };
         }
         
-        const exportStatsBtn = document.getElementById('export-stats-btn');
+        const exportStatsBtn = getEl('export-stats-btn');
         if (exportStatsBtn) {
             exportStatsBtn.onclick = () => {
                 if (this.cb.onExportStats) {
@@ -965,7 +913,7 @@ export function bindControls() {
             };
         }
         
-        const exportPDBtn = document.getElementById('export-pd-btn');
+        const exportPDBtn = getEl('export-pd-btn');
         if (exportPDBtn) {
             exportPDBtn.onclick = () => {
                 if (this.cb.onExportPhaseDiagram) {
@@ -974,18 +922,18 @@ export function bindControls() {
             };
         }
 
-        const sweepParamSelect = document.getElementById('sweep-param-select');
-        const sweepFromInput = document.getElementById('sweep-from-input');
-        const sweepToInput = document.getElementById('sweep-to-input');
-        const sweepStepsInput = document.getElementById('sweep-steps-input');
-        const sweepSettleInput = document.getElementById('sweep-settle-frames-input');
-        const sweepRunBtn = document.getElementById('sweep-run-btn');
-        const sweepCancelBtn = document.getElementById('sweep-cancel-btn');
-        const sweepExportJsonBtn = document.getElementById('sweep-export-json-btn');
-        const sweepExportCsvBtn = document.getElementById('sweep-export-csv-btn');
-        const sweepRangeFrustrationBtn = document.getElementById('sweep-range-frustration-btn');
-        const sweepRangeFeedbackBtn = document.getElementById('sweep-range-feedback-btn');
-        const sweepRangeStiffnessBtn = document.getElementById('sweep-range-stiffness-btn');
+        const sweepParamSelect = getEl('sweep-param-select');
+        const sweepFromInput = getEl('sweep-from-input');
+        const sweepToInput = getEl('sweep-to-input');
+        const sweepStepsInput = getEl('sweep-steps-input');
+        const sweepSettleInput = getEl('sweep-settle-frames-input');
+        const sweepRunBtn = getEl('sweep-run-btn');
+        const sweepCancelBtn = getEl('sweep-cancel-btn');
+        const sweepExportJsonBtn = getEl('sweep-export-json-btn');
+        const sweepExportCsvBtn = getEl('sweep-export-csv-btn');
+        const sweepRangeFrustrationBtn = getEl('sweep-range-frustration-btn');
+        const sweepRangeFeedbackBtn = getEl('sweep-range-feedback-btn');
+        const sweepRangeStiffnessBtn = getEl('sweep-range-stiffness-btn');
 
         const onSweepConfig = () => {
             this.state.sweepParam = sweepParamSelect?.value || this.state.sweepParam || 'gaugeCharge';
@@ -1041,10 +989,10 @@ export function bindControls() {
             });
         }
 
-        const compareCaptureABtn = document.getElementById('compare-capture-a-btn');
-        const compareCaptureBBtn = document.getElementById('compare-capture-b-btn');
-        const compareRestoreABtn = document.getElementById('compare-restore-a-btn');
-        const compareRestoreBBtn = document.getElementById('compare-restore-b-btn');
+        const compareCaptureABtn = getEl('compare-capture-a-btn');
+        const compareCaptureBBtn = getEl('compare-capture-b-btn');
+        const compareRestoreABtn = getEl('compare-restore-a-btn');
+        const compareRestoreBBtn = getEl('compare-restore-b-btn');
         if (compareCaptureABtn) compareCaptureABtn.addEventListener('click', () => { if (this.cb.onCompareCapture) this.cb.onCompareCapture('a'); });
         if (compareCaptureBBtn) compareCaptureBBtn.addEventListener('click', () => { if (this.cb.onCompareCapture) this.cb.onCompareCapture('b'); });
         if (compareRestoreABtn) compareRestoreABtn.addEventListener('click', () => { if (this.cb.onCompareRestore) this.cb.onCompareRestore('a'); });

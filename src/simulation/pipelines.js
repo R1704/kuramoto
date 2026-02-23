@@ -17,6 +17,38 @@ import {
     PRISMATIC_METRICS_NORMALIZE_SHADER
 } from '../shaders/index.js';
 
+const S1_BIND = {
+    THETA_IN: 0,
+    OMEGA: 1,
+    PARAMS: 2,
+    ORDER: 3,
+    DELAY: 4,
+    GLOBAL_ORDER: 5,
+    THETA_OUT: 6,
+    INPUT_WEIGHTS: 7,
+    INPUT_SIGNAL: 8,
+    GRAPH_NEIGHBORS: 9,
+    GRAPH_WEIGHTS: 10,
+    GRAPH_COUNTS: 11,
+    LAYER_PARAMS: 12,
+    GAUGE_X: 13,
+    GAUGE_Y: 14,
+    GRAPH_GAUGE: 15,
+    GAUGE_PARAMS: 16,
+    INTERACTION_PARAMS: 17,
+    PRISMATIC_IN: 18,
+    PRISMATIC_OUT: 19
+};
+
+const PRISMATIC_METRICS_BIND = {
+    THETA: 0,
+    PRISMATIC_STATE: 1,
+    PARAMS: 2,
+    ATOMIC: 3,
+    ORDER: 4,
+    INTERACTION_PARAMS: 5
+};
+
 export function initPipeline() {
         const module = this.device.createShaderModule({ code: COMPUTE_SHADER });
         this.pipeline = this.device.createComputePipeline({
@@ -227,26 +259,26 @@ export function getBindGroup(delaySteps) {
             this.bindGroupCache.set(cacheKey, this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: this.thetaTextures[currentIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 1, resource: { buffer: this.omegaBuf } },
-                    { binding: 2, resource: { buffer: this.paramsBuf } },
-                    { binding: 3, resource: { buffer: this.orderBuf } },
-                    { binding: 4, resource: { buffer: this.delayBuffers[delayIdx] } },
-                    { binding: 5, resource: { buffer: this.globalOrderBuf } },
-                    { binding: 6, resource: this.thetaTextures[nextIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 7, resource: { buffer: this.inputWeightsBuf } },
-                    { binding: 8, resource: { buffer: this.inputSignalBuf } },
-                    { binding: 9, resource: { buffer: this.graphNeighborsBuf } },
-                    { binding: 10, resource: { buffer: this.graphWeightsBuf } },
-                    { binding: 11, resource: { buffer: this.graphCountsBuf } },
-                    { binding: 12, resource: { buffer: this.layerParamsBuf } },
-                    { binding: 13, resource: this.gaugeXTextures[this.gaugeIndex].createView({ dimension: '2d-array' }) },
-                    { binding: 14, resource: this.gaugeYTextures[this.gaugeIndex].createView({ dimension: '2d-array' }) },
-                    { binding: 15, resource: { buffer: this.graphGaugeBuf } },
-                    { binding: 16, resource: { buffer: this.gaugeParamsBuf } },
-                    { binding: 17, resource: { buffer: this.interactionParamsBuf } },
-                    { binding: 18, resource: this.prismaticStateTextures[currentPrismaticIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 19, resource: this.prismaticStateTextures[nextPrismaticIdx].createView({ dimension: '2d-array' }) },
+                    { binding: S1_BIND.THETA_IN, resource: this.thetaTextures[currentIdx].createView({ dimension: '2d-array' }) },
+                    { binding: S1_BIND.OMEGA, resource: { buffer: this.omegaBuf } },
+                    { binding: S1_BIND.PARAMS, resource: { buffer: this.paramsBuf } },
+                    { binding: S1_BIND.ORDER, resource: { buffer: this.orderBuf } },
+                    { binding: S1_BIND.DELAY, resource: { buffer: this.delayBuffers[delayIdx] } },
+                    { binding: S1_BIND.GLOBAL_ORDER, resource: { buffer: this.globalOrderBuf } },
+                    { binding: S1_BIND.THETA_OUT, resource: this.thetaTextures[nextIdx].createView({ dimension: '2d-array' }) },
+                    { binding: S1_BIND.INPUT_WEIGHTS, resource: { buffer: this.inputWeightsBuf } },
+                    { binding: S1_BIND.INPUT_SIGNAL, resource: { buffer: this.inputSignalBuf } },
+                    { binding: S1_BIND.GRAPH_NEIGHBORS, resource: { buffer: this.graphNeighborsBuf } },
+                    { binding: S1_BIND.GRAPH_WEIGHTS, resource: { buffer: this.graphWeightsBuf } },
+                    { binding: S1_BIND.GRAPH_COUNTS, resource: { buffer: this.graphCountsBuf } },
+                    { binding: S1_BIND.LAYER_PARAMS, resource: { buffer: this.layerParamsBuf } },
+                    { binding: S1_BIND.GAUGE_X, resource: this.gaugeXTextures[this.gaugeIndex].createView({ dimension: '2d-array' }) },
+                    { binding: S1_BIND.GAUGE_Y, resource: this.gaugeYTextures[this.gaugeIndex].createView({ dimension: '2d-array' }) },
+                    { binding: S1_BIND.GRAPH_GAUGE, resource: { buffer: this.graphGaugeBuf } },
+                    { binding: S1_BIND.GAUGE_PARAMS, resource: { buffer: this.gaugeParamsBuf } },
+                    { binding: S1_BIND.INTERACTION_PARAMS, resource: { buffer: this.interactionParamsBuf } },
+                    { binding: S1_BIND.PRISMATIC_IN, resource: this.prismaticStateTextures[currentPrismaticIdx].createView({ dimension: '2d-array' }) },
+                    { binding: S1_BIND.PRISMATIC_OUT, resource: this.prismaticStateTextures[nextPrismaticIdx].createView({ dimension: '2d-array' }) },
                 ],
             }));
         }
@@ -259,12 +291,12 @@ export function getPrismaticMetricsBindGroup(thetaIdx = this.thetaIndex, prismat
             this.prismaticMetricsBindGroupCache.set(cacheKey, this.device.createBindGroup({
                 layout: this.prismaticMetricsReductionPipeline.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: this.thetaTextures[thetaIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 1, resource: this.prismaticStateTextures[prismaticIdx].createView({ dimension: '2d-array' }) },
-                    { binding: 2, resource: { buffer: this.paramsBuf } },
-                    { binding: 3, resource: { buffer: this.prismaticMetricsAtomicBuf } },
-                    { binding: 4, resource: { buffer: this.orderBuf } },
-                    { binding: 5, resource: { buffer: this.interactionParamsBuf } },
+                    { binding: PRISMATIC_METRICS_BIND.THETA, resource: this.thetaTextures[thetaIdx].createView({ dimension: '2d-array' }) },
+                    { binding: PRISMATIC_METRICS_BIND.PRISMATIC_STATE, resource: this.prismaticStateTextures[prismaticIdx].createView({ dimension: '2d-array' }) },
+                    { binding: PRISMATIC_METRICS_BIND.PARAMS, resource: { buffer: this.paramsBuf } },
+                    { binding: PRISMATIC_METRICS_BIND.ATOMIC, resource: { buffer: this.prismaticMetricsAtomicBuf } },
+                    { binding: PRISMATIC_METRICS_BIND.ORDER, resource: { buffer: this.orderBuf } },
+                    { binding: PRISMATIC_METRICS_BIND.INTERACTION_PARAMS, resource: { buffer: this.interactionParamsBuf } },
                 ],
             }));
         }

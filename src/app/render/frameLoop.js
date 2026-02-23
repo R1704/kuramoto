@@ -1,7 +1,24 @@
 import { drawRCTaskOverlay, drawGraphOverlay } from '../../core/overlays.js';
 import { canUseGaugeOverlay } from '../../utils/gaugeSupport.js';
 
+function isRunnerActive(runner) {
+    return !!(runner && typeof runner.isRunning === 'function' && runner.isRunning());
+}
+
+function isCadenceReady(now, lastMs, minIntervalMs) {
+    return (now - (lastMs || 0)) >= minIntervalMs;
+}
+
+function runFrameLoopSmokeChecks(ctx) {
+    const requiredKeys = ['STATE', 'device', 'sim', 'renderer', 'camera', 'canvas', 'runtime'];
+    const missing = requiredKeys.filter((key) => !ctx?.[key]);
+    if (missing.length) {
+        console.warn('[smoke] frameLoop missing context:', missing.join(', '));
+    }
+}
+
 export function createFrameLoop(ctx) {
+    runFrameLoopSmokeChecks(ctx);
     return function frame() {
         const frameStart = performance.now();
         const {
@@ -59,9 +76,9 @@ export function createFrameLoop(ctx) {
             const encoder = device.createCommandEncoder();
             let didComputeStats = false;
 
-            const experimentActive = experimentRunner && experimentRunner.isRunning();
-            const rcSweepActive = rcCritSweepRunner && rcCritSweepRunner.isRunning();
-            const rcModeCompareActive = rcModeCompareRunner && rcModeCompareRunner.isRunning();
+            const experimentActive = isRunnerActive(experimentRunner);
+            const rcSweepActive = isRunnerActive(rcCritSweepRunner);
+            const rcModeCompareActive = isRunnerActive(rcModeCompareRunner);
 
             if (experimentActive) {
                 experimentRunner.encodeSteps(encoder, STATE.delaySteps, STATE.globalCoupling);
@@ -110,7 +127,7 @@ export function createFrameLoop(ctx) {
                 STATE.activeLayer,
                 STATE.selectedLayers
             );
-            if (wantsAudioMetrics && (frameNow - (runtime.lastPrismaticMetricsRequestMs || 0)) >= 36) {
+            if (wantsAudioMetrics && isCadenceReady(frameNow, runtime.lastPrismaticMetricsRequestMs, 36)) {
                 sim.requestPrismaticMetricsReadback(encoder);
                 runtime.lastPrismaticMetricsRequestMs = frameNow;
             }
@@ -150,7 +167,7 @@ export function createFrameLoop(ctx) {
             if (!rcSweepActive && !rcModeCompareActive && STATE.rcEnabled && !STATE.paused && STATE.manifoldMode === 's1') {
                 if (STATE.rcTraining || STATE.rcInference) {
                     const nowMs = performance.now();
-                    if (!runtime.rcReadPending && (nowMs - runtime.lastRCReadMs) >= config.RC_READ_MIN_MS) {
+                    if (!runtime.rcReadPending && isCadenceReady(nowMs, runtime.lastRCReadMs, config.RC_READ_MIN_MS)) {
                         runtime.rcReadPending = true;
                         sim.readTheta().then((theta) => {
                             if (theta) {
@@ -215,7 +232,7 @@ export function createFrameLoop(ctx) {
                 rcModeCompareRunner.afterSubmit();
                 updateStatsView();
             } else if (STATE.showStatistics) {
-                const canReadback = sim.readbackPending && (frameNow - runtime.lastStatsReadbackMs >= config.STATS_READBACK_MIN_MS);
+                const canReadback = sim.readbackPending && isCadenceReady(frameNow, runtime.lastStatsReadbackMs, config.STATS_READBACK_MIN_MS);
                 if (canReadback) {
                     const didComputeStatsThisFrame = didComputeStats;
                     const readbackStart = performance.now();

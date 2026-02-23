@@ -3,12 +3,16 @@ import { bindKeyboard } from './bindings/keyboard.js';
 import { updateDisplay, updateLayerTabs } from './view/updateDisplay.js';
 import { updateManifoldVisibility, updatePatternOptions } from './view/manifoldVisibility.js';
 import { loadExternalImage, toggleWebcam, captureVideoFrame } from './externalInput.js';
+import { createElementAccessor } from './dom/getEl.js';
 
 export class UIManager {
     constructor(state, callbacks) {
         this.state = state;
         this.cb = callbacks;
         this.elements = {};
+        const dom = createElementAccessor();
+        this.getEl = dom.getEl;
+        this.clearElementCache = dom.clearElementCache;
 
         this.ruleDescriptions = [
             'Classic: dθ/dt = ω + K·sin(θⱼ - θᵢ)',

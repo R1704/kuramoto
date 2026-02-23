@@ -68,7 +68,9 @@ any sizable change. Prefer concise, verifiable guidance over speculation.
 - Runtime setup helpers: `src/app/runtime/{initWebGPU,initSimulation,initEventWiring,initOverlayDiagnostics,initControllers}.js`
 - Runtime defaults/input helpers: `src/app/defaultState.js`, `src/app/view/initDrawing.js`
 - UI wiring: `src/ui/UIManager.js` composes `src/ui/bindings/*`, `src/ui/view/*`, and `src/ui/externalInput.js`
+- UI helper modules: `src/ui/dom/getEl.js`, `src/ui/bindings/bindHelpers.js`, `src/ui/view/{displaySections,displayGating}.js`
 - Bootstrap controllers: `src/app/controllers/{experimentController,snapshotController,analysisController,rcController}.js`
+- Runtime orchestration helpers: `src/app/runtime/{runnerGuards,simSync,smokeChecks}.js`
 - Core compute: `src/simulation/Simulation.js` orchestrates `src/simulation/{buffers,pipelines,readback,resize}.js` + WGSL in `src/shaders/shaders.js`
 - Gauge extension: S1 U(1) link fields in `src/simulation/{buffers,pipelines}.js` + gauge patterns in `src/patterns/patterns.js`
 - 3D picking helpers: `src/core/picking3d.js` (screen-ray -> active-layer plane -> sim cell)

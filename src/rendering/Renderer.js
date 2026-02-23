@@ -1,5 +1,20 @@
 import { RENDER_SHADER, RENDER_2D_SHADER } from '../shaders/index.js';
 
+const RENDER_BIND = {
+    THETA_OR_VEC: 0,
+    PARAMS: 1,
+    CAMERA: 2,
+    ORDER: 3,
+    EXTERNAL_SAMPLER: 4,
+    EXTERNAL_TEX: 5,
+    LAYER_UNIFORM: 6,
+    GAUGE_X: 7,
+    GAUGE_Y: 8,
+    GAUGE_PARAMS: 9,
+    INTERACTION_PARAMS: 10,
+    PRISMATIC_STATE: 11
+};
+
 export class Renderer {
     constructor(device, format, canvas, gridSize = 256) {
         this.device = device;
@@ -206,18 +221,18 @@ export class Renderer {
                 groups.push(this.device.createBindGroup({
                     layout: this.bindGroupLayout,
                     entries: [
-                        { binding: 0, resource: keyTexture.createView({ dimension: '2d-array' }) },
-                        { binding: 1, resource: { buffer: sim.paramsBuf } },
-                        { binding: 2, resource: { buffer: this.cameraBuf } },
-                        { binding: 3, resource: { buffer: sim.orderBuf } },
-                        { binding: 4, resource: this.externalSampler },
-                        { binding: 5, resource: this.externalTexture.createView() },
-                        { binding: 6, resource: { buffer: this.renderLayerBuf, offset: layer * this.renderLayerStride, size: 16 } },
-                        { binding: 7, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
-                        { binding: 8, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
-                        { binding: 9, resource: { buffer: sim.gaugeParamsBuf } },
-                        { binding: 10, resource: { buffer: sim.interactionParamsBuf } },
-                        { binding: 11, resource: sim.prismaticStateTexture.createView({ dimension: '2d-array' }) },
+                        { binding: RENDER_BIND.THETA_OR_VEC, resource: keyTexture.createView({ dimension: '2d-array' }) },
+                        { binding: RENDER_BIND.PARAMS, resource: { buffer: sim.paramsBuf } },
+                        { binding: RENDER_BIND.CAMERA, resource: { buffer: this.cameraBuf } },
+                        { binding: RENDER_BIND.ORDER, resource: { buffer: sim.orderBuf } },
+                        { binding: RENDER_BIND.EXTERNAL_SAMPLER, resource: this.externalSampler },
+                        { binding: RENDER_BIND.EXTERNAL_TEX, resource: this.externalTexture.createView() },
+                        { binding: RENDER_BIND.LAYER_UNIFORM, resource: { buffer: this.renderLayerBuf, offset: layer * this.renderLayerStride, size: 16 } },
+                        { binding: RENDER_BIND.GAUGE_X, resource: sim.gaugeXTexture.createView({ dimension: '2d-array' }) },
+                        { binding: RENDER_BIND.GAUGE_Y, resource: sim.gaugeYTexture.createView({ dimension: '2d-array' }) },
+                        { binding: RENDER_BIND.GAUGE_PARAMS, resource: { buffer: sim.gaugeParamsBuf } },
+                        { binding: RENDER_BIND.INTERACTION_PARAMS, resource: { buffer: sim.interactionParamsBuf } },
+                        { binding: RENDER_BIND.PRISMATIC_STATE, resource: sim.prismaticStateTexture.createView({ dimension: '2d-array' }) },
                     ],
                 }));
             }
