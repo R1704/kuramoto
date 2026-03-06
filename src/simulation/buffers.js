@@ -1,4 +1,30 @@
+const PARAMS_FLOAT_COUNT = 80;
+const PARAMS_UNIFORM_BYTES = PARAMS_FLOAT_COUNT * 4;
+const GAUGE_PARAMS_FLOAT_COUNT = 12;
+const GAUGE_PARAMS_UNIFORM_BYTES = GAUGE_PARAMS_FLOAT_COUNT * 4;
+const INTERACTION_PARAMS_FLOAT_COUNT = 28;
+const INTERACTION_PARAMS_UNIFORM_BYTES = INTERACTION_PARAMS_FLOAT_COUNT * 4;
+const LAYER_PARAMS_STRIDE_FLOATS = 56;
+const MAX_LAYER_PARAMS = 8;
+const LAYER_PARAMS_UNIFORM_BYTES = LAYER_PARAMS_STRIDE_FLOATS * 4 * MAX_LAYER_PARAMS;
+
+function assertBufferLayoutInvariants() {
+        const assert = (ok, message) => {
+            if (!ok) throw new Error(`Buffer layout invariant failed: ${message}`);
+        };
+        assert(PARAMS_UNIFORM_BYTES === 320, `params uniform bytes expected 320, got ${PARAMS_UNIFORM_BYTES}`);
+        assert(GAUGE_PARAMS_UNIFORM_BYTES === 48, `gauge uniform bytes expected 48, got ${GAUGE_PARAMS_UNIFORM_BYTES}`);
+        assert(INTERACTION_PARAMS_UNIFORM_BYTES === 112, `interaction uniform bytes expected 112, got ${INTERACTION_PARAMS_UNIFORM_BYTES}`);
+        assert(LAYER_PARAMS_STRIDE_FLOATS === 56, `layer params stride expected 56, got ${LAYER_PARAMS_STRIDE_FLOATS}`);
+        assert(LAYER_PARAMS_UNIFORM_BYTES === 1792, `layer params bytes expected 1792, got ${LAYER_PARAMS_UNIFORM_BYTES}`);
+        assert((PARAMS_UNIFORM_BYTES % 16) === 0, 'params uniform must be 16-byte aligned');
+        assert((GAUGE_PARAMS_UNIFORM_BYTES % 16) === 0, 'gauge uniform must be 16-byte aligned');
+        assert((INTERACTION_PARAMS_UNIFORM_BYTES % 16) === 0, 'interaction uniform must be 16-byte aligned');
+        assert(((LAYER_PARAMS_STRIDE_FLOATS * 4) % 16) === 0, 'layer params stride must be 16-byte aligned');
+}
+
 export function initBuffers() {
+        assertBufferLayoutInvariants();
         const bufferUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
         
         const makeThetaTexture = () => this.device.createTexture({
@@ -21,15 +47,15 @@ export function initBuffers() {
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         // Params buffer: padded to 320 bytes (80 floats, 16-byte aligned)
-        this.paramsBuf = this.device.createBuffer({ size: 320, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.paramsBuf = this.device.createBuffer({ size: PARAMS_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         // Gauge + visualization params buffer (12 floats, 48 bytes)
-        this.gaugeParamsBuf = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.gaugeParamsBuf = this.device.createBuffer({ size: GAUGE_PARAMS_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.device.queue.writeBuffer(this.gaugeParamsBuf, 0, new Float32Array([
             0, 0, 1, 1, 0.2, 0.05, 0, 1,
             1, 1, 1, 0
         ]));
         // Prismatic/interaction params (28 floats, 112 bytes)
-        this.interactionParamsBuf = this.device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.interactionParamsBuf = this.device.createBuffer({ size: INTERACTION_PARAMS_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.device.queue.writeBuffer(this.interactionParamsBuf, 0, new Float32Array([
             0, 0, 0, 0,
             1.0, 0.5, 0.5, 0.0,
@@ -215,10 +241,10 @@ export function initBuffers() {
         });
 
         this.layerParamsBuf = this.device.createBuffer({
-            size: 56 * 4 * 8,
+            size: LAYER_PARAMS_UNIFORM_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
-        this.device.queue.writeBuffer(this.layerParamsBuf, 0, new Float32Array(56 * 8).fill(0));
+        this.device.queue.writeBuffer(this.layerParamsBuf, 0, new Float32Array(LAYER_PARAMS_STRIDE_FLOATS * MAX_LAYER_PARAMS).fill(0));
         
         // ============= RESERVOIR COMPUTING BUFFERS =============
         // Input weights: how strongly each oscillator receives input signal
@@ -247,9 +273,9 @@ export function initBuffers() {
 
 export function writeLayerParams(layers) {
         const count = Math.max(1, this.layers || 1);
-        const stride = 56;  // Must match WGSL struct size (56 floats = 224 bytes, 16-byte aligned)
-        const data = new Float32Array(stride * 8);
-        for (let i = 0; i < Math.min(8, count); i++) {
+        const stride = LAYER_PARAMS_STRIDE_FLOATS;  // Must match WGSL struct size (56 floats = 224 bytes, 16-byte aligned)
+        const data = new Float32Array(stride * MAX_LAYER_PARAMS);
+        for (let i = 0; i < Math.min(MAX_LAYER_PARAMS, count); i++) {
             const lp = Array.isArray(layers) ? layers[i] : null;
             const base = i * stride;
             data[base] = lp?.ruleMode ?? 0;

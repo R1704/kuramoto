@@ -1,17 +1,24 @@
 import { canShowGaugeLayers, canUseGaugeOverlay, getGaugeStatusText, isGaugeS1 } from '../../utils/gaugeSupport.js';
+import { formatControlValue } from '../controlSchema.js';
 import { updateCoreSliderSection, updateTopologySection } from './displaySections.js';
 import { applyGaugePrismaticAudioGating } from './displayGating.js';
 
 export function updateDisplay() {
         const getEl = this.getEl || ((id) => document.getElementById(id));
-        // Update all sliders to match state
+        // Update generic sliders to match state
         const update = (id, val) => {
             const el = getEl(id);
             if(el) el.value = val;
             const disp = getEl(id.replace('slider', 'value'));
             if(disp && typeof val === 'number') disp.textContent = val.toFixed(2);
         };
-        updateCoreSliderSection(this.state, update);
+        const updateCore = (control, val) => {
+            const el = getEl(control.id);
+            if (el) el.value = val;
+            const disp = getEl(control.id.replace('slider', 'value'));
+            if (disp) disp.textContent = formatControlValue(control, val);
+        };
+        updateCoreSliderSection(this.state, updateCore);
         const layerCount = Math.max(1, this.state.layerCount ?? 1);
         const lcVal = getEl('layer-count-value');
         if (lcVal) lcVal.textContent = layerCount;

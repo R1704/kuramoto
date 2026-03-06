@@ -68,9 +68,9 @@ The single canonical, strategically prioritized roadmap lives in `ROADMAP.md`.
 
 ## 📊 Features
 
-### Six Coupling Rules
+### Seven Coupling Rules
 
-The simulation implements 6 different coupling mechanisms:
+The simulation implements 7 coupling mechanisms:
 
 | Rule | Description | Best For |
 |------|-------------|----------|
@@ -80,8 +80,9 @@ The simulation implements 6 different coupling mechanisms:
 | **3: Harmonics** | 2nd + 3rd harmonic coupling | Multi-cluster patterns, checkerboards |
 | **4: Kernel-Based** | Spatial coupling kernels (Gaussian, elliptical, multi-scale, rings) | **Chimera states**, rich pattern formation |
 | **5: Delay-Coupled** | Uses delayed phase from past timesteps | Emergent spirals, spatiotemporal chaos |
+| **6: Lenia Growth** | Applies a growth map to kernel convolution | Lenia-like artificial-life dynamics |
 
-Switch rules using **keyboard 0-5** or the dropdown menu.
+Switch rules using **keyboard 0-6** or the dropdown menu.
 
 ### Data Layers + Palettes
 
@@ -92,6 +93,22 @@ Visualization now separates **data layers** from **palettes**:
 - Palettes: Rainbow, Viridis, Plasma, Inferno, Twilight (cyclic), Greyscale.
 
 Use **C** to cycle palettes and **Shift+C** to cycle layers. Layers/palettes are unified between 2D and 3D for consistent interpretation.
+
+### Manifold Gating (Implemented)
+
+- **S1**: Full feature set (rules 0-6, gauge, phase-lag, Prismatic style/dynamics, interaction force, RC, and audio).
+- **S2/S3**:
+  - Rule forced to **0**.
+  - Harmonics and delay forced off.
+  - Global coupling forced off.
+  - Gauge/phase-lag/Prismatic/interaction/RC/audio disabled.
+  - Initialization options restricted to `theta: random|synchronized`, `omega: random|uniform`.
+- **Grid-only (with S1)**:
+  - Dynamic gauge mode.
+  - Prismatic dynamics.
+  - Interaction force.
+  - Empyrean audio.
+- **2D + S1 + grid**: gauge overlays (links/plaquette/probe).
 
 ### Visual Discovery Workflow
 
@@ -352,7 +369,7 @@ Spatial coupling kernel with multiple shape options:
 
 **Kernel Composition** (mix two shapes):
 - Enable to blend two kernel shapes together
-- **Secondary Shape**: Choose second kernel (0-5)
+- **Secondary Shape**: Choose second kernel (0-6)
 - **Mix Ratio**: 0 = all secondary, 1 = all primary
 - *Example use cases:*
   - Asymmetric + Multi-ring → Directional nested patterns
@@ -391,7 +408,7 @@ Spatial coupling kernel with multiple shape options:
 ## ⌨️ Keyboard Shortcuts
 
 ### Rule & Mode Control
-- **0-5**: Switch coupling rules
+- **0-6**: Switch coupling rules
 - **V**: Toggle 2D/3D view
 - **C**: Cycle palettes; **Shift+C**: Cycle data layers
 - **O**: Toggle order overlay
@@ -423,10 +440,12 @@ Spatial coupling kernel with multiple shape options:
 ## Spectral Analysis Notes
 
 - **Temporal spectral analysis (design note)**:
+  - Not implemented in runtime yet.
   - Run short-window FFT/STFT on signals like `R(t)`, mean phase velocity `dψ/dt`, and gradient energy.
   - Use this to derive stable bands/onsets for audio mapping, instead of relying only on instantaneous metrics.
   - Recommended starting point: Hann window, 50% overlap, 128-512 frame windows depending on responsiveness target.
 - **Graph spectral analysis (design note)**:
+  - Not implemented in runtime yet.
   - For graph topology mode, compute Laplacian eigenspectrum on small grids to extract spectral gap `λ₂` and dominant eigenmodes.
   - `λ₂` is a synchronizability proxy (higher often means easier global locking); leading eigenvectors localize weakly connected regions.
   - Use this for diagnostics/preset comparison rather than per-frame audio control.

@@ -21,11 +21,14 @@ function wrapToPi(value) {
  * @param {Object} sim - Simulation instance
  * @param {Object} STATE - Application state
  * @param {HTMLCanvasElement} lastExternalCanvas - External input canvas (for image pattern)
+ * @param {Object} options - Optional overrides { thetaPattern, omegaPattern, omegaAmplitude }
  */
-export function resetSimulation(sim, STATE, lastExternalCanvas = null) {
-    const thetaPattern = document.getElementById('theta-pattern-select')?.value || 'random';
-    const omegaPattern = document.getElementById('omega-pattern-select')?.value || 'random';
-    const omegaAmp = parseFloat(document.getElementById('omega-amplitude-slider')?.value || 0.4);
+export function resetSimulation(sim, STATE, lastExternalCanvas = null, options = {}) {
+    const thetaPattern = options.thetaPattern || STATE.thetaPattern || 'random';
+    const omegaPattern = options.omegaPattern || STATE.omegaPattern || 'random';
+    const omegaAmp = Number.isFinite(options.omegaAmplitude)
+        ? options.omegaAmplitude
+        : (Number.isFinite(STATE.omegaAmplitude) ? STATE.omegaAmplitude : 0.4);
 
     if (STATE.manifoldMode === 's3') {
         applyS3Pattern(sim, thetaPattern, null, null, makeRng(STATE.seed, `s3:${thetaPattern}`));

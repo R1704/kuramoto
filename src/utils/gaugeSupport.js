@@ -18,6 +18,30 @@ export function canUseGaugeOverlay(state) {
     return (state?.viewMode === 1) && isGaugeS1(state) && (state?.topologyMode || 'grid') === 'grid';
 }
 
+export function isPhaseLagAllowed(state) {
+    return isGaugeS1(state);
+}
+
+export function isPrismaticStyleAllowed(state) {
+    return isGaugeS1(state);
+}
+
+export function isPrismaticDynamicsAllowed(state) {
+    return isGaugeS1(state) && (state?.topologyMode || 'grid') === 'grid';
+}
+
+export function isInteractionForceAllowed(state) {
+    return isGaugeS1(state) && (state?.topologyMode || 'grid') === 'grid';
+}
+
+export function isEmpyreanAudioAllowed(state) {
+    return isGaugeS1(state) && (state?.topologyMode || 'grid') === 'grid';
+}
+
+export function isReservoirAllowed(state) {
+    return isGaugeS1(state);
+}
+
 export function getGaugeStatusText(state) {
     if (!isGaugeS1(state)) {
         return 'Gauge disabled outside S1 manifold.';

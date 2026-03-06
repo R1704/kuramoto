@@ -1,5 +1,19 @@
 import { MAX_GRAPH_DEGREE } from '../topology/index.js';
 
+export const TRANSIENT_STATE_KEYS = Object.freeze([
+    'frameTime',
+    'mouseForcePointerU',
+    'mouseForcePointerV',
+    'mouseForcePointerActive',
+    'prismaticDragRadiusUV',
+    'audioEmpyreanRunning',
+    'rcTraining',
+    'rcInference',
+    'rcTrainingSamples',
+    'rcNRMSE',
+    'rcTestNRMSE',
+]);
+
 export function createInitialState() {
     return {
         seed: 1,
@@ -208,4 +222,18 @@ export function createInitialSparklineState() {
         lastDrawMs: 0,
         minMs: 180,
     };
+}
+
+export function splitStateByPersistence(state) {
+    const runtimeState = {};
+    const modelState = {};
+    const transient = new Set(TRANSIENT_STATE_KEYS);
+    for (const [key, value] of Object.entries(state || {})) {
+        if (transient.has(key)) {
+            runtimeState[key] = value;
+        } else {
+            modelState[key] = value;
+        }
+    }
+    return { modelState, runtimeState };
 }

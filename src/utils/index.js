@@ -11,4 +11,18 @@ export { encodeFloat32ToBase64, decodeBase64ToFloat32, estimateBase64SizeBytes }
 export { resizeSparkCanvas, renderSparkline } from './sparklines.js';
 export { showError } from './errors.js';
 export { downloadCSV, downloadJSON, formatBytes } from './downloads.js';
-export { isGaugeS1, isGaugeDynamicAllowed, isGaugeDynamicActive, canShowGaugeLayers, canUseGaugeOverlay, getGaugeStatusText } from './gaugeSupport.js';
+export {
+    isGaugeS1,
+    isGaugeDynamicAllowed,
+    isGaugeDynamicActive,
+    canShowGaugeLayers,
+    canUseGaugeOverlay,
+    isPhaseLagAllowed,
+    isPrismaticStyleAllowed,
+    isPrismaticDynamicsAllowed,
+    isInteractionForceAllowed,
+    isEmpyreanAudioAllowed,
+    isReservoirAllowed,
+    getGaugeStatusText
+} from './gaugeSupport.js';
+export { clampGaugeLayerSelection, enforceStateInvariants } from './stateInvariants.js';

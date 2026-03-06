@@ -15,10 +15,21 @@ function decodeArray(s) {
     return s.split(',').map(v => parseFloat(v));
 }
 
-export function loadStateFromURL(state) {
+export function loadStateFromURL(state, options = {}) {
+    const resetMissing = !!options.resetMissing;
+
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if ([...params.keys()].length === 0) return; // nothing to do
+    if ([...params.keys()].length === 0) {
+        if (!resetMissing) return; // nothing to do
+    }
+
+    if (resetMissing) {
+        for (const key of Object.keys(SCHEMA)) {
+            const def = DEFAULTS[key];
+            state[key] = Array.isArray(def) ? [...def] : def;
+        }
+    }
 
     for (const key of Object.keys(SCHEMA)) {
         if (!params.has(key)) continue;

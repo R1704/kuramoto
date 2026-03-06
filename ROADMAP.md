@@ -12,7 +12,7 @@ This file is the **single canonical roadmap**. It consolidates prior plans, inte
 
 ## Current system snapshot
 - Runtime bootstrap: `src/main.js` + `src/app/bootstrap.js` + `src/app/{defaultState,stateAdapter}.js` + `src/app/render/frameLoop.js`.
-- Core simulation: `src/simulation/Simulation.js` + `src/simulation/{buffers,pipelines,readback,resize}.js` + WGSL in `src/shaders/shaders.js` (rules 0-5, kernels, topology mode).
+- Core simulation: `src/simulation/Simulation.js` + `src/simulation/{buffers,pipelines,readback,resize}.js` + WGSL in `src/shaders/sources/*.js` (rules 0-6, kernels, topology mode).
 - Gauge extension (S1): local U(1) link fields (`A_x`, `A_y`, graph edge phases), static/dynamic gauge modes, gauge-aware layers (flux and covariant gradient).
 - Rendering: `src/rendering/Renderer.js` (fast 2D triangle path + 3D mesh/instanced).
 - UI/state: `index.html` + `src/ui/UIManager.js` + `src/ui/{bindings,view}/*` + `src/utils/urlstate.js`.

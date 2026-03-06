@@ -8,7 +8,14 @@ import { makeRng, normalizeSeed, cryptoSeedFallback } from '../utils/index.js';
 import { RCCriticalitySweepRunner, RCInjectionModeCompareRunner } from '../experiments/index.js';
 import { encodeFloat32ToBase64, decodeBase64ToFloat32, estimateBase64SizeBytes } from '../utils/index.js';
 import { applyLayerParamsToState, syncStateToLayerParams, ensureLayerParams, normalizeSelectedLayers } from '../state/layerParams.js';
-import { resizeSparkCanvas, showError, downloadCSV, downloadJSON, formatBytes } from '../utils/index.js';
+import {
+    resizeSparkCanvas,
+    showError,
+    downloadCSV,
+    downloadJSON,
+    formatBytes,
+    enforceStateInvariants
+} from '../utils/index.js';
 import {
     resetSimulation,
     applyThetaPattern,
@@ -30,7 +37,6 @@ import { createFrameLoop } from './render/frameLoop.js';
 import { extrapolateKc, createDiscoverySweepController } from './controllers/analysisController.js';
 import { createSnapshotController } from './controllers/snapshotController.js';
 import { drawRCPlot as drawRCPredictions, renderRCKSweepPlot as renderRCKSweepChart, renderRCModeComparePlot as renderRCModeCompareChart } from './controllers/rcController.js';
-import { canShowGaugeLayers } from '../utils/gaugeSupport.js';
 import { initWebGPU } from './runtime/initWebGPU.js';
 import { initEventWiring } from './runtime/initEventWiring.js';
 import { initOverlayDiagnostics } from './runtime/initOverlayDiagnostics.js';
@@ -43,6 +49,12 @@ import { applyLayerStateToSimulation, applyStateToSimulation } from './runtime/s
 import { runStartupSmokeChecks } from './runtime/smokeChecks.js';
 import { createAnalysisCallbacks } from './runtime/callbacksAnalysis.js';
 import { createRCCallbacks } from './runtime/callbacksRC.js';
+import {
+    captureCanvasThumbnail,
+    renderSweepResults as renderDiscoverySweepResults,
+    setSweepUIState as setDiscoverySweepUIState,
+    setCompareUIState as setDiscoveryCompareUIState
+} from './runtime/discoveryUi.js';
 import { StructureDetector, StructureTracker } from '../organisms/index.js';
 
 const STATE = createInitialState();
@@ -56,12 +68,6 @@ let lastExternalCanvas = null;
 let gridResizeInProgress = false;
 let APP_RUNTIME = null;
 
-function clampGaugeLayerSelection(state) {
-    if (!canShowGaugeLayers(state) && state.colormap >= 7) {
-        state.colormap = 0;
-    }
-}
-
 async function init() {
     const webgpu = await initWebGPU({ showError, canvasId: 'canvas' });
     if (!webgpu) return;
@@ -69,7 +75,7 @@ async function init() {
 
     // Load state from URL (may modify STATE.gridSize before constructing Simulation)
     loadStateFromURL(STATE);
-    clampGaugeLayerSelection(STATE);
+    enforceStateInvariants(STATE);
 
     // Normalize/initialize seed for reproducible experiments
     if (STATE.seed === undefined || STATE.seed === null) {
@@ -427,46 +433,14 @@ async function init() {
     ui = new UIManager(STATE, {
         onParamChange: () => { 
             if (isActionBlocked()) return;
-            if (STATE.manifoldMode !== 's1') {
-                if (STATE.ruleMode !== 0) STATE.ruleMode = 0;
-                if (STATE.harmonicA !== 0.0) STATE.harmonicA = 0.0;
-                if (STATE.harmonicB !== 0.0) STATE.harmonicB = 0.0;
-                if (STATE.delaySteps !== 0) STATE.delaySteps = 0;
-                if (STATE.globalCoupling !== false) STATE.globalCoupling = false;
-                if (STATE.rcEnabled) {
-                    STATE.rcEnabled = false;
-                    sim.setInputSignal(0);
-                }
-                if (STATE.gaugeEnabled) {
-                    STATE.gaugeEnabled = false;
-                }
-                if (STATE.phaseLagEnabled) {
-                    STATE.phaseLagEnabled = false;
-                }
-                STATE.prismaticStyleEnabled = false;
-                STATE.prismaticDynamicsEnabled = false;
-                STATE.interactionForceEnabled = false;
-                STATE.mouseForcePointerActive = false;
-                STATE.audioEmpyreanEnabled = false;
-                STATE.audioEmpyreanRunning = false;
+            const invariantResult = enforceStateInvariants(STATE);
+            if (invariantResult.rcDisabled) {
+                sim.setInputSignal(0);
+            }
+            if (invariantResult.audioStopped) {
                 void audioEngine.setRunning(false);
             }
-            if (STATE.gaugeEnabled && STATE.globalCoupling) {
-                STATE.globalCoupling = false;
-            }
-            if (STATE.topologyMode !== 'grid') {
-                STATE.mouseForcePointerActive = false;
-            }
             syncPrismaticRadiusUV();
-            clampGaugeLayerSelection(STATE);
-            if (STATE.manifoldMode === 's2' || STATE.manifoldMode === 's3') {
-                if (STATE.thetaPattern !== 'random' && STATE.thetaPattern !== 'synchronized') {
-                    STATE.thetaPattern = 'random';
-                }
-                if (STATE.omegaPattern !== 'random' && STATE.omegaPattern !== 'uniform') {
-                    STATE.omegaPattern = 'random';
-                }
-            }
             if (STATE.viewMode !== lastViewMode) {
                 runtime.overlayDirty = true;
                 lastViewMode = STATE.viewMode;
@@ -560,9 +534,9 @@ async function init() {
             if (isActionBlocked()) return;
             normalizeSelectedLayers(STATE, STATE.layerCount);
             const targets = STATE.selectedLayers;
-            const thetaPattern = document.getElementById('theta-pattern-select')?.value || STATE.thetaPattern || 'random';
-            const omegaPattern = document.getElementById('omega-pattern-select')?.value || STATE.omegaPattern || 'random';
-            const omegaAmp = parseFloat(document.getElementById('omega-amplitude-slider')?.value || STATE.omegaAmplitude || 0.4);
+            const thetaPattern = STATE.thetaPattern || 'random';
+            const omegaPattern = STATE.omegaPattern || 'random';
+            const omegaAmp = Number.isFinite(STATE.omegaAmplitude) ? STATE.omegaAmplitude : 0.4;
             
             // For partial layer init, we need current state as base
             // For all layers, we can start fresh
@@ -909,7 +883,7 @@ async function init() {
         writeRCInputWeights: () => writeRCInputWeights(),
         setInputSignal: (signal) => sim.setInputSignal(signal),
         getActiveLayerTheta: (thetaFull) => getActiveLayerThetaForRC(thetaFull),
-        resetSimulation: () => resetSimulation(sim),
+        resetSimulation: () => resetSimulation(sim, STATE, lastExternalCanvas),
         setK: (K) => {
             STATE.K0 = K;
             STATE.frameTime = 0;
@@ -944,7 +918,7 @@ async function init() {
             applyStateToSimulation({ state: STATE, sim });
             if (ui?.updateDisplay) ui.updateDisplay();
         },
-        resetSimulation: () => resetSimulation(sim),
+        resetSimulation: () => resetSimulation(sim, STATE, lastExternalCanvas),
         onUpdate: (info) => {
             rcModeCompareInfo = info;
             if (!info.running && (info.phase === 'done' || info.phase === 'canceled')) {
@@ -988,89 +962,22 @@ async function init() {
     });
     snapshotController.bindControls();
 
-    const captureMainThumbnail = () => {
-        try {
-            const thumb = document.createElement('canvas');
-            thumb.width = 96;
-            thumb.height = 96;
-            const ctx = thumb.getContext('2d');
-            if (!ctx) return null;
-            ctx.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-            return thumb.toDataURL('image/png');
-        } catch (e) {
-            return null;
-        }
-    };
+    const captureMainThumbnail = () => captureCanvasThumbnail(canvas);
 
     const renderSweepResults = (results = []) => {
-        const root = document.getElementById('sweep-results');
-        if (!root) return;
-        root.innerHTML = '';
-        results.forEach((row) => {
-            const rowEl = document.createElement('div');
-            rowEl.className = 'sweep-row';
-            const val = Number.isFinite(row.value) ? row.value : 0;
-            const r = Number.isFinite(row.metrics?.R) ? row.metrics.R : 0;
-            const localR = Number.isFinite(row.metrics?.localR) ? row.metrics.localR : 0;
-            const chi = Number.isFinite(row.metrics?.chi) ? row.metrics.chi : 0;
-            rowEl.innerHTML = `
-                <img class="sweep-thumb" alt="sweep thumbnail" src="${row.thumbnail || ''}">
-                <div>
-                    <div style="font-size:11px; color:#ddd;">${row.param} = ${val.toFixed(3)}</div>
-                    <div>R=${r.toFixed(3)} | localR=${localR.toFixed(3)}</div>
-                    <div>chi=${chi.toFixed(4)}</div>
-                </div>
-            `;
-            root.appendChild(rowEl);
-        });
+        renderDiscoverySweepResults(document.getElementById('sweep-results'), results);
     };
 
     const setSweepUIState = (running, statusText = null) => {
-        const runBtn = document.getElementById('sweep-run-btn');
-        const cancelBtn = document.getElementById('sweep-cancel-btn');
-        const exportJsonBtn = document.getElementById('sweep-export-json-btn');
-        const exportCsvBtn = document.getElementById('sweep-export-csv-btn');
-        const statusEl = document.getElementById('sweep-status');
-        if (runBtn) runBtn.disabled = !!running;
-        if (cancelBtn) cancelBtn.disabled = !running;
-        if (exportJsonBtn) exportJsonBtn.disabled = running || !discoverySweepLastExport;
-        if (exportCsvBtn) exportCsvBtn.disabled = running || !discoverySweepLastExport;
-        if (statusEl && statusText !== null) statusEl.textContent = statusText;
+        setDiscoverySweepUIState({
+            running,
+            statusText,
+            lastExport: discoverySweepLastExport
+        });
     };
 
     const setCompareUIState = () => {
-        const a = compareSnapshots.a;
-        const b = compareSnapshots.b;
-        const aThumb = document.getElementById('compare-a-thumb');
-        const bThumb = document.getElementById('compare-b-thumb');
-        const aMeta = document.getElementById('compare-a-meta');
-        const bMeta = document.getElementById('compare-b-meta');
-        const diffMeta = document.getElementById('compare-diff-meta');
-        const restoreA = document.getElementById('compare-restore-a-btn');
-        const restoreB = document.getElementById('compare-restore-b-btn');
-        if (restoreA) restoreA.disabled = !a;
-        if (restoreB) restoreB.disabled = !b;
-        if (aThumb) aThumb.src = a?.thumbnail || '';
-        if (bThumb) bThumb.src = b?.thumbnail || '';
-        if (aMeta) {
-            aMeta.textContent = a
-                ? `${a.state.manifoldMode}/${a.state.topologyMode} R=${(a.metrics?.R ?? 0).toFixed(3)} χ=${(a.metrics?.chi ?? 0).toFixed(4)}`
-                : 'empty';
-        }
-        if (bMeta) {
-            bMeta.textContent = b
-                ? `${b.state.manifoldMode}/${b.state.topologyMode} R=${(b.metrics?.R ?? 0).toFixed(3)} χ=${(b.metrics?.chi ?? 0).toFixed(4)}`
-                : 'empty';
-        }
-        if (diffMeta) {
-            if (a && b) {
-                const dR = (b.metrics?.R ?? 0) - (a.metrics?.R ?? 0);
-                const dChi = (b.metrics?.chi ?? 0) - (a.metrics?.chi ?? 0);
-                diffMeta.textContent = `ΔR: ${dR.toFixed(4)} | Δχ: ${dChi.toFixed(5)}`;
-            } else {
-                diffMeta.textContent = 'ΔR: — | Δχ: —';
-            }
-        }
+        setDiscoveryCompareUIState(compareSnapshots);
     };
 
     const captureCompareSnapshot = async (slot) => {
@@ -1605,7 +1512,13 @@ async function init() {
                 if (STATE.rcEnabled) {
                     reservoir.setFeatureBudget(STATE.rcMaxFeatures);
                     reservoir.setHistoryLength(STATE.rcHistoryLength);
-                    reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+                    reservoir.configure(
+                        STATE.rcInputRegion,
+                        STATE.rcOutputRegion,
+                        STATE.rcInputStrength,
+                        STATE.rcInputWidth,
+                        STATE.rcOutputWidth
+                    );
                     writeRCInputWeights();
                 } else {
                     sim.setInputSignal(0);
@@ -1639,7 +1552,13 @@ async function init() {
             inputRegion.addEventListener('change', () => {
                 STATE.rcInputRegion = inputRegion.value;
                 if (STATE.rcEnabled) {
-                    reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+                    reservoir.configure(
+                        STATE.rcInputRegion,
+                        STATE.rcOutputRegion,
+                        STATE.rcInputStrength,
+                        STATE.rcInputWidth,
+                        STATE.rcOutputWidth
+                    );
                     writeRCInputWeights();
                 }
             });
@@ -1649,7 +1568,13 @@ async function init() {
             outputRegion.addEventListener('change', () => {
                 STATE.rcOutputRegion = outputRegion.value;
                 if (STATE.rcEnabled) {
-                    reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+                    reservoir.configure(
+                        STATE.rcInputRegion,
+                        STATE.rcOutputRegion,
+                        STATE.rcInputStrength,
+                        STATE.rcInputWidth,
+                        STATE.rcOutputWidth
+                    );
                     writeRCInputWeights();
                 }
             });
@@ -1660,7 +1585,13 @@ async function init() {
                 STATE.rcInputStrength = parseFloat(inputStrength.value);
                 if (inputStrengthVal) inputStrengthVal.textContent = STATE.rcInputStrength.toFixed(1);
                 if (STATE.rcEnabled) {
-                    reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+                    reservoir.configure(
+                        STATE.rcInputRegion,
+                        STATE.rcOutputRegion,
+                        STATE.rcInputStrength,
+                        STATE.rcInputWidth,
+                        STATE.rcOutputWidth
+                    );
                     writeRCInputWeights();
                 }
             });
@@ -1672,7 +1603,13 @@ async function init() {
                     alert('Enable Reservoir Computing first');
                     return;
                 }
-                reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+                reservoir.configure(
+                    STATE.rcInputRegion,
+                    STATE.rcOutputRegion,
+                    STATE.rcInputStrength,
+                    STATE.rcInputWidth,
+                    STATE.rcOutputWidth
+                );
                 reservoir.setTask(STATE.rcTask);
                 writeRCInputWeights();
                 reservoir.startTraining();
@@ -2093,21 +2030,43 @@ async function init() {
         sim,
         ui,
         runtime,
+        renderer,
+        audioEngine,
+        regenerateTopology,
     };
     frame();
 }
 
 function handlePopState() {
     try {
-        loadStateFromURL(STATE);
-        clampGaugeLayerSelection(STATE);
+        loadStateFromURL(STATE, { resetMissing: true });
+        const invariantResult = enforceStateInvariants(STATE);
         if (APP_RUNTIME?.sim) {
-            APP_RUNTIME.sim.updateFullParams(STATE);
-            APP_RUNTIME.sim.setManifoldMode(STATE.manifoldMode);
+            applyLayerStateToSimulation({
+                state: STATE,
+                sim: APP_RUNTIME.sim,
+                normalizeSelectedLayers,
+                syncStateToLayerParams
+            });
+            applyStateToSimulation({
+                state: STATE,
+                sim: APP_RUNTIME.sim,
+                renderer: APP_RUNTIME.renderer
+            });
+            APP_RUNTIME.regenerateTopology?.();
+            if (invariantResult.rcDisabled) {
+                APP_RUNTIME.sim.setInputSignal(0);
+            }
+            if (invariantResult.audioStopped) {
+                void APP_RUNTIME.audioEngine?.setRunning(false);
+            }
         }
         if (APP_RUNTIME?.ui) {
+            APP_RUNTIME.ui.updateManifoldVisibility?.(STATE.manifoldMode);
+            APP_RUNTIME.ui.updatePatternOptions?.(STATE.manifoldMode);
             APP_RUNTIME.ui.updateDisplay();
         }
+        drawKernel(STATE);
     } catch (e) {
         console.warn('Could not apply URL state in-place:', e);
         window.location.reload();

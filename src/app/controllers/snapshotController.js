@@ -1,3 +1,5 @@
+import { splitStateByPersistence } from '../defaultState.js';
+
 export function createSnapshotController(options) {
     const {
         state,
@@ -122,6 +124,7 @@ export function createSnapshotController(options) {
         }
 
         setSnapshotStatus('encoding...');
+        const { modelState, runtimeState } = splitStateByPersistence(state);
         const snapshot = {
             type: 'kuramoto_state_snapshot',
             version: 2,
@@ -134,7 +137,11 @@ export function createSnapshotController(options) {
                 activeLayerOnly,
                 manifoldMode: state.manifoldMode,
             },
+            // Backward-compatible full state blob.
             state: JSON.parse(JSON.stringify(state)),
+            // Structured split for new consumers.
+            modelState: JSON.parse(JSON.stringify(modelState)),
+            runtimeState: JSON.parse(JSON.stringify(runtimeState)),
             buffers: {},
         };
 
@@ -190,7 +197,7 @@ export function createSnapshotController(options) {
         if (!snapshot || snapshot.type !== 'kuramoto_state_snapshot') {
             throw new Error('Not a kuramoto_state_snapshot');
         }
-        if (snapshot.version !== 1 && snapshot.version !== 2) {
+        if (snapshot.version !== undefined && snapshot.version !== 1 && snapshot.version !== 2) {
             throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
         }
 
@@ -218,7 +225,10 @@ export function createSnapshotController(options) {
             await resizeGridForSnapshot(targetGrid);
         }
 
-        Object.assign(state, snapshot.state || {});
+        const splitState = (snapshot.modelState || snapshot.runtimeState)
+            ? { ...(snapshot.modelState || {}), ...(snapshot.runtimeState || {}) }
+            : null;
+        Object.assign(state, snapshot.state || splitState || {});
         state.manifoldMode = targetManifold || state.manifoldMode || 's1';
         state.seed = normalizeSeed(state.seed);
         state.layerCount = Math.max(1, Math.min(8, Math.floor(state.layerCount || 1)));

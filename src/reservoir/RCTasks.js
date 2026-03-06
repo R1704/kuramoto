@@ -29,11 +29,6 @@ export class RCTasks {
         this.time = 0;
         this.history = [];
     }
-
-    reset() {
-        this.time = 0;
-        this.history = [];
-    }
     
     /**
      * Get next input/target pair

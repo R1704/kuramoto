@@ -36,11 +36,13 @@ export class ReservoirComputer {
     /**
      * Initialize input/output regions
      */
-    configure(inputRegion, outputRegion, inputStrength = 1.0) {
-        this.io.setInputRegion(inputRegion, 0.1, inputStrength);
-        this.io.setOutputRegion(outputRegion, 0.1);
+    configure(inputRegion, outputRegion, inputStrength = 1.0, inputWidth = 0.1, outputWidth = 0.1) {
+        this.io.setInputRegion(inputRegion, inputWidth, inputStrength);
+        this.io.setOutputRegion(outputRegion, outputWidth);
         this.io.clearHistory();
-        console.log(`RC configured: input=${inputRegion}, output=${outputRegion}, readouts=${this.io.numReadouts}`);
+        console.log(
+            `RC configured: input=${inputRegion} (w=${inputWidth}), output=${outputRegion} (w=${outputWidth}), readouts=${this.io.numReadouts}`
+        );
     }
 
     setSeed(seed) {
@@ -50,6 +52,7 @@ export class ReservoirComputer {
     }
 
     setFeatureBudget(maxFeatures) {
+        this.maxFeatures = maxFeatures;
         this.io.setFeatureBudget(maxFeatures);
     }
 
@@ -207,15 +210,6 @@ export class ReservoirComputer {
         return this.io.inputWeights;
     }
 
-    setFeatureBudget(maxFeatures) {
-        this.maxFeatures = maxFeatures;
-        this.io.setFeatureBudget(maxFeatures);
-    }
-
-    setHistoryLength(len) {
-        this.io.setHistoryLength(len);
-    }
-    
     /**
      * Get readout mask array
      */

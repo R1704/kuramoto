@@ -1,4 +1,4 @@
-export const MAX_GRAPH_DEGREE = 16; // Keep in sync with shaders.js (MAX_GRAPH_DEGREE)
+export const MAX_GRAPH_DEGREE = 16; // Keep in sync with shaders/sources/compute.js (MAX_GRAPH_DEGREE)
 
 class RNG {
     constructor(seed = 1) {

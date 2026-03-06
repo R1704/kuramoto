@@ -53,8 +53,8 @@ export const ManifoldRegistry = {
       lyapunov: false        // S¹ Lyapunov calculation only
     },
 
-    patterns: ['random', 'gradient', 'spiral', 'checkerboard', 'target', 'synchronized'],
-    omegaPatterns: ['uniform', 'random', 'gradient', 'center_fast', 'checkerboard'],
+    patterns: ['random', 'synchronized'],
+    omegaPatterns: ['uniform', 'random'],
 
     visualization: {
       heightMap: 'z',

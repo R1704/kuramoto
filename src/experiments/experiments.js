@@ -492,7 +492,13 @@ export class RCCriticalitySweepRunner {
         this.reservoir.setTask(this.snapshot?.rcTask ?? 'sine');
         this.reservoir.setHistoryLength(this.snapshot?.rcHistoryLength ?? 20);
         this.reservoir.setFeatureBudget(this.snapshot?.rcMaxFeatures ?? 512);
-        this.reservoir.configure(this.snapshot?.rcInputRegion ?? 'center', this.snapshot?.rcOutputRegion ?? 'random', this.snapshot?.rcInputStrength ?? 2.0);
+        this.reservoir.configure(
+            this.snapshot?.rcInputRegion ?? 'center',
+            this.snapshot?.rcOutputRegion ?? 'random',
+            this.snapshot?.rcInputStrength ?? 2.0,
+            this.snapshot?.rcInputWidth ?? 0.1,
+            this.snapshot?.rcOutputWidth ?? 0.1
+        );
         this.writeRCInputWeights();
 
         this.reservoir.warmupSteps = Math.max(this.reservoir.warmupSteps || 15, this.protocol.warmupSamples);
@@ -766,7 +772,13 @@ export class RCInjectionModeCompareRunner {
         this.reservoir.setTask(this.snapshot?.rcTask ?? 'sine');
         this.reservoir.setHistoryLength(this.snapshot?.rcHistoryLength ?? 20);
         this.reservoir.setFeatureBudget(this.snapshot?.rcMaxFeatures ?? 512);
-        this.reservoir.configure(this.snapshot?.rcInputRegion ?? 'center', this.snapshot?.rcOutputRegion ?? 'random', this.snapshot?.rcInputStrength ?? 2.0);
+        this.reservoir.configure(
+            this.snapshot?.rcInputRegion ?? 'center',
+            this.snapshot?.rcOutputRegion ?? 'random',
+            this.snapshot?.rcInputStrength ?? 2.0,
+            this.snapshot?.rcInputWidth ?? 0.1,
+            this.snapshot?.rcOutputWidth ?? 0.1
+        );
         this.writeRCInputWeights();
 
         this.reservoir.warmupSteps = Math.max(this.reservoir.warmupSteps || 15, this.protocol.warmupSamples);

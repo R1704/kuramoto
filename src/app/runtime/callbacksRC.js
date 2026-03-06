@@ -6,11 +6,21 @@ export function createRCCallbacks({
     updateRCDisplay,
     stateAdapter
 }) {
+    const configureReservoir = () => {
+        reservoir.configure(
+            STATE.rcInputRegion,
+            STATE.rcOutputRegion,
+            STATE.rcInputStrength,
+            STATE.rcInputWidth,
+            STATE.rcOutputWidth
+        );
+    };
+
     return {
         onRCEnable: (enabled) => {
             STATE.rcEnabled = enabled;
             if (enabled) {
-                reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+                configureReservoir();
                 const weights = reservoir.getInputWeights();
                 const nonZero = weights.filter((w) => w > 0).length;
                 const maxWeight = Math.max(...weights);
@@ -25,7 +35,7 @@ export function createRCCallbacks({
         onRCConfigure: () => {
             reservoir.setFeatureBudget(STATE.rcMaxFeatures);
             reservoir.setHistoryLength(STATE.rcHistoryLength);
-            reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+            configureReservoir();
             reservoir.setTask(STATE.rcTask);
             writeRCInputWeights();
             stateAdapter.syncURL(true);
@@ -37,7 +47,7 @@ export function createRCCallbacks({
             }
             reservoir.setFeatureBudget(STATE.rcMaxFeatures);
             reservoir.setHistoryLength(STATE.rcHistoryLength);
-            reservoir.configure(STATE.rcInputRegion, STATE.rcOutputRegion, STATE.rcInputStrength);
+            configureReservoir();
             reservoir.setTask(STATE.rcTask);
             writeRCInputWeights();
             reservoir.startTraining();

@@ -1,7 +1,7 @@
 export function bindKeyboard() {
         window.addEventListener('keydown', e => {
             // Rule switching
-            if (e.key >= '0' && e.key <= '5') {
+            if (e.key >= '0' && e.key <= '6') {
                 this.state.ruleMode = parseInt(e.key);
                 this.cb.onParamChange();
                 this.updateDisplay();

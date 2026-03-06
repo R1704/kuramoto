@@ -168,6 +168,27 @@ To speed up interpretation without changing equations:
 
 These features are additive and keep URL/snapshot compatibility.
 
+### Manifold/Topology Gating Rules (Implemented)
+
+These are the enforced runtime rules used by UI gating and state normalization:
+
+- **S1**:
+  - Rules 0-6 available.
+  - Gauge, phase lag, Prismatic style/dynamics, interaction force, RC, and Empyrean audio can be enabled.
+- **S2/S3**:
+  - Rule forced to 0.
+  - Harmonics and delay forced to zero/off.
+  - Global coupling forced off.
+  - Gauge, phase lag, Prismatic style/dynamics, interaction force, RC, and Empyrean audio forced off.
+  - Initialization choices constrained to `theta: random|synchronized` and `omega: random|uniform`.
+- **Grid-only gates (on S1)**:
+  - Dynamic gauge mode.
+  - Prismatic dynamics.
+  - Interaction force.
+  - Empyrean audio.
+- **2D + S1 + grid**:
+  - Gauge overlays (links / plaquette sign / probe).
+
 ### Physical Intuition
 
 ```
@@ -216,7 +237,7 @@ The term $\sin(\theta_j - \theta_i)$ is crucial:
 
 ## Core Coupling Rules
 
-Our implementation extends the basic Kuramoto model with 6 different coupling rules. Each captures different physical phenomena.
+Our implementation extends the basic Kuramoto model with 7 coupling rules. Each captures different physical phenomena.
 
 ### Rule 0: Classic Kuramoto
 
@@ -480,6 +501,19 @@ When the delay is comparable to the oscillation period, this creates:
 - Understanding **effect of time delays** on synchronization
 - Modeling **neural transmission delays** and **circuit delays**
 - Creating **emergent patterns** from initially uniform states
+
+---
+
+### Rule 6: Lenia Growth
+
+Lenia mode applies a growth map to the kernel convolution and uses that growth response as the local update driver.
+
+Runtime controls:
+- `growthMu`: center of growth response
+- `growthSigma`: width of growth response
+- `growthMode`: Gaussian / Step / Double-Gaussian
+
+This mode is exposed as **rule 6** in the coupling dropdown and on keyboard shortcut `6`.
 
 ---
 
@@ -2127,7 +2161,7 @@ This implementation includes several powerful extensions beyond the basic Kuramo
 **Preset system:**
 - 10 presets for common patterns
 - Automatically applies rule, parameters, and initial conditions
-- Keyboard shortcuts 0-5 for rule switching
+- Keyboard shortcuts 0-6 for rule switching
 
 **Grid size display:**
 - Shows current N = GRID×GRID in stats panel
@@ -2240,7 +2274,7 @@ Step 5: Capture
 
 | Key | Action | Category |
 |-----|--------|----------|
-| **0-5** | Switch coupling rule | Rules |
+| **0-6** | Switch coupling rule | Rules |
 | **V** | Toggle 2D/3D view | View |
 | **C** | Cycle palette | Visualization |
 | **Shift+C** | Cycle data layer | Visualization |
@@ -2545,7 +2579,7 @@ $$w(r) = \frac{1}{(r + r_0)^\alpha}$$
 | Inner sigma | σ | 0.3-4.0 | 1.2 | Kernel |
 | Outer sigma | σ₂ | 0.3-6.0 | 2.2 | Kernel |
 | Inhibition | β | 0-1.5 | 0.6 | Kernel |
-| Kernel shape | - | 0-5 | 0 | Kernel |
+| Kernel shape | - | 0-6 | 0 | Kernel |
 | Orientation | θ | 0-2π | 0 | Kernel |
 | Aspect ratio | a | 1.0-5.0 | 2.0 | Kernel |
 | Asymmetry | a_asym | -1 to 1 | 0.5 | Kernel |
@@ -2553,7 +2587,7 @@ $$w(r) = \frac{1}{(r + r_0)^\alpha}$$
 | Ring N radius | r_N | 0.05-1.0 | varies | Multi-ring |
 | Ring N weight | w_N | -1 to 1 | varies | Multi-ring |
 | Composition enabled | - | bool | false | Composition |
-| Secondary shape | - | 0-5 | 0 | Composition |
+| Secondary shape | - | 0-6 | 0 | Composition |
 | Mix ratio | α | 0-1 | 0.5 | Composition |
 | Harmonic a₂ | a₂ | 0-1 | 0.4 | Rule 3 |
 | Harmonic a₃ | a₃ | 0-1 | 0.0 | Rule 3 |
@@ -2832,7 +2866,6 @@ Smoke checklist targets during manual verification:
 **Last Updated:** January 2026  
 **Phase Status:** Phase 2 Complete + Reservoir Computing Phase 1  
 **Next Milestone:** RC Phase 2 (Multiple inputs, closed-loop control)
-```
 
 ## Planned Extensions & Design Notes
 

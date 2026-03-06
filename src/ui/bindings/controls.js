@@ -1,4 +1,5 @@
 import { alignGridSize, bindAction, bindSelect, bindStateValue, bindToggle } from './bindHelpers.js';
+import { CORE_CONTROL_SCHEMA } from '../controlSchema.js';
 
 export function bindZoomPan() {
         const getEl = this.getEl || ((id) => document.getElementById(id));
@@ -55,52 +56,7 @@ export function bindControls() {
             evt
         });
 
-        const basicControls = [
-            ['k0-slider', 'K0'],
-            ['dt-slider', 'dt'],
-            ['range-slider', 'range', 'int'],
-            ['harmonic-slider', 'harmonicA'],
-            ['harmonic3-slider', 'harmonicB'],
-            ['sigma-slider', 'sigma'],
-            ['sigma2-slider', 'sigma2'],
-            ['beta-slider', 'beta'],
-            ['delay-slider', 'delaySteps', 'int'],
-            ['noise-slider', 'noiseStrength'],
-            ['leak-slider', 'leak'],
-            ['gauge-charge-slider', 'gaugeCharge'],
-            ['gauge-matter-coupling-slider', 'gaugeMatterCoupling'],
-            ['gauge-stiffness-slider', 'gaugeStiffness'],
-            ['gauge-damping-slider', 'gaugeDamping'],
-            ['gauge-noise-slider', 'gaugeNoise'],
-            ['gauge-dt-scale-slider', 'gaugeDtScale'],
-            ['gauge-init-amplitude-slider', 'gaugeInitAmplitude'],
-            ['gauge-flux-bias-slider', 'gaugeFluxBias'],
-            ['phase-lag-eta-slider', 'phaseLagEta'],
-            ['prismatic-k-slider', 'prismaticK'],
-            ['prismatic-friction-slider', 'prismaticFriction'],
-            ['prismatic-energy-decay-slider', 'prismaticEnergyDecay'],
-            ['prismatic-energy-mix-slider', 'prismaticEnergyMix'],
-            ['prismatic-drag-radius-px-slider', 'prismaticDragRadiusPx', 'int'],
-            ['prismatic-drag-peak-force-slider', 'prismaticDragPeakForce'],
-            ['prismatic-target-phase-slider', 'prismaticTargetPhase'],
-            ['prismatic-trail-fade-slider', 'prismaticTrailFade'],
-            ['prismatic-glow-scale-slider', 'prismaticGlowScale', 'int'],
-            ['prismatic-core-threshold-slider', 'prismaticCoreThreshold'],
-            ['prismatic-core-scale-slider', 'prismaticCoreScale'],
-            ['prismatic-style-blend-slider', 'prismaticStyleBlend'],
-            ['interaction-force-falloff-slider', 'interactionForceFalloff'],
-            ['viz-flux-gain-slider', 'vizFluxGain'],
-            ['viz-cov-grad-gain-slider', 'vizCovGradGain'],
-            ['audio-empyrean-master-slider', 'audioEmpyreanMaster'],
-            ['audio-empyrean-bells-slider', 'audioEmpyreanBells'],
-            ['audio-empyrean-bass-slider', 'audioEmpyreanBass'],
-            ['audio-empyrean-reverb-mix-slider', 'audioEmpyreanReverbMix'],
-            ['audio-empyrean-reverb-time-slider', 'audioEmpyreanReverbTime'],
-            ['layer-coupling-up-slider', 'layerCouplingUp'],
-            ['layer-coupling-down-slider', 'layerCouplingDown'],
-            ['layer-z-offset-slider', 'layerZOffset'],
-        ];
-        basicControls.forEach(([id, key, type]) => bind(id, key, type || 'float'));
+        CORE_CONTROL_SCHEMA.forEach((control) => bind(control.id, control.key, control.type || 'float'));
 
         bindToggle({
             getEl,
@@ -698,9 +654,6 @@ export function bindControls() {
                 }
             });
         }
-        bind('omega-amplitude-slider', 'omegaAmplitude');
-        
-        
         // Smoothing mode select
         const smoothingSelect = getEl('smoothing-mode-select');
         if (smoothingSelect) {
