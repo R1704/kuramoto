@@ -61,42 +61,41 @@ class VectorAKOrN(nn.Module):
         return x, traj
 
 
-def binding_loss(x, labels, pairs=2048):
-    # contrastive on cosine similarity <x_i, x_j>: +1 same instance, -1 different
+def _sample_pairs(x, labels, pairs):
+    # Sample `pairs` random pixel pairs per image over ALL pixels (vectorized over
+    # the batch), returning cosine similarity, same-instance target, and a
+    # foreground mask. Sampling over all pixels + masking avoids per-image nonzero()
+    # (which syncs CPU<->GPU) and the Python batch loop entirely.
     b, n, h, w = x.shape
-    xf = x.reshape(b, n, -1)
-    lf = labels.reshape(b, -1)
-    total = x.new_tensor(0.0)
-    cnt = 0
-    for i in range(b):
-        fg = (lf[i] > 0).nonzero(as_tuple=True)[0]
-        if fg.numel() < 2:
-            continue
-        ia = fg[torch.randint(fg.numel(), (pairs,), device=x.device)]
-        ib = fg[torch.randint(fg.numel(), (pairs,), device=x.device)]
-        sim = (xf[i, :, ia] * xf[i, :, ib]).sum(dim=0)    # in [-1,1]
-        target = torch.where(lf[i, ia] == lf[i, ib], 1.0, -1.0)
-        total = total + ((sim - target) ** 2).mean()
-        cnt += 1
-    return total / max(1, cnt)
+    P = h * w
+    xf = x.reshape(b, n, P)
+    lf = labels.reshape(b, P)
+    ia = torch.randint(P, (b, pairs), device=x.device)
+    ib = torch.randint(P, (b, pairs), device=x.device)
+    xa = torch.gather(xf, 2, ia.unsqueeze(1).expand(b, n, pairs))
+    xb = torch.gather(xf, 2, ib.unsqueeze(1).expand(b, n, pairs))
+    sim = (xa * xb).sum(dim=1)                      # (b, pairs) in [-1, 1]
+    la = torch.gather(lf, 1, ia)
+    lb = torch.gather(lf, 1, ib)
+    fg = (la > 0) & (lb > 0)                         # both pixels foreground
+    same = la == lb
+    return sim, same, fg
+
+
+def binding_loss(x, labels, pairs=2048):
+    # contrastive on cosine similarity: +1 same instance, -1 different; bg pairs dropped
+    sim, same, fg = _sample_pairs(x, labels, pairs)
+    target = torch.where(same, 1.0, -1.0)
+    err = ((sim - target) ** 2) * fg.float()
+    return err.sum() / fg.float().sum().clamp_min(1.0)
 
 
 @torch.no_grad()
 def pairwise_acc(x, labels, scenes_pairs=6000):
-    b, n, h, w = x.shape
-    xf = x.reshape(b, n, -1)
-    lf = labels.reshape(b, -1)
-    accs = []
-    for i in range(b):
-        fg = (lf[i] > 0).nonzero(as_tuple=True)[0]
-        if fg.numel() < 2:
-            continue
-        ia = fg[torch.randint(fg.numel(), (scenes_pairs,), device=x.device)]
-        ib = fg[torch.randint(fg.numel(), (scenes_pairs,), device=x.device)]
-        agree = (xf[i, :, ia] * xf[i, :, ib]).sum(dim=0) > 0.0
-        same = lf[i, ia] == lf[i, ib]
-        accs.append((agree == same).float().mean().item())
-    return sum(accs) / max(1, len(accs))
+    sim, same, fg = _sample_pairs(x, labels, scenes_pairs)
+    agree = sim > 0.0
+    correct = (agree == same) & fg
+    return (correct.float().sum() / fg.float().sum().clamp_min(1.0)).item()
 
 
 @torch.no_grad()
