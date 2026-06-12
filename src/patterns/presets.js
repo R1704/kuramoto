@@ -1140,6 +1140,55 @@ export const Presets = {
         });
     },
 
+    kuramoto_nca_phase_swimmer: (state, sim, rng = null) => {
+        // Sakaguchi phase-lag self-propulsion (2026-06-12): a matter blob carrying an
+        // internal phase tilt drifts along the tilt, driven ONLY by the oscillator
+        // pathway. The binding affinity cos(dphi - chi) is odd for chi != 0, so a cell
+        // gets asymmetric growth support across a phase gradient. Proven by two zero
+        // controls: chi=0 -> no drift, and zero phase-gradient -> no drift even at
+        // chi != 0; drift is odd in chi and scales with the gradient. This is the first
+        // motion in the app caused by the Kuramoto half rather than the matter rule.
+        // (The blob blooms as it swims — an isolated blob colonizes this Lenia regime;
+        // a mass-conserving phase-propelled soliton is a remaining tuning problem.)
+        state.ruleMode = 7;
+        state.K0 = 1.0;
+        state.sigma = 3.2;
+        state.sigma2 = 3.6;
+        state.beta = 0.0;
+        state.kernelShape = 7; // isotropic shell — the asymmetry is purely phase, not kernel
+        state.kernelCompositionEnabled = false;
+        state.growthMu = 0.15;
+        state.growthSigma = 0.06;
+        state.growthMode = 0;
+        state.globalCoupling = false;
+        state.dt = 0.1;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 11; // Living Phase: the tilt is visible as a color gradient
+        state.colormapPalette = 1;
+        state.ncaPhaseK = 0.0;   // freeze the oscillator so the seeded tilt persists
+        state.ncaGrowthK = 0.5;
+        state.ncaMatterDecay = 0.0;
+        state.ncaCoherenceMin = 0.0; // gate open: isolate the binding pathway
+        state.ncaCoherenceMax = 0.05;
+        state.ncaPhaseAffinity = 1.0; // full binding so the lag bites
+        state.ncaPhaseLag = 0.8;      // chi: the propulsion knob (try +/- in the slider)
+        state.ncaAblationMode = 0;
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.2;
+        state.organismMinArea = 8;
+
+        const slope = 0.06;
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const dx = c - grid * 0.5;
+            const dy = r - grid * 0.5;
+            const blob = Math.exp(-(dx * dx + dy * dy) / (2.0 * 7.0 * 7.0));
+            return { matter: blob, theta: slope * dx }; // horizontal phase tilt
+        });
+    },
+
     lenia_orbium_glider: (state, sim) => {
         // TRUE Orbium: the published pattern under the exact Lenia bell kernel.
         // Self-propelled - the crescent regenerates itself displaced each step.

@@ -1387,6 +1387,14 @@
                             </div>
                             <div class="control-group">
                                 <div class="control-label">
+                                    <span>Phase Lag χ (propulsion)</span>
+                                    <span class="control-value" id="nca-phase-lag-value">0.00</span>
+                                </div>
+                                <input type="range" id="nca-phase-lag-slider" min="-1.57" max="1.57" step="0.01" value="0">
+                                <div class="control-hint">Sakaguchi lag: at 0 binding has no preferred direction; ≠0 makes an organism with an internal phase tilt self-propel along it.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
                                     <span>Ablation</span>
                                 </div>
                                 <select id="nca-ablation-select">
@@ -2052,6 +2060,7 @@
                         <button class="preset-btn" data-preset="kuramoto_nca_droplets" style="background: linear-gradient(135deg, #452c55, #1d4c4a);">KuramotoNCA Droplets</button>
                         <button class="preset-btn" data-preset="lenia_orbium_glider" style="background: linear-gradient(135deg, #0a4a5a, #3a5a1a);">🚀 Orbium (true glider)</button>
                         <button class="preset-btn" data-preset="kuramoto_nca_orbium_glider" style="background: linear-gradient(135deg, #4a1a5a, #1a5a4a);">🎨 KuramotoNCA Orbium</button>
+                        <button class="preset-btn" data-preset="kuramoto_nca_phase_swimmer" style="background: linear-gradient(135deg, #5a2a1a, #1a3a5a);">🧭 Phase-Lag Swimmer</button>
                         <button class="preset-btn" data-preset="lenia_migration" style="background: linear-gradient(135deg, #1a4a3a, #4a3a1a);">🐦 Lenia Migration</button>
                         <button class="preset-btn" data-preset="kuramoto_nca_migration" style="background: linear-gradient(135deg, #2a3a5a, #4a2a3a);">🐦 KuramotoNCA Migration</button>
                     </div>

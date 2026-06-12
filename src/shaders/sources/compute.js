@@ -90,7 +90,10 @@ struct LayerParams {
     growth_mode: f32,
     nca_phase_k: f32,
     nca_growth_k: f32,
-    _pad57: f32,
+    // Sakaguchi phase lag chi: shifts the binding affinity to cos(dphi - chi). At chi=0
+    // affinity is even in dphi (no preferred direction); chi != 0 makes it odd, so a cell
+    // with an internal phase tilt feels asymmetric support and self-propels along the tilt.
+    nca_phase_lag: f32,
     nca_matter_decay: f32,
     nca_coherence_min: f32,
     nca_coherence_max: f32,
@@ -979,7 +982,7 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
                 matter_exc = matter_exc + w * a_j;
                 // Synchrony binding: a neighbor's matter supports growth only to the
                 // extent it is in phase with this cell; anti-phase matter is "other".
-                let affinity = 0.5 + 0.5 * cos(theta_j - t);
+                let affinity = 0.5 + 0.5 * cos(theta_j - t - lp.nca_phase_lag);
                 matter_support = matter_support + w * a_j * mix(1.0, affinity, lp.nca_phase_affinity);
                 field = field + w * a_j * vec2<f32>(cos(theta_j), sin(theta_j));
                 pos_total = pos_total + w;

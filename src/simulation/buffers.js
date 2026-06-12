@@ -359,7 +359,7 @@ export function writeLayerParams(layers) {
             // KuramotoNCA parameters (indices 55-61)
             data[base + 55] = lp?.ncaPhaseK ?? 1.0;
             data[base + 56] = lp?.ncaGrowthK ?? 0.35;
-            data[base + 57] = 0; // unused (was ncaSyncFeedback)
+            data[base + 57] = lp?.ncaPhaseLag ?? 0;
             data[base + 58] = lp?.ncaMatterDecay ?? 0.01;
             data[base + 59] = lp?.ncaCoherenceMin ?? 0.18;
             data[base + 60] = lp?.ncaCoherenceMax ?? 0.65;

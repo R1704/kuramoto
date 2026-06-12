@@ -609,6 +609,7 @@ export function bindControls() {
             ['nca-coherence-min-slider', 'ncaCoherenceMin', 2],
             ['nca-coherence-max-slider', 'ncaCoherenceMax', 2],
             ['nca-phase-affinity-slider', 'ncaPhaseAffinity', 2],
+            ['nca-phase-lag-slider', 'ncaPhaseLag', 2],
         ];
         for (const [id, key, precision] of ncaControls) {
             const el = document.getElementById(id);

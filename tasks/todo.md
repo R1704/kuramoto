@@ -701,3 +701,31 @@ Plan:
       0.4, Gyrorbium 1.9); multi-ring (Echinium 3-ring) works. Full UI path verified:
       463 opts/6 optgroups, search filters, spawn 5 Scutium via buttons (mass 712).
 - [x] DOCUMENTATION.md: coverage (95%/463), dropped species, perf note for large R.
+
+---
+
+# Task: Sakaguchi phase-lag binding — self-propulsion (2026-06-12)
+
+Status: DONE. The oscillator is now provably load-bearing (resolves fault #2 for this variant).
+
+Hypothesis: binding affinity cos(dphi) is even -> no preferred direction. Sakaguchi lag
+chi makes it cos(dphi - chi), odd for chi != 0 -> a cell with an internal phase tilt feels
+asymmetric growth support and self-propels along the tilt.
+
+- [x] Verifier checks first (2 failed). ncaPhaseLag on free slot 57 (was ncaSyncFeedback).
+- [x] Shader: affinity = 0.5 + 0.5*cos(theta_j - t - lp.nca_phase_lag). Probe mirrors.
+- [x] Wired: defaults/layerParams/buffers(57)/urlSchema/UI slider/updateDisplay. 46/46.
+- [x] EXPERIMENT (frozen phase ramp + matter blob, isotropic shell kernel, readback):
+      - chi sweep ODD: chi=-1.2->+6.5, -0.6->+6.3, 0->-0.1, +0.6->-6.9, +1.2->-7.0 cells.
+      - slope sweep: 0->0.0 (no gradient = no motion even at chi=0.8), 0.025->-3.6,
+        0.05->-10.6, 0.1->-12.4. Drift ∝ chi × phase-gradient; both zero-controls give 0.
+      - This is motion caused by the Kuramoto half, impossible for pure Lenia (even in dphi).
+- [x] Preset kuramoto_nca_phase_swimmer ("🧭 Phase-Lag Swimmer"): verified dx -17/8s at
+      chi 0.8. Living Phase view shows the tilt as a color gradient.
+- [x] Honest limits documented: demo blob blooms (isolated blob colonizes this regime);
+      bounded spot-lattice pins the spots (drift ~0.2); mass-conserving phase-propelled
+      SOLITON is the remaining tuning problem.
+
+Next candidates: (a) mass-conserving phase soliton (couple chi to a self-sustaining
+traveling phase wave via omega gradient instead of a frozen ramp); (b) close the
+AKOrN->browser loop (visualize the trained segmenter); (c) bestiary kn=0/2 cores.

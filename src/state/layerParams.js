@@ -75,6 +75,7 @@ export function makeLayerParamsFromState(state) {
         // KuramotoNCA substrate
         ncaPhaseK: state.ncaPhaseK ?? 1.0,
         ncaGrowthK: state.ncaGrowthK ?? 0.35,
+        ncaPhaseLag: state.ncaPhaseLag ?? 0,
         ncaMatterDecay: state.ncaMatterDecay ?? 0.01,
         ncaCoherenceMin: state.ncaCoherenceMin ?? 0.18,
         ncaCoherenceMax: state.ncaCoherenceMax ?? 0.65,
@@ -159,6 +160,7 @@ export function applyLayerParamsToState(state, layerIdx) {
     // Apply KuramotoNCA params
     state.ncaPhaseK = lp.ncaPhaseK ?? 1.0;
     state.ncaGrowthK = lp.ncaGrowthK ?? 0.35;
+    state.ncaPhaseLag = lp.ncaPhaseLag ?? 0;
     state.ncaMatterDecay = lp.ncaMatterDecay ?? 0.01;
     state.ncaCoherenceMin = lp.ncaCoherenceMin ?? 0.18;
     state.ncaCoherenceMax = lp.ncaCoherenceMax ?? 0.65;

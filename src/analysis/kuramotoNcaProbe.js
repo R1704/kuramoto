@@ -85,7 +85,8 @@ export function computeKuramotoNcaProbe({ theta, matter, state, gridSize, layer 
             if (w > 0) {
                 const contribution = w * a;
                 matterExc += contribution;
-                const affinity = 0.5 + 0.5 * Math.cos(t - centerTheta);
+                const phaseLag = state.ncaPhaseLag ?? 0;
+                const affinity = 0.5 + 0.5 * Math.cos(t - centerTheta - phaseLag);
                 const affinityMix = state.ncaPhaseAffinity ?? 0.7;
                 matterSupport += contribution * (1 - affinityMix + affinityMix * affinity);
                 fieldX += contribution * Math.cos(t);

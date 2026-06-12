@@ -492,6 +492,10 @@ export function updateDisplay() {
     if (ncaPhaseAffinitySlider) ncaPhaseAffinitySlider.value = this.state.ncaPhaseAffinity ?? 0.7;
     const ncaPhaseAffinityDisp = getEl('nca-phase-affinity-value');
     if (ncaPhaseAffinityDisp && this.state.ncaPhaseAffinity != null) ncaPhaseAffinityDisp.textContent = this.state.ncaPhaseAffinity.toFixed(2);
+    const ncaPhaseLagSlider = getEl('nca-phase-lag-slider');
+    if (ncaPhaseLagSlider) ncaPhaseLagSlider.value = this.state.ncaPhaseLag ?? 0;
+    const ncaPhaseLagDisp = getEl('nca-phase-lag-value');
+    if (ncaPhaseLagDisp && this.state.ncaPhaseLag != null) ncaPhaseLagDisp.textContent = this.state.ncaPhaseLag.toFixed(2);
 
     const kernelSection = getEl('kernel-section');
     const showKernel = ruleMode === 4 || ruleMode === 6 || ruleMode === 7 || this.state.layerKernelEnabled;

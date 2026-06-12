@@ -386,14 +386,29 @@ const checks = [
         hint: 'Expected lenia_* presets to seed the matter field, use kernel shape 7, and show the Matter layer.',
     },
     {
-        name: 'phase binding: matter support is phase-selective',
+        name: 'phase binding: matter support is phase-selective with Sakaguchi lag',
         pass: /nca_phase_affinity: f32/.test(compute)
+            && /nca_phase_lag: f32/.test(compute)
             && /matter_support/.test(compute)
-            && /0\.5 \+ 0\.5 \* cos\(theta_j - t\)/.test(compute)
+            && /0\.5 \+ 0\.5 \* cos\(theta_j - t - lp\.nca_phase_lag\)/.test(compute)
             && /mix\(1\.0, affinity, lp\.nca_phase_affinity\)/.test(compute)
             && /matter_support \/ max\(pos_total, 1e-5\)/.test(compute)
             && /let field_norm = max\(matter_exc, living_mass_floor\)/.test(compute),
-        hint: 'Expected growth input u to use phase-affinity-weighted matter support while field normalization stays phase-blind.',
+        hint: 'Expected the binding affinity to carry a Sakaguchi phase lag chi (odd term enabling self-propulsion).',
+    },
+    {
+        name: 'phase lag chi is wired through state, buffers, URL, UI, probe, and a preset',
+        pass: /ncaPhaseLag: 0/.test(defaults)
+            && /data\[base \+ 57\] = lp\?\.ncaPhaseLag \?\? 0;/.test(buffers)
+            && /ncaPhaseLag: state\.ncaPhaseLag \?\? 0/.test(read('src/state/layerParams.js'))
+            && /ncaPhaseLag: 'float'/.test(read('src/state/urlSchema.js'))
+            && /nca-phase-lag-slider/.test(html)
+            && /nca-phase-lag-slider/.test(controls)
+            && /phaseLag/.test(ncaProbe)
+            && /kuramoto_nca_phase_swimmer/.test(presets)
+            && /data-preset="kuramoto_nca_phase_swimmer"/.test(html)
+            && /phase.lag|Sakaguchi/i.test(docs),
+        hint: 'Expected ncaPhaseLag in defaults, slot 57, layerParams, URL schema, an NCA slider, the probe, a swimmer preset, and docs.',
     },
     {
         name: 'phase binding is wired through state, UI, sweep, and probe',

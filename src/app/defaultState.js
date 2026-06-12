@@ -171,6 +171,7 @@ export function createInitialState() {
         growthMode: 0, // 0=gaussian, 1=step, 2=double-gaussian
         ncaPhaseK: 1.0,
         ncaGrowthK: 0.35,
+        ncaPhaseLag: 0, // Sakaguchi binding lag chi (radians); !=0 enables phase self-propulsion
         ncaMatterDecay: 0.01,
         ncaCoherenceMin: 0.18,
         ncaCoherenceMax: 0.65,

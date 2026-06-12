@@ -41,7 +41,7 @@ export const URL_STATE_SCHEMA = {
     kernelRingWidths: 'arrayFloat', kernelRingWeights: 'arrayFloat',
     kernelCompositionEnabled: 'bool', kernelSecondary: 'int', kernelMixRatio: 'float',
     kernelSpatialFreqMag: 'float', kernelSpatialFreqAngle: 'float', kernelGaborPhase: 'float',
-    ncaPhaseK: 'float', ncaGrowthK: 'float', ncaMatterDecay: 'float',
+    ncaPhaseK: 'float', ncaGrowthK: 'float', ncaPhaseLag: 'float', ncaMatterDecay: 'float',
     ncaCoherenceMin: 'float', ncaCoherenceMax: 'float',
     ncaAblationMode: 'int', ncaPhaseAffinity: 'float',
     growthMu: 'float', growthSigma: 'float', growthMode: 'int',
