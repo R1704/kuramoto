@@ -986,11 +986,14 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
     if (ablation == 2) { coherence_gate = 1.0; }
     let growth_pos = max(growth, 0.0);
     let growth_neg = max(-growth, 0.0);
-    // Collapsed dynamics: one coherence-gated saturating growth term, one structural
-    // death term. Homeostasis lives in the growth function's negative tail (and beta,
-    // which already pushes inhibition through u) — not in a stack of tuned penalties.
-    let birth = coherence_gate * coherence_gate * growth_pos * (1.0 - matter_i);
-    let death = (growth_neg + lp.nca_matter_decay) * matter_i;
+    // Collapsed dynamics, Lenia-exact form: with gate = 1, affinity = 0, k = 1 and
+    // decay = 0 this is literally Lenia's a += dt*G(u) — the ablation baseline IS
+    // pure Lenia and published patterns (Orbium) run unmodified. The earlier
+    // saturating factors (birth*(1-a), death*a) flattened the growth response and
+    // blew up Lenia solitons; bounds are the clamp's job. Homeostasis lives in the
+    // growth function's negative tail (and beta, which pushes inhibition through u).
+    let birth = coherence_gate * coherence_gate * growth_pos;
+    let death = growth_neg + lp.nca_matter_decay * matter_i;
     let da = lp.nca_growth_k * (birth - death);
     let matter_next = clamp(matter_i + params.dt * da, 0.0, 1.0);
 

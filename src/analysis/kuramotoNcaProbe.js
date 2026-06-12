@@ -121,10 +121,10 @@ export function computeKuramotoNcaProbe({ theta, matter, state, gridSize, layer 
     const coherenceGate = ablationMode === 2 ? 1 : smoothstep(coherenceMin, coherenceMax, localR);
     const growthPositive = Math.max(growth, 0);
     const growthNegative = Math.max(-growth, 0);
-    // Collapsed dynamics — mirrors rule_kuramoto_nca exactly: one coherence-gated
-    // saturating growth term, one structural death term (G- tail plus passive leak).
-    const birth = coherenceGate * coherenceGate * growthPositive * (1 - centerMatter);
-    const death = (growthNegative + (state.ncaMatterDecay ?? 0.01)) * centerMatter;
+    // Collapsed dynamics — mirrors rule_kuramoto_nca exactly (Lenia-exact form:
+    // gate=1, affinity=0, k=1, decay=0 reduces to Lenia's da = G(u)).
+    const birth = coherenceGate * coherenceGate * growthPositive;
+    const death = growthNegative + (state.ncaMatterDecay ?? 0.01) * centerMatter;
     const matterDelta = (state.ncaGrowthK ?? 0.35) * (birth - death);
     const torque = Math.cos(centerTheta) * localY - Math.sin(centerTheta) * localX;
 

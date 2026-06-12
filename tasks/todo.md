@@ -43,7 +43,19 @@ Status: done (2026-06-12) - THREE classes of movement now exist:
     identical displacement vector (+25.9,-86.2)/10s across all three. Preset
     lenia_orbium_glider. Crude seeds still die/explode - the PATTERN is the fixed point.
 (3) phase-pathway self-propulsion remains impossible while binding is even in delta-phi
-    (Sakaguchi lag chi = designed future route).
+    (Sakaguchi lag chi = designed future route),
+(4) THE MARRIAGE (follow-up "go on"): Orbium under the FULL rule 7, each glider carrying
+    a phase identity as color (kuramoto_nca_orbium_glider preset). Required making rule 7
+    Lenia-exact: the saturating (1-a)/a factors flattened G and blew Orbium into a colony
+    (133 organisms); revised da = k*(gate^2*G+ - G- - decay*a) reduces to literal Lenia
+    under ablation 2 (the ablation baseline was previously a warped Lenia - correctness
+    fix). Droplets/mitosis regimes survive unchanged (418/389 organisms, mean ~0.27).
+    Measured identity physics: uniform ambient phase dilutes a swimmer's identity to the
+    ambient in ~9s at phaseK 0.85 (all three gliders converged to 0); random ambient +
+    phaseK 4 preserves distinct identities as a coherent random walk (phaseR ~1.0,
+    mutually distinct, individual phases wander +-2 rad). Full gate (0.06/0.28) carries
+    the swimmer; binding must be 0 (phase-selective support starves a head in foreign
+    territory).
 
 Two candidate mechanisms:
 - (A) Phase-driven motility (unique to rule 7): an omega gradient makes traveling phase

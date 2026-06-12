@@ -130,14 +130,15 @@ const checks = [
         hint: 'Expected Rule 7 growth to expose a legible excitation-inhibition matter signal.',
     },
     {
-        name: 'KuramotoNCA matter update is collapsed to growth + structural decay (fault #3)',
-        pass: /let birth = coherence_gate \* coherence_gate \* growth_pos \* \(1\.0 - matter_i\)/.test(compute)
-            && /let death = \(growth_neg \+ lp\.nca_matter_decay\) \* matter_i/.test(compute)
+        name: 'KuramotoNCA matter update is Lenia-exact under ablation (fault #3, revised)',
+        pass: /let birth = coherence_gate \* coherence_gate \* growth_pos/.test(compute)
+            && !/growth_pos \* \(1\.0 - matter_i\)/.test(compute)
+            && /let death = growth_neg \+ lp\.nca_matter_decay \* matter_i/.test(compute)
             && /let da = lp\.nca_growth_k \* \(birth - death\)/.test(compute)
             && !/incoherence_death/.test(compute)
             && !/overcrowding_death/.test(compute)
             && !/coherent_birth/.test(compute),
-        hint: 'Expected one coherence-gated saturating growth term and one structural death term (G- tail + leak), nothing else.',
+        hint: 'Expected da = k*(gate^2*G+ - G- - decay*a) with clamp bounds: gate=1, affinity=0, k=1, decay=0 must reduce to EXACT Lenia (the saturating (1-a)/a factors warped the ablation baseline and killed Orbium).',
     },
     {
         name: 'hidden morphogen EMA is removed from the rule and probe (fault #4)',
@@ -323,8 +324,10 @@ const checks = [
             && /value="8">Lenia Bell/.test(html)
             && /ORBIUM_CELLS/.test(presets)
             && /lenia_orbium_glider/.test(presets)
-            && /data-preset="lenia_orbium_glider"/.test(html),
-        hint: 'Expected the exact Lenia bell kernel (shape 8, range >= R), the decoded Orbium pattern, and a glider preset.',
+            && /kuramoto_nca_orbium_glider/.test(presets)
+            && /data-preset="lenia_orbium_glider"/.test(html)
+            && /data-preset="kuramoto_nca_orbium_glider"/.test(html),
+        hint: 'Expected the exact Lenia bell kernel (shape 8, range >= R), the decoded Orbium pattern, and glider presets for rule 6 AND the full rule 7.',
     },
     {
         name: 'migration presets: moving-organism regime (anisotropic kernel wind)',

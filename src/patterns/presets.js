@@ -3,7 +3,7 @@
 // R = 13, growthMu 0.15, growthSigma 0.015, dt 0.1 - the first true self-propelled
 // glider in this app. Its asymmetric SHAPE is what breaks the symmetry; the rule
 // itself is isotropic.
-const ORBIUM_CELLS = [
+export const ORBIUM_CELLS = [
     [0, 0, 0, 0, 0, 0, 0, 0.051, 0.016, 0, 0, 0, 0, 0, 0, 0.235, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0.137, 0.208, 0.212, 0.082, 0.071, 0.098, 0.102, 0.071, 0.004, 0.255, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0.086, 0.267, 0.357, 0.384, 0.341, 0.188, 0.184, 0.172, 0.184, 0.176, 0.106, 0.349, 0, 0, 0],
@@ -1177,6 +1177,59 @@ export const Presets = {
                 }
             }
             return { matter, theta: 0 };
+        });
+    },
+
+    kuramoto_nca_orbium_glider: (state, sim, rng = null) => {
+        // The marriage of the two halves (2026-06-12): true Orbium gliders running
+        // under the FULL coherence-gated rule 7, each carrying a distinct phase
+        // identity visible as color in the Living Phase view. Verified: rigid glide,
+        // mass conserved, internal phaseR ~1.0, three mutually distinct phases.
+        // The identity is a coherent random walk, not a fixed flag - a swimmer
+        // assimilates ambient cells, so its phase drifts while staying coherent
+        // (ncaPhaseK 4 keeps assimilation faster than dilution).
+        state.ruleMode = 7;
+        state.K0 = 1.0;
+        state.sigma = 3.2;
+        state.sigma2 = 13; // kernel radius R
+        state.beta = 0.0;
+        state.kernelShape = 8; // exact Lenia bell
+        state.kernelCompositionEnabled = false;
+        state.growthMu = 0.15;
+        state.growthSigma = 0.015;
+        state.growthMode = 0;
+        state.globalCoupling = false;
+        state.dt = 0.1;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 11; // Living Phase: gliders wear their identity
+        state.colormapPalette = 1;
+        state.ncaPhaseK = 4.0; // body must re-sync swallowed cells faster than turnover
+        state.ncaGrowthK = 1.0; // Lenia-exact rate
+        state.ncaMatterDecay = 0.0;
+        state.ncaCoherenceMin = 0.06; // loose gate: the frontier must be allowed to breathe
+        state.ncaCoherenceMax = 0.28;
+        state.ncaPhaseAffinity = 0.0; // binding starves a head plowing through foreign phase
+        state.ncaAblationMode = 0; // FULL model
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.1;
+        state.organismMinArea = 8;
+
+        const rand = rng ? rng.float : Math.random;
+        const sites = [[0.3, 0.3, 0.5], [0.65, 0.5, 2.6], [0.35, 0.72, 4.7]]; // x, y, phase
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            for (const [fx, fy, ph] of sites) {
+                const px = c - (Math.round(fx * grid) - 10);
+                const py = r - (Math.round(fy * grid) - 10);
+                if (px >= 0 && px < 20 && py >= 0 && py < 20 && ORBIUM_CELLS[py][px] > 0) {
+                    return { matter: ORBIUM_CELLS[py][px], theta: ph };
+                }
+            }
+            // random ambient: a uniform ambient phase would bias every swimmer's
+            // identity toward it (measured); randomness averages the dilution out
+            return { matter: 0, theta: rand() * Math.PI * 2 };
         });
     },
 
