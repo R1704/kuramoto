@@ -16,6 +16,7 @@ export function createExperimentController(options) {
     const updateUI = (info) => {
         const statusEl = document.getElementById('exp-status');
         const progressEl = document.getElementById('exp-progress');
+        const ncaSummaryEl = document.getElementById('exp-nca-summary');
         const runBtn = document.getElementById('exp-run-btn');
         const cancelBtn = document.getElementById('exp-cancel-btn');
         const exportBtn = document.getElementById('exp-export-btn');
@@ -34,6 +35,14 @@ export function createExperimentController(options) {
             } else {
                 progressEl.textContent = '';
             }
+        }
+
+        if (ncaSummaryEl) {
+            const score = info.summary?.ncaViabilityScore;
+            const regime = info.summary?.ncaRegime;
+            ncaSummaryEl.textContent = Number.isFinite(score)
+                ? `viability ${score.toFixed(2)} | ${regime || 'unknown'}`
+                : '';
         }
 
         if (runBtn) runBtn.disabled = info.running || !state.showStatistics;

@@ -1,3 +1,5 @@
+import { computeNcaViability } from '../../experiments/experiments.js';
+
 export function extrapolateKc(data) {
     const n = data.length;
     let sumX = 0;
@@ -34,6 +36,42 @@ function makeRangeValues(from, to, steps, isInt = false) {
     return out;
 }
 
+function makeCandidateState(state, param, value) {
+    return {
+        ruleMode: state.ruleMode,
+        manifoldMode: state.manifoldMode,
+        topologyMode: state.topologyMode,
+        colormap: state.colormap,
+        viewMode: state.viewMode,
+        [param]: value,
+        ncaPhaseK: state.ncaPhaseK,
+        ncaGrowthK: state.ncaGrowthK,
+        ncaSyncFeedback: state.ncaSyncFeedback,
+        ncaMatterDecay: state.ncaMatterDecay,
+        ncaCoherenceMin: state.ncaCoherenceMin,
+        ncaCoherenceMax: state.ncaCoherenceMax,
+        ncaHiddenMemory: state.ncaHiddenMemory,
+        ncaAblationMode: state.ncaAblationMode,
+        ncaPhaseAffinity: state.ncaPhaseAffinity,
+        growthMu: state.growthMu,
+        growthSigma: state.growthSigma,
+        growthMode: state.growthMode,
+        sigma: state.sigma,
+        sigma2: state.sigma2,
+        beta: state.beta,
+    };
+}
+
+function makeCandidateUrl(candidateState) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(candidateState || {})) {
+        if (value === undefined || value === null) continue;
+        params.set(key, `${value}`);
+    }
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    return `${path}?${params.toString()}`;
+}
+
 function waitAnimationFrames(frameCount, isCanceled) {
     return new Promise((resolve) => {
         let remaining = Math.max(0, frameCount | 0);
@@ -54,18 +92,34 @@ function waitAnimationFrames(frameCount, isCanceled) {
 }
 
 function toCSV(results) {
-    const lines = ['step,param,value,R,localR,chi'];
+    const lines = ['rank,step,param,value,R,localR,chi,matterMean,matterMass,ncaViabilityScore,ncaRegime'];
     results.forEach((row, idx) => {
         lines.push([
+            row.rank ?? '',
             idx + 1,
             row.param,
             row.value,
             row.metrics?.R ?? '',
             row.metrics?.localR ?? '',
             row.metrics?.chi ?? '',
+            row.metrics?.matterMean ?? '',
+            row.metrics?.matterMass ?? '',
+            row.metrics?.ncaViabilityScore ?? '',
+            row.metrics?.ncaRegime ?? '',
         ].join(','));
     });
     return lines.join('\n');
+}
+
+export function rankSweepResults(results) {
+    return results
+        .slice()
+        .sort((a, b) => {
+            const av = Number.isFinite(a.metrics?.ncaViabilityScore) ? a.metrics.ncaViabilityScore : -1;
+            const bv = Number.isFinite(b.metrics?.ncaViabilityScore) ? b.metrics.ncaViabilityScore : -1;
+            return bv - av;
+        })
+        .map((row, idx) => ({ ...row, rank: idx + 1 }));
 }
 
 export function createDiscoverySweepController({
@@ -77,7 +131,18 @@ export function createDiscoverySweepController({
     onResult,
     onDone,
     captureThumbnail,
+    syncParams,
 }) {
+    // Layer-backed params (growth/NCA/kernel/gauge) need the full sync path; the bare
+    // updateFullParams fallback only covers global params like K0/range/dt.
+    const pushParams = () => {
+        if (typeof syncParams === 'function') {
+            syncParams();
+        } else {
+            sim.updateFullParams(state);
+            sim.setManifoldMode(state.manifoldMode);
+        }
+    };
     let running = false;
     let cancelRequested = false;
     let lastResults = [];
@@ -89,6 +154,7 @@ export function createDiscoverySweepController({
             theta: null,
             vec: null,
             omega: null,
+            matter: null,
             omegaVec: null,
             gauge: null,
         };
@@ -96,6 +162,9 @@ export function createDiscoverySweepController({
         if (manifold === 's1') {
             baseline.theta = await sim.readTheta();
             if (!baseline.theta && sim.thetaData) baseline.theta = new Float32Array(sim.thetaData);
+            if (typeof sim.readMatterField === 'function') {
+                baseline.matter = await sim.readMatterField();
+            }
             baseline.omega = sim.getOmega() ? new Float32Array(sim.getOmega()) : null;
             if (typeof sim.readGaugeField === 'function') {
                 baseline.gauge = await sim.readGaugeField();
@@ -119,6 +188,9 @@ export function createDiscoverySweepController({
         if (!baseline) return;
         if (baseline.manifold === 's1') {
             if (baseline.theta) sim.writeTheta(baseline.theta);
+            if (baseline.matter && typeof sim.writeMatter === 'function') {
+                sim.writeMatter(baseline.matter);
+            }
             if (baseline.omega) {
                 sim.writeOmega(baseline.omega);
                 sim.storeOmega(baseline.omega);
@@ -137,6 +209,26 @@ export function createDiscoverySweepController({
         }
     };
 
+    const sampleMatterMetrics = async () => {
+        if (state.ruleMode !== 7 || typeof sim.readMatterField !== 'function') {
+            return { mean: 0, mass: 0 };
+        }
+        const matter = await sim.readMatterField();
+        if (!matter || matter.length === 0) return { mean: 0, mass: 0 };
+        const grid = sim.gridSize || state.gridSize || 1;
+        const layerSize = grid * grid;
+        const layer = Math.min(Math.max(0, Math.floor(state.activeLayer ?? 0)), Math.max(0, (sim.layers || 1) - 1));
+        const start = layer * layerSize;
+        const end = Math.min(start + layerSize, matter.length);
+        let mass = 0;
+        for (let i = start; i < end; i++) {
+            const v = Number.isFinite(matter[i]) ? matter[i] : 0;
+            mass += Math.max(0, Math.min(1, v));
+        }
+        const count = Math.max(1, end - start);
+        return { mean: mass / count, mass };
+    };
+
     const run = async ({
         param,
         from,
@@ -151,7 +243,7 @@ export function createDiscoverySweepController({
 
         const oldValue = state[param];
         const oldPaused = !!state.paused;
-        const isIntParam = param === 'range';
+        const isIntParam = param === 'range' || param === 'ncaAblationMode';
         const values = makeRangeValues(from, to, steps, isIntParam);
         const baseline = await captureBaseline();
         state.paused = false;
@@ -165,8 +257,7 @@ export function createDiscoverySweepController({
 
                 await restoreBaseline(baseline);
                 state[param] = values[i];
-                sim.updateFullParams(state);
-                sim.setManifoldMode(state.manifoldMode);
+                pushParams();
                 ui?.updateDisplay?.();
 
                 await waitAnimationFrames(settleFrames, () => cancelRequested);
@@ -176,24 +267,43 @@ export function createDiscoverySweepController({
                     localR: toFinite(stats?.localR, 0),
                     chi: toFinite(stats?.chi, 0),
                 };
+                if (state.ruleMode === 7) {
+                    const matter = await sampleMatterMetrics();
+                    const viability = computeNcaViability({
+                        ruleMode: state.ruleMode,
+                        gridSize: sim.gridSize || state.gridSize,
+                        matterMean: matter.mean,
+                        livingCoherenceMean: metrics.localR,
+                        organismCount: 0,
+                        largestOrganismArea: matter.mass,
+                        meanTrackPersistence: 0,
+                    });
+                    metrics.matterMean = matter.mean;
+                    metrics.matterMass = matter.mass;
+                    metrics.ncaViabilityScore = viability.score;
+                    metrics.ncaRegime = viability.regime;
+                }
                 const thumbnail = captureThumbnail ? captureThumbnail() : null;
-                const row = { param, value: state[param], metrics, thumbnail };
+                const candidateState = makeCandidateState(state, param, state[param]);
+                const row = { param, value: state[param], metrics, thumbnail, candidateState, candidateUrl: makeCandidateUrl(candidateState) };
                 lastResults.push(row);
-                onResult?.(row, i, values.length, lastResults);
+                const rankedResults = state.ruleMode === 7 ? rankSweepResults(lastResults) : lastResults;
+                onResult?.(row, i, values.length, rankedResults);
                 onStatus?.(`running (${i + 1}/${values.length})`);
             }
         } finally {
             await restoreBaseline(baseline);
             state[param] = oldValue;
             state.paused = oldPaused;
-            sim.updateFullParams(state);
-            sim.setManifoldMode(state.manifoldMode);
+            pushParams();
             ui?.updateDisplay?.();
             running = false;
             const canceled = cancelRequested;
             wasCanceled = canceled;
             cancelRequested = false;
             onStatus?.(canceled ? 'canceled' : 'done');
+            const rankedResults = state.ruleMode === 7 ? rankSweepResults(lastResults) : lastResults;
+            lastResults = rankedResults;
             onDone?.({ canceled, results: lastResults });
         }
 
@@ -205,6 +315,20 @@ export function createDiscoverySweepController({
     };
 
     const getResults = () => lastResults.slice();
+    const applyBestResult = () => {
+        if (running) return null;
+        const best = lastResults.find(row => row && row.param);
+        if (!best) return null;
+        if (best.candidateState) Object.assign(state, best.candidateState);
+        else state[best.param] = best.value;
+        pushParams();
+        ui?.updateDisplay?.();
+        return best;
+    };
+    const exportBestResultURL = () => {
+        const best = lastResults.find(row => row && row.param);
+        return best?.candidateUrl || null;
+    };
     const exportJSON = () => ({ generatedAt: new Date().toISOString(), results: getResults() });
     const exportCSV = () => toCSV(getResults());
 
@@ -213,6 +337,8 @@ export function createDiscoverySweepController({
         cancel,
         isRunning: () => running,
         getResults,
+        applyBestResult,
+        exportBestResultURL,
         exportJSON,
         exportCSV,
     };

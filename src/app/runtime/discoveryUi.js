@@ -22,11 +22,15 @@ export function renderSweepResults(root, results = []) {
         const r = Number.isFinite(row.metrics?.R) ? row.metrics.R : 0;
         const localR = Number.isFinite(row.metrics?.localR) ? row.metrics.localR : 0;
         const chi = Number.isFinite(row.metrics?.chi) ? row.metrics.chi : 0;
+        const viability = Number.isFinite(row.metrics?.ncaViabilityScore) ? row.metrics.ncaViabilityScore : null;
+        const regime = row.metrics?.ncaRegime || '';
+        const rank = Number.isFinite(row.rank) ? `#${row.rank} ` : '';
         rowEl.innerHTML = `
             <img class="sweep-thumb" alt="sweep thumbnail" src="${row.thumbnail || ''}">
             <div>
-                <div style="font-size:11px; color:#ddd;">${row.param} = ${val.toFixed(3)}</div>
+                <div style="font-size:11px; color:#ddd;">${rank}${row.param} = ${val.toFixed(3)}</div>
                 <div>R=${r.toFixed(3)} | localR=${localR.toFixed(3)}</div>
+                ${viability !== null ? `<div>viability=${viability.toFixed(3)} | ${regime}</div>` : ''}
                 <div>chi=${chi.toFixed(4)}</div>
             </div>
         `;
@@ -37,11 +41,15 @@ export function renderSweepResults(root, results = []) {
 export function setSweepUIState({ running, statusText = null, lastExport }) {
     const runBtn = document.getElementById('sweep-run-btn');
     const cancelBtn = document.getElementById('sweep-cancel-btn');
+    const applyBestBtn = document.getElementById('sweep-apply-best-btn');
+    const exportBestUrlBtn = document.getElementById('sweep-export-best-url-btn');
     const exportJsonBtn = document.getElementById('sweep-export-json-btn');
     const exportCsvBtn = document.getElementById('sweep-export-csv-btn');
     const statusEl = document.getElementById('sweep-status');
     if (runBtn) runBtn.disabled = !!running;
     if (cancelBtn) cancelBtn.disabled = !running;
+    if (applyBestBtn) applyBestBtn.disabled = !!running || !lastExport;
+    if (exportBestUrlBtn) exportBestUrlBtn.disabled = !!running || !lastExport;
     if (exportJsonBtn) exportJsonBtn.disabled = !!running || !lastExport;
     if (exportCsvBtn) exportCsvBtn.disabled = !!running || !lastExport;
     if (statusEl && statusText !== null) statusEl.textContent = statusText;

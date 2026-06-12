@@ -21,6 +21,7 @@ import {
     applyThetaPattern,
     applyOmegaPattern,
     randomizeTheta,
+    makeDefaultMatterSeed,
     applyS2Pattern,
     applyOmegaVecPattern,
     applyS3Pattern,
@@ -90,6 +91,16 @@ async function init() {
         state: STATE,
     });
     let sim = runtimeInit.sim;
+    // Diagnostics handle for browser-console/automated verification (read-only use).
+    window.__kuramotoDebug = {
+        get sim() { return sim; },
+        state: STATE,
+        // Push state (including layer-backed growth/NCA/kernel params) to the GPU.
+        syncParams: () => {
+            applyLayerStateToSimulation({ state: STATE, sim, normalizeSelectedLayers, syncStateToLayerParams });
+            applyStateToSimulation({ state: STATE, sim, renderer });
+        },
+    };
     const renderer = runtimeInit.renderer;
     renderer.setContext(context);
     const camera = runtimeInit.camera;
@@ -680,6 +691,7 @@ async function init() {
             setDisabled('exp-export-btn', !enabled || !(experimentController && experimentController.hasExport()));
             setDisabled('sweep-run-btn', !enabled || (discoverySweepController && discoverySweepController.isRunning()));
             setDisabled('sweep-cancel-btn', !enabled || !(discoverySweepController && discoverySweepController.isRunning()));
+            setDisabled('sweep-export-best-url-btn', !enabled || !discoverySweepLastExport);
             setDisabled('sweep-export-json-btn', !enabled || !discoverySweepLastExport);
             setDisabled('sweep-export-csv-btn', !enabled || !discoverySweepLastExport);
             setDisabled('rc-ksweep-btn', !enabled);
@@ -706,6 +718,12 @@ async function init() {
             void loadPreset({ name, sim, ui, state: STATE, lastExternalCanvas }).then(() => {
                 stateAdapter.syncURL(true);
             });
+        },
+        onRuleModeChange: (ruleMode, previousRuleMode) => {
+            const entersMatterRule = (ruleMode === 7 || ruleMode === 6) && previousRuleMode !== 7 && previousRuleMode !== 6;
+            if (entersMatterRule && typeof sim.writeMatter === 'function') {
+                sim.writeMatter(makeDefaultMatterSeed(sim));
+            }
         },
         onPatternChange: (key) => {
             if(key === 'thetaPattern') applyThetaPattern(sim, STATE.thetaPattern, null, null, makeRng(STATE.seed, `theta:${STATE.thetaPattern}`), STATE, lastExternalCanvas);
@@ -872,6 +890,7 @@ async function init() {
         resetSimulation,
         getLastExternalCanvas: () => lastExternalCanvas,
         downloadJSON,
+        getOrganisms: () => runtime.organisms,
         onUpdate: (info) => experimentController?.handleRunnerUpdate(info),
     }));
 
@@ -1068,6 +1087,12 @@ async function init() {
         sim,
         stats,
         ui,
+        // Full GPU sync: layer params (growth/NCA/kernel) live in a separate buffer that
+        // updateFullParams alone never writes — without this, layer-param sweeps sweep nothing.
+        syncParams: () => {
+            applyLayerStateToSimulation({ state: STATE, sim, normalizeSelectedLayers, syncStateToLayerParams });
+            applyStateToSimulation({ state: STATE, sim, renderer });
+        },
         captureThumbnail: captureMainThumbnail,
         onStatus: (text) => setSweepUIState(discoverySweepController?.isRunning?.(), text),
         onResult: (_row, idx, total, results) => {

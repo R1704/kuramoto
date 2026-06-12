@@ -46,12 +46,66 @@ function downsample(series, maxPoints = 300) {
     return out;
 }
 
+function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+}
+
+function readMean(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value?.mean) ? value.mean : 0;
+}
+
+export function computeNcaViability(metrics) {
+    const ruleMode = Number(metrics?.ruleMode ?? 0);
+    if (ruleMode !== 7) {
+        return { score: 0, regime: 'not_nca' };
+    }
+
+    const gridSize = Math.max(1, Number(metrics?.gridSize ?? 1));
+    const cells = gridSize * gridSize;
+    const matterMean = readMean(metrics?.matterMean);
+    const livingCoherence = readMean(metrics?.livingCoherenceMean);
+    const organismCount = readMean(metrics?.organismCount);
+    const largestArea = readMean(metrics?.largestOrganismArea);
+    const meanPersistence = readMean(metrics?.meanTrackPersistence);
+
+    const matterPresent = clamp01((matterMean - 0.002) / 0.04);
+    const overgrowthPenalty = 1 - clamp01((matterMean - 0.32) / 0.25);
+    const matterScore = matterPresent * overgrowthPenalty;
+    const coherenceScore = clamp01(livingCoherence / 0.65);
+    const areaScore = clamp01(((largestArea / cells) - 0.0005) / 0.04);
+    const organismScore = Math.max(clamp01(organismCount / 3), clamp01(meanPersistence / 20));
+    const score = clamp01(
+        0.30 * matterScore +
+        0.30 * coherenceScore +
+        0.20 * areaScore +
+        0.20 * organismScore
+    );
+
+    let regime = 'transitional';
+    if (matterMean < 0.002) {
+        regime = 'extinct';
+    } else if (matterMean > 0.55) {
+        regime = 'overgrown';
+    } else if (score < 0.25) {
+        regime = 'inert';
+    } else if (organismCount >= 1 && meanPersistence >= 8) {
+        regime = 'coherent_organism';
+    } else if (matterScore > 0.4 && coherenceScore > 0.4) {
+        regime = 'coherent_matter';
+    }
+
+    return { score, regime };
+}
+
 export class ExperimentRunner {
-    constructor({ device, sim, stats, getState, onUpdate }) {
+    constructor({ device, sim, stats, getState, getOrganisms, onUpdate }) {
         this.device = device;
         this.sim = sim;
         this.stats = stats;
         this.getState = getState;
+        this.getOrganisms = getOrganisms;
         this.onUpdate = onUpdate;
 
         this.running = false;
@@ -73,6 +127,12 @@ export class ExperimentRunner {
             chi: [],
             gradient: [],
             syncFraction: [],
+            matterMean: [],
+            matterMass: [],
+            livingCoherenceMean: [],
+            organismCount: [],
+            largestOrganismArea: [],
+            meanTrackPersistence: [],
         };
 
         this.summary = null;
@@ -192,7 +252,7 @@ export class ExperimentRunner {
         if (!this.sim.readbackPending) return;
 
         this.pendingProcess = true;
-        this.sim.processReadback().then(result => {
+        this.sim.processReadback().then(async result => {
             if (!result) return;
             if (!this.stats) return;
 
@@ -200,12 +260,20 @@ export class ExperimentRunner {
 
             const stepRel = this.pendingSampleStepRel;
             if (stepRel !== null && stepRel !== undefined && stepRel >= 1 && stepRel <= this.protocol.measureSteps) {
+                const matter = await this._sampleMatterMetrics();
+                const organisms = this._sampleOrganismMetrics();
                 this.samples.step.push(stepRel);
                 this.samples.globalR.push(result.R);
                 this.samples.localMeanR.push(result.localStats?.meanR ?? 0);
                 this.samples.chi.push(this.stats.chi);
                 this.samples.gradient.push(result.localStats?.gradient ?? 0);
                 this.samples.syncFraction.push(result.localStats?.syncFraction ?? 0);
+                this.samples.matterMean.push(matter.mean);
+                this.samples.matterMass.push(matter.mass);
+                this.samples.livingCoherenceMean.push(result.localStats?.meanR ?? 0);
+                this.samples.organismCount.push(organisms.count);
+                this.samples.largestOrganismArea.push(organisms.largestArea);
+                this.samples.meanTrackPersistence.push(organisms.meanPersistence);
             }
             this.pendingSampleStepRel = null;
 
@@ -242,6 +310,12 @@ export class ExperimentRunner {
                 chi: downsample(this.samples.chi),
                 gradient: downsample(this.samples.gradient),
                 syncFraction: downsample(this.samples.syncFraction),
+                matterMean: downsample(this.samples.matterMean),
+                matterMass: downsample(this.samples.matterMass),
+                livingCoherenceMean: downsample(this.samples.livingCoherenceMean),
+                organismCount: downsample(this.samples.organismCount),
+                largestOrganismArea: downsample(this.samples.largestOrganismArea),
+                meanTrackPersistence: downsample(this.samples.meanTrackPersistence),
             },
         };
     }
@@ -256,8 +330,24 @@ export class ExperimentRunner {
         const localMeanR = meanStd(this.samples.localMeanR);
         const gradient = meanStd(this.samples.gradient);
         const syncFraction = meanStd(this.samples.syncFraction);
+        const matterMean = meanStd(this.samples.matterMean);
+        const matterMass = meanStd(this.samples.matterMass);
+        const livingCoherenceMean = meanStd(this.samples.livingCoherenceMean);
+        const organismCount = meanStd(this.samples.organismCount);
+        const largestOrganismArea = meanStd(this.samples.largestOrganismArea);
+        const meanTrackPersistence = meanStd(this.samples.meanTrackPersistence);
         const chiMax = this.samples.chi.length ? Math.max(...this.samples.chi) : 0;
         const chiMean = meanStd(this.samples.chi).mean;
+        const state = this.getState?.() || this.snapshot || {};
+        const viability = computeNcaViability({
+            ruleMode: state.ruleMode,
+            gridSize: this.sim?.gridSize || state.gridSize,
+            matterMean,
+            livingCoherenceMean,
+            organismCount,
+            largestOrganismArea,
+            meanTrackPersistence,
+        });
 
         this.summary = {
             samples: this.samples.globalR.length,
@@ -267,11 +357,61 @@ export class ExperimentRunner {
             localMeanR_std: localMeanR.std,
             gradient_mean: gradient.mean,
             syncFraction_mean: syncFraction.mean,
+            matterMean_mean: matterMean.mean,
+            matterMass_mean: matterMass.mean,
+            livingCoherenceMean_mean: livingCoherenceMean.mean,
+            organismCount_mean: organismCount.mean,
+            largestOrganismArea_mean: largestOrganismArea.mean,
+            meanTrackPersistence_mean: meanTrackPersistence.mean,
+            ncaViabilityScore: viability.score,
+            ncaRegime: viability.regime,
             chi_mean: chiMean,
             chi_max: chiMax,
         };
 
         this._emit();
+    }
+
+    async _sampleMatterMetrics() {
+        const state = this.getState?.() || {};
+        if (state.ruleMode !== 7 || !this.sim?.readMatterField) {
+            return { mean: 0, mass: 0 };
+        }
+        const data = await this.sim.readMatterField();
+        if (!data || data.length === 0) {
+            return { mean: 0, mass: 0 };
+        }
+        const grid = this.sim.gridSize || 1;
+        const layerSize = grid * grid;
+        const layer = Math.min(Math.max(0, Math.floor(state.activeLayer ?? 0)), Math.max(0, (this.sim.layers || 1) - 1));
+        const start = layer * layerSize;
+        const end = Math.min(start + layerSize, data.length);
+        let sum = 0;
+        for (let i = start; i < end; i++) {
+            const v = Number.isFinite(data[i]) ? data[i] : 0;
+            sum += Math.max(0, Math.min(1, v));
+        }
+        const count = Math.max(1, end - start);
+        return { mean: sum / count, mass: sum };
+    }
+
+    _sampleOrganismMetrics() {
+        const organisms = this.getOrganisms?.();
+        const structures = organisms?.structures || [];
+        const tracks = organisms?.tracks || [];
+        let largestArea = 0;
+        for (const s of structures) {
+            largestArea = Math.max(largestArea, s?.area || 0);
+        }
+        let persistenceSum = 0;
+        for (const t of tracks) {
+            persistenceSum += Array.isArray(t?.history) ? t.history.length : 0;
+        }
+        return {
+            count: Number.isFinite(organisms?.count) ? organisms.count : tracks.length,
+            largestArea,
+            meanPersistence: tracks.length ? persistenceSum / tracks.length : 0,
+        };
     }
 
     _emit() {

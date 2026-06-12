@@ -150,6 +150,12 @@ export function destroy() {
         for (const tex of this.thetaTextures) {
             tex.destroy();
         }
+        if (this.matterTextures) {
+            for (const tex of this.matterTextures) tex.destroy();
+        }
+        if (this.hiddenTextures) {
+            for (const tex of this.hiddenTextures) tex.destroy();
+        }
         if (this.gaugeXTextures) {
             for (const tex of this.gaugeXTextures) tex.destroy();
         }
@@ -175,6 +181,10 @@ export function destroy() {
         if (this.thetaReadbackBuf) {
             this.thetaReadbackBuf.destroy();
             this.thetaReadbackBuf = null;
+        }
+        if (this.matterReadbackBuf) {
+            this.matterReadbackBuf.destroy();
+            this.matterReadbackBuf = null;
         }
         if (this.s2ReadbackBuf) {
             this.s2ReadbackBuf.destroy();
@@ -228,6 +238,9 @@ export function resize(newGridSize) {
         for (const tex of this.thetaTextures) {
             tex.destroy();
         }
+        if (this.matterTextures) {
+            for (const tex of this.matterTextures) tex.destroy();
+        }
         if (this.gaugeXTextures) {
             for (const tex of this.gaugeXTextures) tex.destroy();
         }
@@ -253,6 +266,10 @@ export function resize(newGridSize) {
         if (this.thetaReadbackBuf) {
             this.thetaReadbackBuf.destroy();
             this.thetaReadbackBuf = null;
+        }
+        if (this.matterReadbackBuf) {
+            this.matterReadbackBuf.destroy();
+            this.matterReadbackBuf = null;
         }
         if (this.s2ReadbackBuf) {
             this.s2ReadbackBuf.destroy();
@@ -368,6 +385,7 @@ export function resize(newGridSize) {
         this.delayBufferIndex = 0;
         this.gaugeIndex = 0;
         this.prismaticIndex = 0;
+        this.matterIndex = 0;
         
         // Recreate textures and buffers
         this.initBuffers();

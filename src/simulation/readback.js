@@ -216,6 +216,44 @@ export async function readTheta() {
         }
 }
 
+export async function readMatterField() {
+        if (this.thetaReadPending) {
+            return null;
+        }
+        this.thetaReadPending = true;
+
+        try {
+            if (!this.matterReadbackBuf || this.matterReadbackBuf.size !== this.N * 4) {
+                if (this.matterReadbackBuf) {
+                    this.matterReadbackBuf.destroy();
+                }
+                this.matterReadbackBuf = this.device.createBuffer({
+                    size: this.N * 4,
+                    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+                });
+            }
+
+            const encoder = this.device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                { texture: this.matterTexture },
+                { buffer: this.matterReadbackBuf, bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize },
+                [this.gridSize, this.gridSize, this.layers]
+            );
+            this.device.queue.submit([encoder.finish()]);
+
+            await this.matterReadbackBuf.mapAsync(GPUMapMode.READ);
+            const data = new Float32Array(this.matterReadbackBuf.getMappedRange().slice(0));
+            this.matterReadbackBuf.unmap();
+
+            return data;
+        } catch (e) {
+            console.warn('readMatterField failed:', e);
+            return null;
+        } finally {
+            this.thetaReadPending = false;
+        }
+}
+
 export async function readS2() {
         if (this.thetaReadPending) {
             return null;

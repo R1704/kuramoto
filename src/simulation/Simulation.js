@@ -4,6 +4,7 @@ import {
     writeLayerParams as writeLayerParamsFn,
     writeTopology as writeTopologyFn,
     writeTheta as writeThetaFn,
+    writeMatter as writeMatterFn,
     writeS2 as writeS2Fn,
     writeS3 as writeS3Fn,
     writeOmega as writeOmegaFn,
@@ -31,6 +32,7 @@ import {
     getLastGlobalOrder as getLastGlobalOrderFn,
     getLastLocalStats as getLastLocalStatsFn,
     readTheta as readThetaFn,
+    readMatterField as readMatterFieldFn,
     readOrderField as readOrderFieldFn,
     readS2 as readS2Fn,
     readS3 as readS3Fn,
@@ -221,6 +223,8 @@ export class Simulation {
         const currentIdx = this.thetaIndex;
         const nextIdx = currentIdx ^ 1;
         const currentThetaTex = this.thetaTextures[currentIdx];
+        const currentMatterIdx = this.matterIndex;
+        const nextMatterIdx = currentMatterIdx ^ 1;
         const currentPrismaticIdx = this.prismaticIndex;
         const nextPrismaticIdx = currentPrismaticIdx ^ 1;
         const gaugeDynamic = (!useVectorManifold) && this.gaugeEnabled && this.gaugeDynamic && (this.topologyModeValue === 0);
@@ -395,6 +399,10 @@ export class Simulation {
             // Swap textures
             this.thetaIndex = nextIdx;
             this.thetaTexture = this.thetaTextures[this.thetaIndex];
+            this.matterIndex = nextMatterIdx;
+            this.matterTexture = this.matterTextures[this.matterIndex];
+            this.hiddenIndex = this.hiddenIndex ^ 1;
+            this.hiddenTexture = this.hiddenTextures[this.hiddenIndex];
             this.prismaticIndex = nextPrismaticIdx;
             this.prismaticStateTexture = this.prismaticStateTextures[this.prismaticIndex];
 
@@ -441,6 +449,10 @@ export class Simulation {
 
     writeTheta(data) {
         return writeThetaFn.call(this, data);
+    }
+
+    writeMatter(data = null) {
+        return writeMatterFn.call(this, data);
     }
 
     writeS2(data) {
@@ -505,6 +517,10 @@ export class Simulation {
 
     async readTheta() {
         return readThetaFn.call(this);
+    }
+
+    async readMatterField() {
+        return readMatterFieldFn.call(this);
     }
 
     async readOrderField() {

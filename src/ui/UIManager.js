@@ -21,7 +21,8 @@ export class UIManager {
             'Harmonics: Uses 2nd+3rd harmonics for multi-clusters',
             'Mexican-hat: Short excitation + long inhibition',
             'Delay-coupled: Uses delayed phase from past timesteps',
-            'Lenia: G(K*θ) — growth function on kernel convolution'
+            'Lenia: G(K*rho) — growth function on cyclic phase density',
+            'KuramotoNCA: coherence-gated matter + unit oscillator binding'
         ];
 
         this.bindControls();

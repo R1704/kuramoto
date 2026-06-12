@@ -109,8 +109,10 @@ export function updateDisplay() {
 
         const statsToggle = getEl('show-statistics-toggle');
         if (statsToggle) statsToggle.checked = !!this.state.showStatistics;
-        const analysisGrid = getEl('analysis-grid');
-        if (analysisGrid) analysisGrid.style.opacity = this.state.showStatistics ? '1' : '0.7';
+    const analysisGrid = getEl('analysis-grid');
+    if (analysisGrid) analysisGrid.style.opacity = this.state.showStatistics ? '1' : '0.7';
+    const ncaProbeSection = getEl('nca-probe-section');
+    if (ncaProbeSection) ncaProbeSection.style.display = Number(this.state.ruleMode ?? 0) === 7 ? 'block' : 'none';
 
     // Organisms panel
     const organismsToggle = getEl('organisms-enabled-toggle');
@@ -156,7 +158,8 @@ export function updateDisplay() {
                 'Image Texture',
                 'Gauge Flux',
                 'Covariant Gradient',
-                'Prismatic Style'
+                'Prismatic Style',
+                'Matter'
             ];
             const layerIdx = Math.max(0, Math.min(layerNames.length - 1, Math.round(this.state.colormap || 0)));
             const source = (this.state.colormap === 9 && this.state.prismaticStyleEnabled)
@@ -203,6 +206,31 @@ export function updateDisplay() {
             if (this.state.interactionForceEnabled && topo !== 'grid') inactive.push('force grid-only');
             dynStatus.textContent = `manifold:${mode} | topology:${topo} | rule:${this.state.ruleMode} | gauge:${gaugeModeTxt} | style:${styleTxt} | dyn:${dynTxt} | force:${forceTxt} | layer:${layer}${inactive.length ? ` | inactive: ${inactive.join(', ')}` : ''}`;
         }
+
+        const ruleMode = Number(this.state.ruleMode ?? 0);
+        const syncRuleControls = () => {
+            const ruleSelect = getEl('rule-select');
+            if (ruleSelect) ruleSelect.value = ruleMode;
+
+            const ruleDesc = getEl('rule-desc');
+            if (ruleDesc) ruleDesc.textContent = this.ruleDescriptions[ruleMode] || '';
+
+            const harmonicControl = getEl('harmonic-control');
+            if (harmonicControl) harmonicControl.style.display = ruleMode === 3 ? 'flex' : 'none';
+
+            const harmonic3Control = getEl('harmonic3-control');
+            if (harmonic3Control) harmonic3Control.style.display = ruleMode === 3 ? 'flex' : 'none';
+
+            const delayControl = getEl('delay-control');
+            if (delayControl) delayControl.style.display = ruleMode === 5 ? 'flex' : 'none';
+
+            const leniaControls = getEl('lenia-controls');
+            if (leniaControls) leniaControls.style.display = ruleMode === 6 ? 'block' : 'none';
+
+            const ncaControls = getEl('nca-controls');
+            if (ncaControls) ncaControls.style.display = ruleMode === 7 ? 'block' : 'none';
+        };
+        syncRuleControls();
         
         // Update kernel shape controls
         const kernelShapeSelect = getEl('kernel-shape-select');
@@ -230,7 +258,8 @@ export function updateDisplay() {
             if (gaugeFluxOption) gaugeFluxOption.hidden = !showGaugeLayers;
             if (covGradOption) covGradOption.hidden = !showGaugeLayers;
             if (prismaticOption) prismaticOption.hidden = !showGaugeLayers;
-            const safeLayer = showGaugeLayers ? this.state.colormap : Math.min(this.state.colormap, 6);
+            const requestedLayer = this.state.colormap ?? 0;
+            const safeLayer = (!showGaugeLayers && requestedLayer >= 7 && requestedLayer <= 9) ? 6 : requestedLayer;
             layerSelect.value = safeLayer;
         }
         const paletteSelect = getEl('palette-select');
@@ -420,27 +449,9 @@ export function updateDisplay() {
         
         update('kernel-mix-ratio-slider', this.state.kernelMixRatio);
         
-        // Update rule mode select
-        const ruleSelect = getEl('rule-select');
-        if (ruleSelect) ruleSelect.value = this.state.ruleMode;
-        
-        // Update rule description
-        const ruleDesc = getEl('rule-desc');
-        if (ruleDesc) ruleDesc.textContent = this.ruleDescriptions[this.state.ruleMode] || '';
-        
-        // Show/hide rule-specific controls
-        const harmonicControl = getEl('harmonic-control');
-        if (harmonicControl) harmonicControl.style.display = this.state.ruleMode === 3 ? 'flex' : 'none';
-        
-        const harmonic3Control = getEl('harmonic3-control');
-        if (harmonic3Control) harmonic3Control.style.display = this.state.ruleMode === 3 ? 'flex' : 'none';
-        
-        const delayControl = getEl('delay-control');
-        if (delayControl) delayControl.style.display = this.state.ruleMode === 5 ? 'flex' : 'none';
+        syncRuleControls();
 
     // Lenia growth controls
-    const leniaControls = getEl('lenia-controls');
-    if (leniaControls) leniaControls.style.display = this.state.ruleMode === 6 ? 'block' : 'none';
     // Growth params use 3-decimal precision
     const growthMuSlider = getEl('growth-mu-slider');
     if (growthMuSlider) growthMuSlider.value = this.state.growthMu;
@@ -453,8 +464,45 @@ export function updateDisplay() {
     const growthModeSelect = getEl('growth-mode-select');
     if (growthModeSelect) growthModeSelect.value = this.state.growthMode;
 
+    const ncaControls = getEl('nca-controls');
+    if (ncaControls) ncaControls.style.display = ruleMode === 7 ? 'block' : 'none';
+    const ncaPhaseKSlider = getEl('nca-phase-k-slider');
+    if (ncaPhaseKSlider) ncaPhaseKSlider.value = this.state.ncaPhaseK;
+    const ncaPhaseKDisp = getEl('nca-phase-k-value');
+    if (ncaPhaseKDisp && this.state.ncaPhaseK != null) ncaPhaseKDisp.textContent = this.state.ncaPhaseK.toFixed(2);
+    const ncaGrowthKSlider = getEl('nca-growth-k-slider');
+    if (ncaGrowthKSlider) ncaGrowthKSlider.value = this.state.ncaGrowthK;
+    const ncaGrowthKDisp = getEl('nca-growth-k-value');
+    if (ncaGrowthKDisp && this.state.ncaGrowthK != null) ncaGrowthKDisp.textContent = this.state.ncaGrowthK.toFixed(2);
+    const ncaSyncFeedbackSlider = getEl('nca-sync-feedback-slider');
+    if (ncaSyncFeedbackSlider) ncaSyncFeedbackSlider.value = this.state.ncaSyncFeedback;
+    const ncaSyncFeedbackDisp = getEl('nca-sync-feedback-value');
+    if (ncaSyncFeedbackDisp && this.state.ncaSyncFeedback != null) ncaSyncFeedbackDisp.textContent = this.state.ncaSyncFeedback.toFixed(2);
+    const ncaMatterDecaySlider = getEl('nca-matter-decay-slider');
+    if (ncaMatterDecaySlider) ncaMatterDecaySlider.value = this.state.ncaMatterDecay;
+    const ncaMatterDecayDisp = getEl('nca-matter-decay-value');
+    if (ncaMatterDecayDisp && this.state.ncaMatterDecay != null) ncaMatterDecayDisp.textContent = this.state.ncaMatterDecay.toFixed(3);
+    const ncaCoherenceMinSlider = getEl('nca-coherence-min-slider');
+    if (ncaCoherenceMinSlider) ncaCoherenceMinSlider.value = this.state.ncaCoherenceMin;
+    const ncaCoherenceMinDisp = getEl('nca-coherence-min-value');
+    if (ncaCoherenceMinDisp && this.state.ncaCoherenceMin != null) ncaCoherenceMinDisp.textContent = this.state.ncaCoherenceMin.toFixed(2);
+    const ncaCoherenceMaxSlider = getEl('nca-coherence-max-slider');
+    if (ncaCoherenceMaxSlider) ncaCoherenceMaxSlider.value = this.state.ncaCoherenceMax;
+    const ncaCoherenceMaxDisp = getEl('nca-coherence-max-value');
+    if (ncaCoherenceMaxDisp && this.state.ncaCoherenceMax != null) ncaCoherenceMaxDisp.textContent = this.state.ncaCoherenceMax.toFixed(2);
+    const ncaHiddenMemorySlider = getEl('nca-hidden-memory-slider');
+    if (ncaHiddenMemorySlider) ncaHiddenMemorySlider.value = this.state.ncaHiddenMemory;
+    const ncaHiddenMemoryDisp = getEl('nca-hidden-memory-value');
+    if (ncaHiddenMemoryDisp && this.state.ncaHiddenMemory != null) ncaHiddenMemoryDisp.textContent = this.state.ncaHiddenMemory.toFixed(2);
+    const ncaAblationSelect = getEl('nca-ablation-select');
+    if (ncaAblationSelect) ncaAblationSelect.value = `${this.state.ncaAblationMode ?? 0}`;
+    const ncaPhaseAffinitySlider = getEl('nca-phase-affinity-slider');
+    if (ncaPhaseAffinitySlider) ncaPhaseAffinitySlider.value = this.state.ncaPhaseAffinity ?? 0.7;
+    const ncaPhaseAffinityDisp = getEl('nca-phase-affinity-value');
+    if (ncaPhaseAffinityDisp && this.state.ncaPhaseAffinity != null) ncaPhaseAffinityDisp.textContent = this.state.ncaPhaseAffinity.toFixed(2);
+
     const kernelSection = getEl('kernel-section');
-    const showKernel = this.state.ruleMode === 4 || this.state.ruleMode === 6 || this.state.layerKernelEnabled;
+    const showKernel = ruleMode === 4 || ruleMode === 6 || ruleMode === 7 || this.state.layerKernelEnabled;
         if (kernelSection) kernelSection.style.display = showKernel ? 'flex' : 'none';
         const kernelVisuals = getEl('kernel-visuals');
         if (kernelVisuals) kernelVisuals.style.display = showKernel ? 'flex' : 'none';
@@ -477,7 +525,8 @@ export function updateDisplay() {
             if (rangeValue) rangeValue.style.opacity = '1';
         }
 
-        if (ruleSelect) ruleSelect.disabled = this.state.manifoldMode !== 's1';
+        const ruleSelectForDisable = getEl('rule-select');
+        if (ruleSelectForDisable) ruleSelectForDisable.disabled = this.state.manifoldMode !== 's1';
         const delaySlider = getEl('delay-slider');
         if (delaySlider) delaySlider.disabled = this.state.manifoldMode !== 's1';
         applyGaugePrismaticAudioGating({ state: this.state, getEl });
@@ -558,7 +607,7 @@ export function updateDisplay() {
         }
         
         // Update kernel visualization if kernel-based rule is active
-        if ((this.state.ruleMode === 4 || this.state.ruleMode === 6) && this.cb.onDrawKernel) {
+        if ((ruleMode === 4 || ruleMode === 6 || ruleMode === 7) && this.cb.onDrawKernel) {
             this.cb.onDrawKernel();
         }
 

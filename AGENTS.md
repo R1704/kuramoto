@@ -77,7 +77,7 @@ any sizable change. Prefer concise, verifiable guidance over speculation.
 - Reactive audio engine: `src/audio/EmpyreanAudioEngine.js` (output-only, WebAudio lifecycle)
 
 ## Build / Lint / Test
-- Run locally: `python -m http.server 8000` or `npx serve`
+- Run locally: `node scripts/dev-server.mjs` (preferred; sends no-cache headers for ES modules), or `python -m http.server 8000` / `npx serve` as fallback
 - Open: `http://localhost:8000`
 - Lint: none configured
 - Tests: none configured

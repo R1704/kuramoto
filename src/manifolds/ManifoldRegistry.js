@@ -24,7 +24,7 @@ export const ManifoldRegistry = {
     },
 
     patterns: ['random', 'gradient', 'spiral', 'checkerboard', 'target', 'synchronized', 'image'],
-    omegaPatterns: ['uniform', 'random', 'gradient', 'center_fast', 'checkerboard'],
+    omegaPatterns: ['uniform', 'random', 'gradient', 'center_fast', 'checkerboard', 'image'],
 
     visualization: {
       heightMap: 'sin(θ)',

@@ -8,6 +8,7 @@ export { Presets } from './presets.js';
 export { drawKernel } from './kernel.js';
 export {
     resetSimulation,
+    makeDefaultMatterSeed,
     applyThetaPattern,
     applyOmegaPattern,
     applyGaugePattern,

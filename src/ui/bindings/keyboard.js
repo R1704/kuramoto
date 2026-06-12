@@ -1,7 +1,7 @@
 export function bindKeyboard() {
         window.addEventListener('keydown', e => {
             // Rule switching
-            if (e.key >= '0' && e.key <= '6') {
+            if (e.key >= '0' && e.key <= '7') {
                 this.state.ruleMode = parseInt(e.key);
                 this.cb.onParamChange();
                 this.updateDisplay();
@@ -86,7 +86,7 @@ export function bindKeyboard() {
                 this.updateDisplay();
                    this.syncURL();
             } else if (e.key === 'C' && e.shiftKey) {
-                const layerCount = this.state.manifoldMode === 's1' ? 10 : 7;
+                const layerCount = this.state.manifoldMode === 's1' ? 11 : 7;
                 this.state.colormap = (this.state.colormap + 1) % layerCount;
                 this.cb.onParamChange();
                 this.updateDisplay();

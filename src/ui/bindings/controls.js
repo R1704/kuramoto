@@ -559,7 +559,18 @@ export function bindControls() {
         const ruleSelect = getEl('rule-select');
         if (ruleSelect) {
             ruleSelect.addEventListener('change', () => {
-                this.state.ruleMode = parseInt(ruleSelect.value);
+                const previousRuleMode = this.state.ruleMode;
+                const nextRuleMode = parseInt(ruleSelect.value);
+                this.state.ruleMode = nextRuleMode;
+                if (nextRuleMode === 7 || nextRuleMode === 6) {
+                    this.state.colormap = 10;
+                } else if (this.state.colormap === 10) {
+                    // Matter texture is frozen for rules 0-5; do not leave a stale layer on screen.
+                    this.state.colormap = 0;
+                }
+                if (this.cb.onRuleModeChange) {
+                    this.cb.onRuleModeChange(nextRuleMode, previousRuleMode);
+                }
                 this.cb.onParamChange();
                 this.updateDisplay(); // Update visibility of rule-specific controls
             });
@@ -583,6 +594,37 @@ export function bindControls() {
                 this.state[key] = val;
                 const disp = document.getElementById(id.replace('slider', 'value'));
                 if (disp) disp.textContent = val.toFixed(3);
+                this.cb.onParamChange();
+            });
+        }
+
+        const ncaControls = [
+            ['nca-phase-k-slider', 'ncaPhaseK', 2],
+            ['nca-growth-k-slider', 'ncaGrowthK', 2],
+            ['nca-sync-feedback-slider', 'ncaSyncFeedback', 2],
+            ['nca-matter-decay-slider', 'ncaMatterDecay', 3],
+            ['nca-coherence-min-slider', 'ncaCoherenceMin', 2],
+            ['nca-coherence-max-slider', 'ncaCoherenceMax', 2],
+            ['nca-hidden-memory-slider', 'ncaHiddenMemory', 2],
+            ['nca-phase-affinity-slider', 'ncaPhaseAffinity', 2],
+        ];
+        for (const [id, key, precision] of ncaControls) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            this.elements[key] = el;
+            el.addEventListener('input', () => {
+                const val = parseFloat(el.value);
+                this.state[key] = val;
+                const disp = document.getElementById(id.replace('slider', 'value'));
+                if (disp) disp.textContent = val.toFixed(precision);
+                this.cb.onParamChange();
+            });
+        }
+
+        const ncaAblationSelect = document.getElementById('nca-ablation-select');
+        if (ncaAblationSelect) {
+            ncaAblationSelect.addEventListener('change', () => {
+                this.state.ncaAblationMode = parseInt(ncaAblationSelect.value);
                 this.cb.onParamChange();
             });
         }
@@ -942,11 +984,15 @@ export function bindControls() {
         const sweepSettleInput = getEl('sweep-settle-frames-input');
         const sweepRunBtn = getEl('sweep-run-btn');
         const sweepCancelBtn = getEl('sweep-cancel-btn');
+        const sweepApplyBestBtn = getEl('sweep-apply-best-btn');
+        const sweepExportBestUrlBtn = getEl('sweep-export-best-url-btn');
         const sweepExportJsonBtn = getEl('sweep-export-json-btn');
         const sweepExportCsvBtn = getEl('sweep-export-csv-btn');
         const sweepRangeFrustrationBtn = getEl('sweep-range-frustration-btn');
         const sweepRangeFeedbackBtn = getEl('sweep-range-feedback-btn');
         const sweepRangeStiffnessBtn = getEl('sweep-range-stiffness-btn');
+        const ncaSweepRangeBtn = getEl('nca-sweep-range-btn');
+        const ncaAblationSweepBtn = getEl('nca-ablation-sweep-btn');
 
         const onSweepConfig = () => {
             this.state.sweepParam = sweepParamSelect?.value || this.state.sweepParam || 'gaugeCharge';
@@ -966,8 +1012,33 @@ export function bindControls() {
         if (sweepSettleInput) sweepSettleInput.addEventListener('change', () => { onSweepConfig(); this.updateDisplay(); });
         if (sweepRunBtn) sweepRunBtn.addEventListener('click', () => { if (this.cb.onRunSweep) this.cb.onRunSweep(); });
         if (sweepCancelBtn) sweepCancelBtn.addEventListener('click', () => { if (this.cb.onCancelSweep) this.cb.onCancelSweep(); });
+        if (sweepApplyBestBtn) sweepApplyBestBtn.addEventListener('click', () => { if (this.cb.onApplyBestSweep) this.cb.onApplyBestSweep(); });
+        if (sweepExportBestUrlBtn) sweepExportBestUrlBtn.addEventListener('click', () => { if (this.cb.onExportBestSweepURL) this.cb.onExportBestSweepURL(); });
         if (sweepExportJsonBtn) sweepExportJsonBtn.addEventListener('click', () => { if (this.cb.onExportSweepJSON) this.cb.onExportSweepJSON(); });
         if (sweepExportCsvBtn) sweepExportCsvBtn.addEventListener('click', () => { if (this.cb.onExportSweepCSV) this.cb.onExportSweepCSV(); });
+        if (ncaSweepRangeBtn) {
+            ncaSweepRangeBtn.addEventListener('click', () => {
+                // Sweep growthMu: ncaGrowthK factors out of da/dt and cannot change the attractor.
+                if (sweepParamSelect) sweepParamSelect.value = 'growthMu';
+                if (sweepFromInput) sweepFromInput.value = '0.08';
+                if (sweepToInput) sweepToInput.value = '0.22';
+                if (sweepStepsInput) sweepStepsInput.value = '8';
+                if (sweepSettleInput) sweepSettleInput.value = '220';
+                onSweepConfig();
+                this.updateDisplay();
+            });
+        }
+        if (ncaAblationSweepBtn) {
+            ncaAblationSweepBtn.addEventListener('click', () => {
+                if (sweepParamSelect) sweepParamSelect.value = 'ncaAblationMode';
+                if (sweepFromInput) sweepFromInput.value = '0';
+                if (sweepToInput) sweepToInput.value = '2';
+                if (sweepStepsInput) sweepStepsInput.value = '3';
+                if (sweepSettleInput) sweepSettleInput.value = '300';
+                onSweepConfig();
+                this.updateDisplay();
+            });
+        }
         if (sweepRangeFrustrationBtn) {
             sweepRangeFrustrationBtn.addEventListener('click', () => {
                 if (sweepParamSelect) sweepParamSelect.value = 'gaugeCharge';

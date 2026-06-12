@@ -1,3 +1,65 @@
+function applyKuramotoNcaBase(state, overrides = {}) {
+    state.ruleMode = 7;
+    state.K0 = 1.0;
+    // Validated 2026-06-10: Lenia shell kernel + this growth window yields discrete
+    // coherent living spots; the old Gaussian-core kernel front-swept into uniform mush.
+    state.sigma = 3.2;
+    state.sigma2 = 3.6;
+    state.beta = 0.0;
+    state.kernelShape = 7;
+    state.kernelCompositionEnabled = false;
+    state.growthMu = 0.15;
+    state.growthSigma = 0.06;
+    state.growthMode = 0;
+    state.ncaPhaseK = 1.1;
+    state.ncaGrowthK = 0.5;
+    state.ncaSyncFeedback = 0.35;
+    state.ncaMatterDecay = 0.008;
+    state.ncaCoherenceMin = 0.18;
+    state.ncaCoherenceMax = 0.65;
+    state.ncaHiddenMemory = 0.08;
+    state.ncaAblationMode = 0;
+    state.ncaPhaseAffinity = 0.7;
+    state.globalCoupling = false;
+    state.dt = 0.045;
+    state.noiseStrength = 0.0;
+    state.leak = 0.0;
+    state.viewMode = 1;
+    state.colormap = 10;
+    state.colormapPalette = 1; // viridis reads matter density better than rainbow
+    state.organismsEnabled = true;
+    state.organismOverlay = true;
+    state.organismThreshold = 0.14;
+    state.organismMinArea = 6;
+    Object.assign(state, overrides);
+}
+
+function writeKuramotoNcaSeed(sim, seedFn) {
+    const grid = sim.gridSize;
+    const layerSize = grid * grid;
+    const theta = new Float32Array(sim.N);
+    const omega = new Float32Array(sim.N);
+    const matter = new Float32Array(sim.N);
+
+    for (let layer = 0; layer < sim.layers; layer++) {
+        const layerOffset = layer * layerSize;
+        for (let r = 0; r < grid; r++) {
+            for (let c = 0; c < grid; c++) {
+                const idx = layerOffset + r * grid + c;
+                const seed = seedFn(c, r, grid, layer);
+                matter[idx] = Math.max(0, Math.min(1, seed.matter));
+                theta[idx] = seed.theta;
+                omega[idx] = seed.omega ?? 0.0;
+            }
+        }
+    }
+
+    sim.writeTheta(theta);
+    sim.writeMatter(matter);
+    sim.writeOmega(omega);
+    sim.storeOmega(omega);
+}
+
 export const Presets = {
     sync: (state, sim) => {
         state.ruleMode = 0;
@@ -834,121 +896,225 @@ export const Presets = {
     // --- Lenia / Artificial Life presets ---
 
     lenia_orbium: (state, sim, rng = null) => {
-        // Orbium-style: smooth Gaussian kernel + narrow growth function
-        // Produces stable, moving soliton-like organisms
+        // True Lenia: nonnegative shell kernel + narrow growth on the matter field.
+        // Ring radius = 1.5*sigma2 (5.4 cells), shell width = sigma*0.5 (1.6 cells).
         state.ruleMode = 6;
-        state.K0 = 0.5;
-        state.sigma = 2.0;
-        state.sigma2 = 2.5;
-        state.beta = 0.3;
-        state.kernelShape = 0; // isotropic Gaussian
+        state.K0 = 1.0; // Lenia update rate multiplier
+        state.sigma = 3.2;
+        state.sigma2 = 3.6;
+        state.beta = 0.0;
+        state.kernelShape = 7; // Lenia shell
+        state.kernelCompositionEnabled = false;
         state.growthMu = 0.15;
-        state.growthSigma = 0.015;
+        state.growthSigma = 0.06; // validated 2026-06-10: spot-lattice attractor; <=0.04 dies
         state.growthMode = 0; // Gaussian
         state.globalCoupling = false;
-        state.dt = 0.05;
+        state.dt = 0.1;
         state.noiseStrength = 0.0;
         state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 10; // Matter layer
+        state.colormapPalette = 1; // viridis reads matter density better than rainbow
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.2;
+        state.organismMinArea = 8;
 
-        const N = sim.N;
-        const size = Math.sqrt(N);
-        const theta = new Float32Array(N);
-        const omega = new Float32Array(N);
         const rand = rng ? rng.float : Math.random;
-
-        // Seed: Gaussian blob in center
-        const cx = size / 2, cy = size / 2;
-        const blobR = size * 0.08;
-        for (let i = 0; i < N; i++) {
-            const x = i % size, y = Math.floor(i / size);
-            const dx = x - cx, dy = y - cy;
-            const d2 = dx * dx + dy * dy;
-            theta[i] = Math.PI * 2.0 * Math.exp(-d2 / (2.0 * blobR * blobR));
-            omega[i] = 0;
-        }
-
-        sim.writeTheta(theta);
-        sim.writeOmega(omega);
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const dx = c - grid * 0.5;
+            const dy = r - grid * 0.5;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const blobR = 7.0;
+            // Soft asymmetric disc at the kernel's own scale, not the grid's.
+            const lump = Math.exp(-(dist * dist) / (2.0 * blobR * blobR));
+            return {
+                matter: Math.min(1, lump * (0.7 + 0.5 * rand())),
+                theta: rand() * Math.PI * 2.0,
+            };
+        });
     },
 
     lenia_geminium: (state, sim, rng = null) => {
-        // Geminium-style: double-Gaussian growth for excitation-inhibition
-        // Can produce splitting/replicating organisms
+        // True Lenia with double-Gaussian growth: two interacting matter blobs.
         state.ruleMode = 6;
-        state.K0 = 0.6;
-        state.sigma = 1.8;
-        state.sigma2 = 3.0;
-        state.beta = 0.5;
-        state.kernelShape = 0;
-        state.growthMu = 0.12;
-        state.growthSigma = 0.02;
+        state.K0 = 1.0;
+        state.sigma = 3.2;
+        state.sigma2 = 3.6;
+        state.beta = 0.0;
+        state.kernelShape = 7;
+        state.kernelCompositionEnabled = false;
+        state.growthMu = 0.15;
+        state.growthSigma = 0.06; // validated 2026-06-10 for double-Gaussian growth
         state.growthMode = 2; // Double-Gaussian
         state.globalCoupling = false;
-        state.dt = 0.04;
+        state.dt = 0.1;
         state.noiseStrength = 0.0;
         state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 10;
+        state.colormapPalette = 1;
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.2;
+        state.organismMinArea = 8;
 
-        const N = sim.N;
-        const size = Math.sqrt(N);
-        const theta = new Float32Array(N);
-        const omega = new Float32Array(N);
         const rand = rng ? rng.float : Math.random;
-
-        // Seed: two close blobs
-        const cx1 = size * 0.45, cy1 = size / 2;
-        const cx2 = size * 0.55, cy2 = size / 2;
-        const blobR = size * 0.06;
-        for (let i = 0; i < N; i++) {
-            const x = i % size, y = Math.floor(i / size);
-            const d1 = (x - cx1) ** 2 + (y - cy1) ** 2;
-            const d2 = (x - cx2) ** 2 + (y - cy2) ** 2;
-            theta[i] = Math.PI * 2.0 * (
-                Math.exp(-d1 / (2.0 * blobR * blobR)) +
-                Math.exp(-d2 / (2.0 * blobR * blobR))
-            );
-            omega[i] = 0;
-        }
-
-        sim.writeTheta(theta);
-        sim.writeOmega(omega);
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const blobR = 6.0;
+            const d1 = (c - grid * 0.5 + 9) ** 2 + (r - grid * 0.5) ** 2;
+            const d2 = (c - grid * 0.5 - 9) ** 2 + (r - grid * 0.5) ** 2;
+            const lump = Math.exp(-d1 / (2.0 * blobR * blobR)) + Math.exp(-d2 / (2.0 * blobR * blobR));
+            return {
+                matter: Math.min(1, lump * (0.7 + 0.5 * rand())),
+                theta: rand() * Math.PI * 2.0,
+            };
+        });
     },
 
     lenia_scutium: (state, sim, rng = null) => {
-        // Scutium-style: step growth function + wider kernel
-        // Produces shield-shaped stable structures
+        // True Lenia with step growth: annular matter seed at the kernel scale.
         state.ruleMode = 6;
-        state.K0 = 0.4;
-        state.sigma = 2.5;
-        state.sigma2 = 2.0;
-        state.beta = 0.4;
-        state.kernelShape = 0;
-        state.growthMu = 0.18;
-        state.growthSigma = 0.025;
+        state.K0 = 1.0;
+        state.sigma = 3.2;
+        state.sigma2 = 3.6;
+        state.beta = 0.0;
+        state.kernelShape = 7;
+        state.kernelCompositionEnabled = false;
+        state.growthMu = 0.15;
+        state.growthSigma = 0.06; // validated 2026-06-10 for step growth; narrower windows die
         state.growthMode = 1; // Step
         state.globalCoupling = false;
-        state.dt = 0.04;
+        state.dt = 0.1;
         state.noiseStrength = 0.0;
         state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 10;
+        state.colormapPalette = 1;
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.2;
+        state.organismMinArea = 8;
 
-        const N = sim.N;
-        const size = Math.sqrt(N);
-        const theta = new Float32Array(N);
-        const omega = new Float32Array(N);
         const rand = rng ? rng.float : Math.random;
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const dx = c - grid * 0.5;
+            const dy = r - grid * 0.5;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const ringR = 9.0;
+            const ringW = 3.0;
+            const ring = Math.exp(-((dist - ringR) ** 2) / (2.0 * ringW * ringW));
+            return {
+                matter: Math.min(1, ring * (0.7 + 0.5 * rand())),
+                theta: rand() * Math.PI * 2.0,
+            };
+        });
+    },
 
-        // Seed: ring pattern
-        const cx = size / 2, cy = size / 2;
-        const ringR = size * 0.1;
-        const ringW = size * 0.03;
-        for (let i = 0; i < N; i++) {
-            const x = i % size, y = Math.floor(i / size);
-            const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-            const ring = Math.exp(-((d - ringR) ** 2) / (2.0 * ringW * ringW));
-            theta[i] = Math.PI * 2.0 * ring;
-            omega[i] = 0;
-        }
+    kuramoto_nca_orbium: (state, sim, rng = null) => {
+        applyKuramotoNcaBase(state, {
+            ncaPhaseK: 1.0,
+            ncaGrowthK: 0.34,
+            ncaSyncFeedback: 0.55,
+            ncaMatterDecay: 0.012,
+        });
 
-        sim.writeTheta(theta);
-        sim.writeOmega(omega);
+        const rand = rng ? rng.float : Math.random;
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const dx = c - grid * 0.5;
+            const dy = r - grid * 0.5;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const blobR = grid * 0.075;
+            return {
+                matter: Math.exp(-(dist * dist) / (2.0 * blobR * blobR)),
+                theta: Math.atan2(dy, dx) + dist * 0.18 + (rand() - 0.5) * 0.2,
+            };
+        });
+    },
+
+    kuramoto_nca_mitosis: (state, sim, rng = null) => {
+        applyKuramotoNcaBase(state, {
+            ncaPhaseK: 1.35,
+            ncaGrowthK: 0.42,
+            ncaSyncFeedback: 0.75,
+            ncaMatterDecay: 0.011,
+            organismThreshold: 0.12,
+        });
+
+        const rand = rng ? rng.float : Math.random;
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            // Binding demo: two touching lobes seeded at OPPOSITE phases. With phase
+            // binding on, the anti-phase interface starves and the lobes keep separate
+            // identities; with ncaPhaseAffinity = 0 they fuse into one mass.
+            const cx = grid * 0.5;
+            const cy = grid * 0.5;
+            const lobe = grid * 0.045;
+            const dx1 = c - (cx - grid * 0.05);
+            const dx2 = c - (cx + grid * 0.05);
+            const dy = r - cy;
+            const left = Math.exp(-(dx1 * dx1 + dy * dy) / (2.0 * lobe * lobe));
+            const right = Math.exp(-(dx2 * dx2 + dy * dy) / (2.0 * lobe * lobe));
+            const leftDominant = left >= right;
+            return {
+                matter: Math.min(1.0, left + right),
+                theta: (leftDominant ? 0 : Math.PI) + (rand() - 0.5) * 0.25,
+            };
+        });
+    },
+
+    kuramoto_nca_filament: (state, sim, rng = null) => {
+        applyKuramotoNcaBase(state, {
+            ncaPhaseK: 1.6,
+            ncaGrowthK: 0.36,
+            ncaSyncFeedback: 0.85,
+            ncaMatterDecay: 0.010,
+            organismThreshold: 0.1,
+        });
+
+        const rand = rng ? rng.float : Math.random;
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const x = (c / grid) - 0.5;
+            const y = (r / grid) - 0.5;
+            const curve = 0.11 * Math.sin(x * Math.PI * 4.0);
+            const d = y - curve;
+            const taper = Math.exp(-(x * x) / 0.12);
+            return {
+                matter: taper * Math.exp(-(d * d) / (2.0 * 0.025 * 0.025)),
+                theta: x * Math.PI * 5.0 + y * Math.PI * 2.0 + (rand() - 0.5) * 0.18,
+            };
+        });
+    },
+
+    kuramoto_nca_droplets: (state, sim, rng = null) => {
+        applyKuramotoNcaBase(state, {
+            ncaPhaseK: 0.85,
+            ncaGrowthK: 0.40,
+            ncaSyncFeedback: 0.62,
+            ncaMatterDecay: 0.014,
+            organismThreshold: 0.16,
+            organismMinArea: 4,
+        });
+
+        const rand = rng ? rng.float : Math.random;
+        const centers = [
+            [0.38, 0.38], [0.62, 0.38], [0.46, 0.58], [0.58, 0.63], [0.5, 0.48],
+        ];
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            let matter = 0.0;
+            let theta = 0.0;
+            for (let i = 0; i < centers.length; i++) {
+                const cx = centers[i][0] * grid;
+                const cy = centers[i][1] * grid;
+                const dx = c - cx;
+                const dy = r - cy;
+                const blob = Math.exp(-(dx * dx + dy * dy) / (2.0 * (grid * 0.035) ** 2));
+                matter = Math.max(matter, blob);
+                theta += blob * (Math.atan2(dy, dx) + i * 1.2);
+            }
+            return {
+                matter,
+                theta: theta + (rand() - 0.5) * 0.35,
+            };
+        });
     },
 };

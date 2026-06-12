@@ -11,12 +11,14 @@ export function initExperimentControllers({
     getLastExternalCanvas,
     downloadJSON,
     onUpdate,
+    getOrganisms,
 }) {
     const experimentRunner = new ExperimentRunner({
         device,
         sim,
         stats,
         getState: () => state,
+        getOrganisms,
         onUpdate: (info) => onUpdate?.(info),
     });
 

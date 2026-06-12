@@ -50,7 +50,31 @@ export function resetSimulation(sim, STATE, lastExternalCanvas = null, options =
     const omegaRng = makeRng(STATE.seed, `omega:${omegaPattern}`);
     applyThetaPattern(sim, thetaPattern, null, null, thetaRng, STATE, lastExternalCanvas);
     applyOmegaPattern(sim, omegaPattern, omegaAmp, null, null, omegaRng, STATE);
+    if (typeof sim.writeMatter === 'function') {
+        const matterRule = STATE.ruleMode === 7 || STATE.ruleMode === 6;
+        sim.writeMatter(matterRule ? makeDefaultMatterSeed(sim) : new Float32Array(sim.N));
+    }
     if (typeof sim.writePrismaticState === 'function') sim.writePrismaticState();
+}
+
+export function makeDefaultMatterSeed(sim) {
+    const grid = sim.gridSize;
+    const layerSize = grid * grid;
+    const matter = new Float32Array(sim.N);
+    const cx = grid * 0.5;
+    const cy = grid * 0.5;
+    const blobR = grid * 0.075;
+    for (let layer = 0; layer < (sim.layers || 1); layer++) {
+        const offset = layer * layerSize;
+        for (let r = 0; r < grid; r++) {
+            for (let c = 0; c < grid; c++) {
+                const dx = c - cx;
+                const dy = r - cy;
+                matter[offset + r * grid + c] = Math.exp(-(dx * dx + dy * dy) / (2.0 * blobR * blobR));
+            }
+        }
+    }
+    return matter;
 }
 
 /**

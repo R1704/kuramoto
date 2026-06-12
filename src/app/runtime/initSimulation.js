@@ -34,6 +34,7 @@ export function initSimulationRuntime({ device, format, canvas, state }) {
         lastGaugeOverlayReadMs: 0,
         lastGaugeOverlayDurationMs: 0,
         gaugeProbeData: null,
+        ncaProbeData: null,
         probeReadPending: false,
         lastProbeReadMs: 0,
         lastProbeDurationMs: 0,

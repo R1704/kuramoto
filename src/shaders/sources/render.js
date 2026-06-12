@@ -85,6 +85,7 @@ struct InteractionParams {
 @group(0) @binding(9) var<uniform> gauge_params: GaugeParams;
 @group(0) @binding(10) var<uniform> interaction_params: InteractionParams;
 @group(0) @binding(11) var prismatic_state_tex: texture_2d_array<f32>;
+@group(0) @binding(12) var matter_tex: texture_2d_array<f32>;
 
 // Helper to load theta from texture
 fn loadThetaRender(col: u32, row: u32, layer: u32) -> f32 {
@@ -115,6 +116,12 @@ fn loadPrismaticRender(col: i32, row: i32, layer: u32, cols: i32, rows: i32) -> 
     let c = (col + cols) % cols;
     let r = (row + rows) % rows;
     return textureLoad(prismatic_state_tex, vec2<i32>(c, r), i32(layer), 0).rg;
+}
+
+fn loadMatterRender(col: i32, row: i32, layer: u32, cols: i32, rows: i32) -> f32 {
+    let c = (col + cols) % cols;
+    let r = (row + rows) % rows;
+    return textureLoad(matter_tex, vec2<i32>(c, r), i32(layer), 0).r;
 }
 
 fn wrapPhaseDiff(d: f32) -> f32 {
@@ -361,6 +368,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let v = textureLoad(theta_tex, vec2<i32>(c, r), i32(active_layer), 0).xyz;
     let order_idx = layer_stride * active_layer + u32(r) * u32(cols) + u32(c);
     let order_val = order[order_idx];
+    let matter_val = clamp(loadMatterRender(c, r, active_layer, cols, rows), 0.0, 1.0);
 
     // Gradient (finite diff) to mirror 2D shader
     let right = textureLoad(theta_tex, vec2<i32>((c + 1) % cols, r), i32(active_layer), 0).r;
@@ -477,6 +485,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             let blend = clamp(interaction_params.prismatic_style_blend, 0.0, 1.0);
             color = mix(base_color, style, blend);
         }
+    } else if (layer_choice == 10) {
+        // sqrt gain: Lenia-regime matter lives around 0.15-0.4, which is near-black raw.
+        color = sample_palette(sqrt(matter_val), palette);
     } else {
         color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     }
@@ -575,6 +586,7 @@ struct InteractionParams {
 @group(0) @binding(7) var<uniform> gauge_params_2d: GaugeParams;
 @group(0) @binding(8) var<uniform> interaction_params_2d: InteractionParams;
 @group(0) @binding(9) var prismatic_state_tex_2d: texture_2d_array<f32>;
+@group(0) @binding(10) var matter_tex_2d: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -939,6 +951,12 @@ fn sample_prismatic_wrapped(col: i32, row: i32, cols: i32, rows: i32, layer: u32
     return textureLoad(prismatic_state_tex_2d, vec2<i32>(c, r), i32(layer), 0).rg;
 }
 
+fn sample_matter_wrapped(col: i32, row: i32, cols: i32, rows: i32, layer: u32) -> f32 {
+    let c = ((col % cols) + cols) % cols;
+    let r = ((row % rows) + rows) % rows;
+    return textureLoad(matter_tex_2d, vec2<i32>(c, r), i32(layer), 0).r;
+}
+
 // ============================================================================
 // FRAGMENT SHADER
 // ============================================================================
@@ -984,6 +1002,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Load order parameter (no interpolation needed - it's already smooth)
     let idx = layer_stride * active_layer + u32(r) * u32(cols) + u32(c);
     let order_val = order[idx];
+    let matter_val = clamp(sample_matter_wrapped(c, r, cols, rows, active_layer), 0.0, 1.0);
     
     // Compute gradient for velocity/curvature modes (use discrete samples for accuracy)
     var gradient: f32;
@@ -1154,6 +1173,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             let blend = clamp(interaction_params_2d.prismatic_style_blend, 0.0, 1.0);
             col3 = mix(base_color, style, blend);
         }
+    } else if (layer_choice == 10) {
+        // sqrt gain: Lenia-regime matter lives around 0.15-0.4, which is near-black raw.
+        col3 = sample_palette_2d(sqrt(matter_val), palette);
     } else {
         col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     }

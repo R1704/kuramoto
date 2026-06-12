@@ -1,5 +1,6 @@
 import { screenUvToSimUv } from '../../core/viewTransform2d.js';
 import { canUseGaugeOverlay } from '../../utils/gaugeSupport.js';
+import { computeKuramotoNcaProbe } from '../../analysis/kuramotoNcaProbe.js';
 
 function wrapPhase(v) {
     let x = v;
@@ -10,7 +11,39 @@ function wrapPhase(v) {
     return x;
 }
 
+function formatContributor(contributor) {
+    if (!contributor) return '—';
+    const dx = contributor.dc >= 0 ? `+${contributor.dc}` : `${contributor.dc}`;
+    const dy = contributor.dr >= 0 ? `+${contributor.dr}` : `${contributor.dr}`;
+    return `${dx},${dy} c=${contributor.contribution.toFixed(3)}`;
+}
+
 export function initOverlayDiagnostics({ STATE, sim, runtime, getActiveLayerIndex }) {
+    const setNcaProbeText = (probe) => {
+        const summary = document.getElementById('nca-probe-summary');
+        const cell = document.getElementById('nca-probe-cell');
+        const fields = {
+            'nca-probe-matter': probe ? probe.matter : null,
+            'nca-probe-exc': probe ? probe.excDensity : null,
+            'nca-probe-inh': probe ? probe.inhDensity : null,
+            'nca-probe-u': probe ? probe.growthInput : null,
+            'nca-probe-r': probe ? probe.localR : null,
+            'nca-probe-c': probe ? probe.coherenceGate : null,
+            'nca-probe-growth': probe ? probe.growth : null,
+            'nca-probe-da': probe ? probe.matterDelta : null,
+        };
+        if (summary) summary.textContent = probe ? 'hover sample active' : 'hover Rule 7 matter';
+        if (cell) cell.textContent = probe ? `(${probe.c}, ${probe.r}) L${probe.layer}` : '—';
+        const topExc = document.getElementById('nca-probe-top-exc');
+        const topInh = document.getElementById('nca-probe-top-inh');
+        if (topExc) topExc.textContent = probe ? formatContributor(probe.dominantExc) : '—';
+        if (topInh) topInh.textContent = probe ? formatContributor(probe.dominantInh) : '—';
+        for (const [id, value] of Object.entries(fields)) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = Number.isFinite(value) ? value.toFixed(3) : '—';
+        }
+    };
+
     const sampleGauge = (gaugeData, layer, c, r, axis) => {
         if (!gaugeData) return 0;
         const src = axis === 'x' ? gaugeData.ax : gaugeData.ay;
@@ -56,9 +89,17 @@ export function initOverlayDiagnostics({ STATE, sim, runtime, getActiveLayerInde
     };
 
     const updateOverlayDiagnostics = () => {
+        const wantsNcaProbe = STATE.ruleMode === 7 && STATE.overlayProbeEnabled && runtime.overlayMouseNorm.inside;
         const wantsProbe = STATE.overlayProbeEnabled && runtime.overlayMouseNorm.inside;
         const overlayMode = canUseGaugeOverlay(STATE)
             && (STATE.overlayGaugeLinks || STATE.overlayPlaquetteSign || wantsProbe);
+
+        if (!wantsNcaProbe) {
+            if (runtime.ncaProbeData) {
+                runtime.ncaProbeData = null;
+                setNcaProbeText(null);
+            }
+        }
 
         if (!overlayMode) {
             if (runtime.gaugeProbeData || runtime.gaugeOverlayData) {
@@ -66,11 +107,45 @@ export function initOverlayDiagnostics({ STATE, sim, runtime, getActiveLayerInde
                 runtime.gaugeOverlayData = null;
                 runtime.overlayDirty = true;
             }
-            return;
         }
 
         const now = performance.now();
         const readbackBusy = runtime.rcReadPending || runtime.phaseSpacePending || sim.readbackPending;
+        if (wantsNcaProbe && !runtime.probeReadPending && !readbackBusy && (now - runtime.lastProbeReadMs) >= 260) {
+            const probeCell = getProbeCellFromMouse();
+            if (!probeCell) {
+                runtime.ncaProbeData = null;
+                setNcaProbeText(null);
+            } else {
+                runtime.probeReadPending = true;
+                const layer = getActiveLayerIndex();
+                const t0 = performance.now();
+                sim.readTheta().then((theta) => {
+                    if (!theta) return null;
+                    return sim.readMatterField().then((matter) => ({ theta, matter }));
+                }).then((fields) => {
+                    if (!fields) return;
+                    runtime.lastProbeReadMs = performance.now();
+                    runtime.lastProbeDurationMs = performance.now() - t0;
+                    runtime.ncaProbeData = computeKuramotoNcaProbe({
+                        theta: fields.theta,
+                        matter: fields.matter,
+                        state: STATE,
+                        gridSize: sim.gridSize,
+                        layer,
+                        c: probeCell.c,
+                        r: probeCell.r,
+                    });
+                    setNcaProbeText(runtime.ncaProbeData);
+                    runtime.overlayDirty = true;
+                }).finally(() => {
+                    runtime.probeReadPending = false;
+                });
+            }
+        }
+
+        if (!overlayMode) return;
+
         if (!runtime.gaugeOverlayReadPending && !runtime.probeReadPending && !readbackBusy && (now - runtime.lastGaugeOverlayReadMs) >= 180) {
             runtime.gaugeOverlayReadPending = true;
             const layer = getActiveLayerIndex();

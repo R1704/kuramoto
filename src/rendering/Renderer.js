@@ -12,7 +12,8 @@ const RENDER_BIND = {
     GAUGE_Y: 8,
     GAUGE_PARAMS: 9,
     INTERACTION_PARAMS: 10,
-    PRISMATIC_STATE: 11
+    PRISMATIC_STATE: 11,
+    MATTER: 12
 };
 
 export class Renderer {
@@ -90,6 +91,11 @@ export class Renderer {
                 {
                     binding: 11,
                     visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+                },
+                {
+                    binding: 12,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
                 },
             ],
@@ -233,6 +239,7 @@ export class Renderer {
                         { binding: RENDER_BIND.GAUGE_PARAMS, resource: { buffer: sim.gaugeParamsBuf } },
                         { binding: RENDER_BIND.INTERACTION_PARAMS, resource: { buffer: sim.interactionParamsBuf } },
                         { binding: RENDER_BIND.PRISMATIC_STATE, resource: sim.prismaticStateTexture.createView({ dimension: '2d-array' }) },
+                        { binding: RENDER_BIND.MATTER, resource: sim.matterTexture.createView({ dimension: '2d-array' }) },
                     ],
                 }));
             }
@@ -504,6 +511,7 @@ fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
                     { binding: 7, resource: { buffer: sim.gaugeParamsBuf } },
                     { binding: 8, resource: { buffer: sim.interactionParamsBuf } },
                     { binding: 9, resource: sim.prismaticStateTexture.createView({ dimension: '2d-array' }) },
+                    { binding: 10, resource: sim.matterTexture.createView({ dimension: '2d-array' }) },
                 ],
             });
             bindGroupCache.set(keyTexture, bindGroup);

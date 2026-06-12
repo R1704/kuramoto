@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Kuramoto - 2D/3D</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3C/svg%3E">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -109,6 +110,43 @@
 
         .panel-card .section-title {
             margin-bottom: 0;
+        }
+
+        .panel-card.collapsible-panel .section-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .panel-card.collapsed-panel {
+            gap: 8px;
+        }
+
+        .collapsible-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .collapsed-panel .collapsible-body {
+            display: none;
+        }
+
+        .panel-card-summary {
+            display: none;
+            color: #888;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .collapsed-panel .panel-card-summary {
+            display: block;
+        }
+
+        .collapse-toggle {
+            flex: 0 0 auto;
+            min-width: 64px;
         }
 
         .control-row {
@@ -1234,6 +1272,7 @@
                                 <option value="4">4: Mexican-Hat Kernel</option>
                                 <option value="5">5: Delay-Coupled</option>
                                 <option value="6">6: Lenia Growth</option>
+                                <option value="7">7: KuramotoNCA</option>
                             </select>
                             <div id="rule-desc" style="font-size: 10px; color: #888; line-height: 1.4;">
                                 Classic: dθ/dt = ω + K·sin(θⱼ - θᵢ)
@@ -1304,6 +1343,74 @@
                                     <option value="2">Double-Gaussian</option>
                                 </select>
                                 <div class="control-hint">Shape of growth mapping applied to convolution result.</div>
+                            </div>
+                        </div>
+                        <div id="nca-controls" style="display: none;">
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>NCA Phase Coupling</span>
+                                    <span class="control-value" id="nca-phase-k-value">1.00</span>
+                                </div>
+                                <input type="range" id="nca-phase-k-slider" min="0" max="4" step="0.01" value="1.0">
+                                <div class="control-hint">Phase synchrony force for living matter.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>NCA Growth Rate</span>
+                                    <span class="control-value" id="nca-growth-k-value">0.35</span>
+                                </div>
+                                <input type="range" id="nca-growth-k-slider" min="0" max="2" step="0.01" value="0.35">
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Incoherence Death</span>
+                                    <span class="control-value" id="nca-sync-feedback-value">0.25</span>
+                                </div>
+                                <input type="range" id="nca-sync-feedback-slider" min="0" max="2" step="0.01" value="0.25">
+                                <div class="control-hint">Prunes matter when nearby living oscillators fail to cohere.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Matter Decay</span>
+                                    <span class="control-value" id="nca-matter-decay-value">0.01</span>
+                                </div>
+                                <input type="range" id="nca-matter-decay-slider" min="0" max="0.2" step="0.001" value="0.01">
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Coherence Gate</span>
+                                    <span class="control-value"><span id="nca-coherence-min-value">0.18</span> / <span id="nca-coherence-max-value">0.65</span></span>
+                                </div>
+                                <input type="range" id="nca-coherence-min-slider" min="0" max="0.95" step="0.01" value="0.18">
+                                <input type="range" id="nca-coherence-max-slider" min="0.05" max="1" step="0.01" value="0.65">
+                                <div class="control-hint">Living oscillator coherence range that opens matter birth.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Hidden Memory</span>
+                                    <span class="control-value" id="nca-hidden-memory-value">0.08</span>
+                                </div>
+                                <input type="range" id="nca-hidden-memory-slider" min="0" max="0.5" step="0.01" value="0.08">
+                                <div class="control-hint">Rate and strength for four fixed hidden morphogen channels.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Phase Binding</span>
+                                    <span class="control-value" id="nca-phase-affinity-value">0.70</span>
+                                </div>
+                                <input type="range" id="nca-phase-affinity-slider" min="0" max="1" step="0.01" value="0.7">
+                                <div class="control-hint">How much a neighbor's matter must be in phase to support growth: 0 = phase-blind, 1 = synchrony binds / anti-phase segments.</div>
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">
+                                    <span>Ablation</span>
+                                </div>
+                                <select id="nca-ablation-select">
+                                    <option value="0">Full Model</option>
+                                    <option value="1">Frozen Oscillator (ω=0)</option>
+                                    <option value="2">Gate Off (Pure Lenia)</option>
+                                </select>
+                                <div class="control-hint">Controls whether the oscillator earns its place: freeze intrinsic rotation or bypass the coherence gate.</div>
                             </div>
                         </div>
                         <div class="control-group">
@@ -1514,6 +1621,7 @@
                                     <option value="4">Step (rectangular)</option>
                                     <option value="5">Multi-Ring (concentric)</option>
                                     <option value="6">Gabor (oscillatory)</option>
+                                    <option value="7">Lenia Shell (ring)</option>
                                 </select>
                             </div>
                             <div id="anisotropic-controls" style="display: none; flex-direction: column; gap: 12px; padding-left: 12px; border-left: 2px solid #333;">
@@ -1949,9 +2057,13 @@
 
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Lenia / Artificial Life</div>
                     <div class="button-group">
-                        <button class="preset-btn" data-preset="lenia_orbium" style="background: linear-gradient(135deg, #1a3a5a, #2d5a1a);">🦠 Orbium</button>
-                        <button class="preset-btn" data-preset="lenia_geminium" style="background: linear-gradient(135deg, #3a1a5a, #1a5a3a);">🧬 Geminium</button>
-                        <button class="preset-btn" data-preset="lenia_scutium" style="background: linear-gradient(135deg, #5a3a1a, #1a3a5a);">🛡️ Scutium</button>
+                        <button class="preset-btn" data-preset="lenia_orbium" style="background: linear-gradient(135deg, #1a3a5a, #2d5a1a);">🦠 Lenia Spots</button>
+                        <button class="preset-btn" data-preset="lenia_geminium" style="background: linear-gradient(135deg, #3a1a5a, #1a5a3a);">🧬 Lenia Twin Colony</button>
+                        <button class="preset-btn" data-preset="lenia_scutium" style="background: linear-gradient(135deg, #5a3a1a, #1a3a5a);">🛡️ Lenia Step Cells</button>
+                        <button class="preset-btn" data-preset="kuramoto_nca_orbium" style="background: linear-gradient(135deg, #163840, #35521d);">KuramotoNCA Orbium</button>
+                        <button class="preset-btn" data-preset="kuramoto_nca_mitosis" style="background: linear-gradient(135deg, #2a4c42, #5a3f1a);">KuramotoNCA Mitosis</button>
+                        <button class="preset-btn" data-preset="kuramoto_nca_filament" style="background: linear-gradient(135deg, #233f5a, #225046);">KuramotoNCA Filament</button>
+                        <button class="preset-btn" data-preset="kuramoto_nca_droplets" style="background: linear-gradient(135deg, #452c55, #1d4c4a);">KuramotoNCA Droplets</button>
                     </div>
 
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Discovery Presets</div>
@@ -2344,6 +2456,7 @@
                             <option value="7" id="data-layer-gauge-flux">Gauge Flux (F)</option>
                             <option value="8" id="data-layer-cov-gradient">Covariant Gradient (|Dθ|)</option>
                             <option value="9" id="data-layer-prismatic-style">Prismatic Style View</option>
+                            <option value="10">Matter</option>
                         </select>
                         <div class="control-hint">Affects rendering only.</div>
                     </div>
@@ -2617,6 +2730,57 @@
                         </div>
                     </div>
 
+                    <div class="panel-card" id="nca-probe-section">
+                        <div class="section-title">NCA Probe</div>
+                        <div style="font-size: 11px; color:#888; margin-bottom: 8px;">Rule 7 hover readout for the local matter update.</div>
+                        <div class="stats-grid">
+                            <div class="stat-row">
+                                <span class="stat-label">Status:</span>
+                                <span class="stat-value" id="nca-probe-summary">hover Rule 7 matter</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Cell:</span>
+                                <span class="stat-value" id="nca-probe-cell">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Matter a:</span>
+                                <span class="stat-value" id="nca-probe-matter">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Exc / Inh:</span>
+                                <span class="stat-value"><span id="nca-probe-exc">—</span> / <span id="nca-probe-inh">—</span></span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Growth u:</span>
+                                <span class="stat-value" id="nca-probe-u">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Local R:</span>
+                                <span class="stat-value" id="nca-probe-r">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Gate C:</span>
+                                <span class="stat-value" id="nca-probe-c">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">G(u):</span>
+                                <span class="stat-value" id="nca-probe-growth">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">da/dt:</span>
+                                <span class="stat-value" id="nca-probe-da">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Top exc:</span>
+                                <span class="stat-value" id="nca-probe-top-exc">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Top inh:</span>
+                                <span class="stat-value" id="nca-probe-top-inh">—</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="panel-card" id="phase-space-section">
                         <div class="section-title">Phase Space</div>
                         <div class="viz-section">
@@ -2657,6 +2821,19 @@
                                 <option value="gaugeStiffness">Magnetic Stiffness κ_B</option>
                                 <option value="K0">Coupling K₀</option>
                                 <option value="range">Neighborhood Range</option>
+                                <option value="ncaPhaseK">NCA Phase Coupling</option>
+                                <option value="ncaGrowthK">NCA Growth Rate</option>
+                                <option value="ncaSyncFeedback">NCA Incoherence Death</option>
+                                <option value="ncaMatterDecay">NCA Matter Decay</option>
+                                <option value="ncaCoherenceMin">NCA Coherence Min</option>
+                                <option value="ncaCoherenceMax">NCA Coherence Max</option>
+                                <option value="ncaAblationMode">NCA Ablation Mode</option>
+                                <option value="ncaPhaseAffinity">NCA Phase Binding</option>
+                                <option value="growthMu">Growth μ</option>
+                                <option value="growthSigma">Growth σ</option>
+                                <option value="sigma">Kernel Excitation σ</option>
+                                <option value="sigma2">Kernel Inhibition σ₂</option>
+                                <option value="beta">Kernel Inhibition β</option>
                             </select>
                         </div>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
@@ -2678,6 +2855,8 @@
                             </div>
                         </div>
                         <div style="display:flex; gap:6px; margin-top: 8px;">
+                            <button id="nca-sweep-range-btn" class="tiny-btn" style="flex:1;">NCA Range</button>
+                            <button id="nca-ablation-sweep-btn" class="tiny-btn" style="flex:1;">NCA Ablation</button>
                             <button id="sweep-range-frustration-btn" class="tiny-btn" style="flex:1;">Frustration Range</button>
                             <button id="sweep-range-feedback-btn" class="tiny-btn" style="flex:1;">Feedback Range</button>
                             <button id="sweep-range-stiffness-btn" class="tiny-btn" style="flex:1;">Stiffness Range</button>
@@ -2685,6 +2864,10 @@
                         <div class="button-group" style="margin-top: 8px;">
                             <button id="sweep-run-btn" class="small-btn" style="flex:1;">▶ Run Sweep</button>
                             <button id="sweep-cancel-btn" class="small-btn" style="flex:1;" disabled>⏹ Cancel</button>
+                        </div>
+                        <div class="button-group" style="margin-top: 8px;">
+                            <button id="sweep-apply-best-btn" class="tiny-btn" style="flex:1;" disabled>Apply Best</button>
+                            <button id="sweep-export-best-url-btn" class="tiny-btn" style="flex:1;" disabled>Best URL</button>
                         </div>
                         <div class="button-group" style="margin-top: 8px;">
                             <button id="sweep-export-json-btn" class="tiny-btn" style="flex:1;" disabled>Export JSON</button>
@@ -2763,6 +2946,7 @@
                             </div>
                             <div id="exp-status" style="font-size: 11px; color:#aaa;">idle</div>
                             <div id="exp-progress" style="font-size: 10px; color:#777;"></div>
+                            <div id="exp-nca-summary" style="font-size: 10px; color:#88b7aa;"></div>
                         </div>
                     </div>
 
@@ -2971,7 +3155,7 @@
             <button class="shortcut-trigger" id="shortcut-trigger" type="button">?</button>
             <div class="shortcut-panel" id="shortcut-panel">
                 <strong>Keyboard Shortcuts</strong><br>
-                <kbd>0</kbd>-<kbd>6</kbd> Switch rules<br>
+                <kbd>0</kbd>-<kbd>7</kbd> Switch rules<br>
                 <kbd>R</kbd> Reset state<br>
                 <kbd>G</kbd> Toggle global coupling<br>
                 <kbd>C</kbd> Cycle palettes &nbsp;|&nbsp; <kbd>Shift</kbd>+<kbd>C</kbd> Cycle data layer<br>
@@ -3094,7 +3278,75 @@
             });
         };
 
+        const initCollapsiblePanels = () => {
+            const configs = [
+                {
+                    id: 'gauge-panel',
+                    collapsed: true,
+                    summary: 'Advanced U(1) gauge controls. Open when running frustration or dynamic-gauge experiments.'
+                },
+                {
+                    id: 'kernel-section',
+                    collapsed: true,
+                    summary: 'Advanced kernel shaping. Opens automatically when visible, but stays compact until needed.'
+                },
+                {
+                    id: 'kernel-visuals',
+                    collapsed: true,
+                    summary: 'Kernel profile and top-view previews.'
+                },
+                {
+                    id: 'empyrean-panel',
+                    collapsed: true,
+                    summary: 'Prismatic dynamics, force injection, and reactive audio controls.'
+                }
+            ];
+
+            configs.forEach(({ id, collapsed, summary }) => {
+                const card = document.getElementById(id);
+                if (!card || card.dataset.collapsibleReady === 'true') return;
+                const title = card.querySelector('.section-title');
+                if (!title) return;
+
+                const body = document.createElement('div');
+                body.className = 'collapsible-body';
+
+                Array.from(card.children).forEach((child) => {
+                    if (child === title || child.classList?.contains('help-tooltip')) return;
+                    body.appendChild(child);
+                });
+
+                const summaryEl = document.createElement('div');
+                summaryEl.className = 'panel-card-summary';
+                summaryEl.textContent = summary;
+
+                const toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'tiny-btn collapse-toggle';
+                toggle.textContent = collapsed ? 'Show' : 'Hide';
+
+                const setCollapsed = (next) => {
+                    card.classList.toggle('collapsed-panel', next);
+                    toggle.textContent = next ? 'Show' : 'Hide';
+                    toggle.setAttribute('aria-expanded', next ? 'false' : 'true');
+                };
+
+                toggle.addEventListener('click', () => {
+                    setCollapsed(!card.classList.contains('collapsed-panel'));
+                    window.dispatchEvent(new Event('resize'));
+                });
+
+                title.appendChild(toggle);
+                card.appendChild(summaryEl);
+                card.appendChild(body);
+                card.classList.add('collapsible-panel');
+                card.dataset.collapsibleReady = 'true';
+                setCollapsed(!!collapsed);
+            });
+        };
+
         document.addEventListener('DOMContentLoaded', () => {
+            initCollapsiblePanels();
             initTabs('control-tabs');
             initDynTabs();
             initTooltips();

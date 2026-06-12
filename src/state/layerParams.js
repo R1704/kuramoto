@@ -71,6 +71,17 @@ export function makeLayerParamsFromState(state) {
         growthMu: state.growthMu ?? 0.15,
         growthSigma: state.growthSigma ?? 0.015,
         growthMode: state.growthMode ?? 0,
+
+        // KuramotoNCA substrate
+        ncaPhaseK: state.ncaPhaseK ?? 1.0,
+        ncaGrowthK: state.ncaGrowthK ?? 0.35,
+        ncaSyncFeedback: state.ncaSyncFeedback ?? 0.25,
+        ncaMatterDecay: state.ncaMatterDecay ?? 0.01,
+        ncaCoherenceMin: state.ncaCoherenceMin ?? 0.18,
+        ncaCoherenceMax: state.ncaCoherenceMax ?? 0.65,
+        ncaHiddenMemory: state.ncaHiddenMemory ?? 0.08,
+        ncaAblationMode: state.ncaAblationMode ?? 0,
+        ncaPhaseAffinity: state.ncaPhaseAffinity ?? 0.7,
     };
 }
 
@@ -146,6 +157,17 @@ export function applyLayerParamsToState(state, layerIdx) {
     state.growthMu = lp.growthMu ?? 0.15;
     state.growthSigma = lp.growthSigma ?? 0.015;
     state.growthMode = lp.growthMode ?? 0;
+
+    // Apply KuramotoNCA params
+    state.ncaPhaseK = lp.ncaPhaseK ?? 1.0;
+    state.ncaGrowthK = lp.ncaGrowthK ?? 0.35;
+    state.ncaSyncFeedback = lp.ncaSyncFeedback ?? 0.25;
+    state.ncaMatterDecay = lp.ncaMatterDecay ?? 0.01;
+    state.ncaCoherenceMin = lp.ncaCoherenceMin ?? 0.18;
+    state.ncaCoherenceMax = lp.ncaCoherenceMax ?? 0.65;
+    state.ncaHiddenMemory = lp.ncaHiddenMemory ?? 0.08;
+    state.ncaAblationMode = lp.ncaAblationMode ?? 0;
+    state.ncaPhaseAffinity = lp.ncaPhaseAffinity ?? 0.7;
 
     return true;
 }

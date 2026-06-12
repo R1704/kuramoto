@@ -54,6 +54,24 @@ export function createAnalysisCallbacks({
             const ts = new Date().toISOString().replace(/[:.]/g, '-');
             downloadCSV(csv, `kuramoto_sweep_${ts}.csv`);
         },
+        onApplyBestSweep: () => {
+            const sweep = getDiscoverySweepController();
+            if (!sweep || sweep.isRunning()) return;
+            const applied = sweep.applyBestResult?.();
+            if (!applied) return;
+            setSweepUIState(false, `applied #${applied.rank || 1}: ${applied.param}=${Number(applied.value).toFixed(3)}`);
+            stateAdapter.syncURL(true);
+        },
+        onExportBestSweepURL: () => {
+            const sweep = getDiscoverySweepController();
+            if (!sweep || sweep.isRunning()) return;
+            const url = sweep.exportBestResultURL?.();
+            if (!url) return;
+            if (navigator?.clipboard?.writeText) {
+                void navigator.clipboard.writeText(url);
+            }
+            setSweepUIState(false, 'best URL copied');
+        },
         onCompareCapture: (slot) => {
             if (slot !== 'a' && slot !== 'b') return;
             void captureCompareSnapshot(slot);

@@ -4,7 +4,7 @@ const GAUGE_PARAMS_FLOAT_COUNT = 12;
 const GAUGE_PARAMS_UNIFORM_BYTES = GAUGE_PARAMS_FLOAT_COUNT * 4;
 const INTERACTION_PARAMS_FLOAT_COUNT = 28;
 const INTERACTION_PARAMS_UNIFORM_BYTES = INTERACTION_PARAMS_FLOAT_COUNT * 4;
-const LAYER_PARAMS_STRIDE_FLOATS = 56;
+const LAYER_PARAMS_STRIDE_FLOATS = 64;
 const MAX_LAYER_PARAMS = 8;
 const LAYER_PARAMS_UNIFORM_BYTES = LAYER_PARAMS_STRIDE_FLOATS * 4 * MAX_LAYER_PARAMS;
 
@@ -15,8 +15,8 @@ function assertBufferLayoutInvariants() {
         assert(PARAMS_UNIFORM_BYTES === 320, `params uniform bytes expected 320, got ${PARAMS_UNIFORM_BYTES}`);
         assert(GAUGE_PARAMS_UNIFORM_BYTES === 48, `gauge uniform bytes expected 48, got ${GAUGE_PARAMS_UNIFORM_BYTES}`);
         assert(INTERACTION_PARAMS_UNIFORM_BYTES === 112, `interaction uniform bytes expected 112, got ${INTERACTION_PARAMS_UNIFORM_BYTES}`);
-        assert(LAYER_PARAMS_STRIDE_FLOATS === 56, `layer params stride expected 56, got ${LAYER_PARAMS_STRIDE_FLOATS}`);
-        assert(LAYER_PARAMS_UNIFORM_BYTES === 1792, `layer params bytes expected 1792, got ${LAYER_PARAMS_UNIFORM_BYTES}`);
+        assert(LAYER_PARAMS_STRIDE_FLOATS === 64, `layer params stride expected 64, got ${LAYER_PARAMS_STRIDE_FLOATS}`);
+        assert(LAYER_PARAMS_UNIFORM_BYTES === 2048, `layer params bytes expected 2048, got ${LAYER_PARAMS_UNIFORM_BYTES}`);
         assert((PARAMS_UNIFORM_BYTES % 16) === 0, 'params uniform must be 16-byte aligned');
         assert((GAUGE_PARAMS_UNIFORM_BYTES % 16) === 0, 'gauge uniform must be 16-byte aligned');
         assert((INTERACTION_PARAMS_UNIFORM_BYTES % 16) === 0, 'interaction uniform must be 16-byte aligned');
@@ -37,6 +37,47 @@ export function initBuffers() {
         this.thetaTextures = [makeThetaTexture(), makeThetaTexture()];
         this.thetaIndex = 0;
         this.thetaTexture = this.thetaTextures[this.thetaIndex];
+
+        const makeMatterTexture = () => this.device.createTexture({
+            size: [this.gridSize, this.gridSize, this.layers],
+            format: 'r32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        });
+        this.matterTextures = [makeMatterTexture(), makeMatterTexture()];
+        this.matterIndex = 0;
+        this.matterTexture = this.matterTextures[this.matterIndex];
+        this.matterReadbackBuf = null;
+        const matterInit = new Float32Array(this.N);
+        const matterLayout = { bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize };
+        const matterSize = [this.gridSize, this.gridSize, this.layers];
+        for (const tex of this.matterTextures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                matterInit,
+                matterLayout,
+                matterSize
+            );
+        }
+
+        const makeHiddenTexture = () => this.device.createTexture({
+            size: [this.gridSize, this.gridSize, this.layers],
+            format: 'rgba32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+        });
+        this.hiddenTextures = [makeHiddenTexture(), makeHiddenTexture()];
+        this.hiddenIndex = 0;
+        this.hiddenTexture = this.hiddenTextures[this.hiddenIndex];
+        const hiddenInit = new Float32Array(this.N * 4);
+        const hiddenLayout = { bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize };
+        const hiddenSize = [this.gridSize, this.gridSize, this.layers];
+        for (const tex of this.hiddenTextures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                hiddenInit,
+                hiddenLayout,
+                hiddenSize
+            );
+        }
         
         // Staging buffer for reading back texture data (for delay buffers and reduction)
         this.thetaStagingBuf = this.device.createBuffer({
@@ -45,7 +86,7 @@ export function initBuffers() {
         });
         
         this.omegaBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        this.orderBuf = this.device.createBuffer({ size: this.N * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
         // Params buffer: padded to 320 bytes (80 floats, 16-byte aligned)
         this.paramsBuf = this.device.createBuffer({ size: PARAMS_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         // Gauge + visualization params buffer (12 floats, 48 bytes)
@@ -273,7 +314,7 @@ export function initBuffers() {
 
 export function writeLayerParams(layers) {
         const count = Math.max(1, this.layers || 1);
-        const stride = LAYER_PARAMS_STRIDE_FLOATS;  // Must match WGSL struct size (56 floats = 224 bytes, 16-byte aligned)
+        const stride = LAYER_PARAMS_STRIDE_FLOATS;  // Must match WGSL struct size (64 floats = 256 bytes, 16-byte aligned)
         const data = new Float32Array(stride * MAX_LAYER_PARAMS);
         for (let i = 0; i < Math.min(MAX_LAYER_PARAMS, count); i++) {
             const lp = Array.isArray(layers) ? layers[i] : null;
@@ -335,7 +376,16 @@ export function writeLayerParams(layers) {
             data[base + 52] = lp?.growthMu ?? 0.15;
             data[base + 53] = lp?.growthSigma ?? 0.015;
             data[base + 54] = lp?.growthMode ?? 0;
-            data[base + 55] = 0;
+            // KuramotoNCA parameters (indices 55-61)
+            data[base + 55] = lp?.ncaPhaseK ?? 1.0;
+            data[base + 56] = lp?.ncaGrowthK ?? 0.35;
+            data[base + 57] = lp?.ncaSyncFeedback ?? 0.25;
+            data[base + 58] = lp?.ncaMatterDecay ?? 0.01;
+            data[base + 59] = lp?.ncaCoherenceMin ?? 0.18;
+            data[base + 60] = lp?.ncaCoherenceMax ?? 0.65;
+            data[base + 61] = lp?.ncaHiddenMemory ?? 0.08;
+            data[base + 62] = lp?.ncaAblationMode ?? 0;
+            data[base + 63] = lp?.ncaPhaseAffinity ?? 0.7;
         }
         this.device.queue.writeBuffer(this.layerParamsBuf, 0, data);
 }
@@ -509,6 +559,22 @@ export function writeTheta(data) {
         for (let buf of this.delayBuffers) {
             this.device.queue.writeBuffer(buf, 0, data);
         }
+}
+
+export function writeMatter(data = null) {
+        const values = data ? new Float32Array(data) : new Float32Array(this.N);
+        this.matterData = new Float32Array(values);
+        const layout = { bytesPerRow: this.gridSize * 4, rowsPerImage: this.gridSize };
+        const size = [this.gridSize, this.gridSize, this.layers];
+        for (const tex of this.matterTextures) {
+            this.device.queue.writeTexture(
+                { texture: tex },
+                values,
+                layout,
+                size
+            );
+        }
+        this.matterTexture = this.matterTextures[this.matterIndex];
 }
 
 export function writeS2(data) {
