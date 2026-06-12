@@ -488,6 +488,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (layer_choice == 10) {
         // sqrt gain: Lenia-regime matter lives around 0.15-0.4, which is near-black raw.
         color = sample_palette(sqrt(matter_val), palette);
+    } else if (layer_choice == 11) {
+        // Living Phase: hue = oscillator phase, brightness = matter. Organisms wear
+        // their phase identity as color — binding shows as same-hue neighborhoods,
+        // domain boundaries as color edges. Dead space stays black.
+        let hue = fract(theta / 6.28318530718);
+        color = hsv_to_rgb(hue, 0.85, 1.0) * sqrt(matter_val);
     } else {
         color = select(sample_palette(t_phase, palette), t_vec, params.manifold_mode > 0.5);
     }
@@ -1176,6 +1182,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (layer_choice == 10) {
         // sqrt gain: Lenia-regime matter lives around 0.15-0.4, which is near-black raw.
         col3 = sample_palette_2d(sqrt(matter_val), palette);
+    } else if (layer_choice == 11) {
+        // Living Phase: hue = oscillator phase, brightness = matter. Organisms wear
+        // their phase identity as color — binding shows as same-hue neighborhoods,
+        // domain boundaries as color edges. Dead space stays black.
+        let hue = fract(theta / 6.28318530718);
+        col3 = hsv_to_rgb_2d(hue, 0.85, 1.0) * sqrt(matter_val);
     } else {
         col3 = select(sample_palette_2d(t_height, palette), t_vec, use_s2);
     }

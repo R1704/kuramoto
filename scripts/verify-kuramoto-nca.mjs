@@ -316,6 +316,15 @@ const checks = [
         hint: 'Expected sqrt gain on matter values in both 2D and 3D render paths.',
     },
     {
+        name: 'Living Phase layer makes phase identity visible on matter',
+        pass: (render.match(/layer_choice == 11/g) || []).length >= 2
+            && /value="11">Living Phase/.test(html)
+            && /colormap = 11/.test(presets)
+            && /nextRuleMode === 7[\s\S]{0,200}colormap = 11/.test(controls)
+            && /colormap === 10 \|\| this\.state\.colormap === 11/.test(controls),
+        hint: 'Expected render layer 11 (hue = phase, brightness = matter) in both paths, a UI option, rule-7 presets defaulting to it, and rule-switch handling.',
+    },
+    {
         name: 'growth params survive URL and matter seeds cover rule 6',
         pass: /growthMu: 'float'/.test(read('src/state/urlSchema.js'))
             && /growthSigma: 'float'/.test(read('src/state/urlSchema.js'))
@@ -403,10 +412,11 @@ const checks = [
         hint: 'Expected the sweep call site to detect organisms from readback instead of passing fake zeros.',
     },
     {
-        name: 'leaving rules 6/7 leaves the Matter layer',
-        pass: /colormap === 10/.test(controls)
-            && /nextRuleMode === 7 \|\| nextRuleMode === 6/.test(controls),
-        hint: 'Expected rule switching to move the display off the frozen Matter layer for rules 0-5.',
+        name: 'leaving rules 6/7 leaves the matter-backed layers',
+        pass: /nextRuleMode === 7/.test(controls)
+            && /nextRuleMode === 6/.test(controls)
+            && /colormap === 10 \|\| this\.state\.colormap === 11/.test(controls),
+        hint: 'Expected rule switching to move the display off the frozen Matter/Living Phase layers for rules 0-5.',
     },
 ];
 

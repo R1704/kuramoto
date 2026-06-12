@@ -562,9 +562,13 @@ export function bindControls() {
                 const previousRuleMode = this.state.ruleMode;
                 const nextRuleMode = parseInt(ruleSelect.value);
                 this.state.ruleMode = nextRuleMode;
-                if (nextRuleMode === 7 || nextRuleMode === 6) {
+                if (nextRuleMode === 7) {
+                    // Living Phase: organisms wear their phase identity as color.
+                    this.state.colormap = 11;
+                } else if (nextRuleMode === 6) {
+                    // Rule 6 phase is frozen; plain matter is the honest view.
                     this.state.colormap = 10;
-                } else if (this.state.colormap === 10) {
+                } else if (this.state.colormap === 10 || this.state.colormap === 11) {
                     // Matter texture is frozen for rules 0-5; do not leave a stale layer on screen.
                     this.state.colormap = 0;
                 }
