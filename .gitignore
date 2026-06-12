@@ -27,3 +27,4 @@ npm-debug.log*
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+__pycache__/
