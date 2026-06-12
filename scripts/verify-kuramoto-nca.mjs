@@ -316,6 +316,17 @@ const checks = [
         hint: 'Expected sqrt gain on matter values in both 2D and 3D render paths.',
     },
     {
+        name: 'migration presets: moving-organism regime (anisotropic kernel wind)',
+        pass: /lenia_migration/.test(presets)
+            && /kuramoto_nca_migration/.test(presets)
+            && /lenia_migration[\s\S]{0,900}kernelCompositionEnabled = true/.test(presets)
+            && /lenia_migration[\s\S]{0,900}kernelSecondary = 3/.test(presets)
+            && /data-preset="lenia_migration"/.test(html)
+            && /data-preset="kuramoto_nca_migration"/.test(html)
+            && /migration/i.test(docs),
+        hint: 'Expected migration presets (ring kernel + directional secondary, mix 0.6) with UI buttons and docs.',
+    },
+    {
         name: 'Living Phase layer makes phase identity visible on matter',
         pass: (render.match(/layer_choice == 11/g) || []).length >= 2
             && /value="11">Living Phase/.test(html)

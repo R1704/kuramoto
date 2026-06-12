@@ -1111,4 +1111,96 @@ export const Presets = {
             };
         });
     },
+
+    lenia_migration: (state, sim, rng = null) => {
+        // Moving organisms (found 2026-06-12): the validated spot-lattice regime under
+        // an anisotropic kernel "wind" — 60% shell ring + 40% directional Gaussian
+        // (shape 3). Every spot stays confined and alive while the whole population
+        // marches along the wind direction (~1 cell/s at dt 0.1). This is driven
+        // drift, not self-propulsion: the kernel breaks the symmetry, the organisms
+        // follow. Symmetric binding cannot self-propel (affinity is even in delta-phi).
+        state.ruleMode = 6;
+        state.K0 = 1.0;
+        state.sigma = 3.2;
+        state.sigma2 = 3.6;
+        state.beta = 0.0;
+        state.kernelShape = 7;
+        state.kernelCompositionEnabled = true;
+        state.kernelSecondary = 3; // directional Gaussian
+        state.kernelMixRatio = 0.6; // 0.6 primary ring + 0.4 directional
+        state.kernelAsymmetry = 1.0;
+        state.kernelAsymmetricOrientation = 0.0;
+        state.growthMu = 0.15;
+        state.growthSigma = 0.06;
+        state.growthMode = 0;
+        state.globalCoupling = false;
+        state.dt = 0.1;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 10;
+        state.colormapPalette = 1;
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.2;
+        state.organismMinArea = 8;
+
+        const rand = rng ? rng.float : Math.random;
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            const dx = c - grid * 0.5;
+            const dy = r - grid * 0.5;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const lump = Math.exp(-(dist * dist) / (2.0 * 7.0 * 7.0));
+            return {
+                matter: Math.min(1, lump * (0.7 + 0.5 * rand())),
+                theta: rand() * Math.PI * 2.0,
+            };
+        });
+    },
+
+    kuramoto_nca_migration: (state, sim, rng = null) => {
+        // Rule 7 under the same kernel wind. The coherence gate and phase binding
+        // ANCHOR organisms against drift (leading-edge cells read incoherent and
+        // phase-foreign), so the gate is loosened and binding reduced; even so the
+        // march is ~half rule 6's speed. Living Phase view shows colored organisms
+        // carrying their phase identity while they travel.
+        applyKuramotoNcaBase(state, {
+            ncaPhaseK: 0.85,
+            ncaGrowthK: 0.5,
+            ncaMatterDecay: 0.014,
+            ncaCoherenceMin: 0.06,
+            ncaCoherenceMax: 0.28,
+            ncaPhaseAffinity: 0.35,
+            organismThreshold: 0.16,
+            organismMinArea: 4,
+        });
+        state.dt = 0.07;
+        state.kernelCompositionEnabled = true;
+        state.kernelSecondary = 3;
+        state.kernelMixRatio = 0.6;
+        state.kernelAsymmetry = 1.0;
+        state.kernelAsymmetricOrientation = 0.0;
+
+        const rand = rng ? rng.float : Math.random;
+        const centers = [
+            [0.38, 0.38], [0.62, 0.38], [0.46, 0.58], [0.58, 0.63], [0.5, 0.48],
+        ];
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            let matter = 0.0;
+            let theta = 0.0;
+            for (let i = 0; i < centers.length; i++) {
+                const cx = centers[i][0] * grid;
+                const cy = centers[i][1] * grid;
+                const dx = c - cx;
+                const dy = r - cy;
+                const blob = Math.exp(-(dx * dx + dy * dy) / (2.0 * (grid * 0.035) ** 2));
+                matter = Math.max(matter, blob);
+                theta += blob * (Math.atan2(dy, dx) + i * 1.2);
+            }
+            return {
+                matter,
+                theta: theta + (rand() - 0.5) * 0.35,
+            };
+        });
+    },
 };

@@ -33,6 +33,48 @@ perception, scalar-before-vector warm-up.
 
 ---
 
+# Task: Find a regime with gliders / moving organisms
+
+Status: done (2026-06-12) - moving organisms found (driven drift); self-propelled gliders ruled out for the symmetric model with a designed path forward.
+
+Two candidate mechanisms:
+- (A) Phase-driven motility (unique to rule 7): an omega gradient makes traveling phase
+  waves; binding-weighted support becomes asymmetric across each spot -> spots should
+  surf. Test: droplets regime, omega gradient amp 0 (control) vs 0.4.
+- (B) Classic Lenia gliders (rule 6): shell kernel at Orbium-like geometry (ring radius
+  ~6.5 cells -> sigma2 4.33, shell width ~2 -> sigma 4), growthMu 0.15, NARROW growthSigma
+  (0.017-0.045), dt 0.1, asymmetric crescent seeds.
+
+Metric: per-track net centroid displacement (wrap-aware) and speed over >=20s, only for
+tracks persisting with stable area. Mover = net displacement > ~5 cells with coherent
+direction. Harness in-browser via __kuramotoDebug + own detector/tracker.
+
+- [x] Harness: crescent seeder, condition runner (wrap-aware per-track net displacement),
+      single-organism COM probe
+- [x] Stage A NEGATIVE: omega gradient does not transport settled rule 7 spots (median net
+      0.8 vs control 0.4; the few fast tracks are colonization-front chaining artifacts).
+      Root cause identified: binding affinity = cos(delta-phi) is EVEN -> a smooth phase
+      gradient pulls equally from both sides; self-propulsion needs an odd term
+      (Sakaguchi-style phase lag chi in the affinity - designed, not implemented).
+- [x] Stage B NEGATIVE: single crescents at Orbium-like shell geometry have no soliton
+      window - dead at growthSigma <= 0.018, symmetric explosion at >= 0.020. True Lenia
+      gliders need the exact Orbium pattern, not crude seeds. (Probe bug caught: it pinned
+      growthMode 0, so the mode-1/2 sweep never actually ran - rerun if ever revisited.)
+- [x] Stage C HIT: anisotropic kernel wind. Composition = 60% shell ring + 40% directional
+      Gaussian (secondary shape 3, asymmetry 1.0): the whole settled lattice marches in
+      straight lines, all organisms confined and alive. Rule 6: median net 17.7 cells/12s
+      (621 organisms); mix 0.85 -> 1.6 (weak), 0.7 -> 11.7, 0.6 -> 17.7. Rule 7 finding:
+      the coherence gate + binding ANCHOR organisms against drift (median 2.0 at stock
+      params); loosening gate (0.06/0.28) + affinity 0.35 + dt 0.07 -> median 6.0.
+- [x] Presets shipped: lenia_migration + kuramoto_nca_migration (buttons in Dynamics >
+      Lenia / Artificial Life). Preset verified post-reload: 644 organisms, mean drift
+      (-4.34, +0.03) cells/10s, zero births/deaths - pure translation. Verifier 43/43.
+- [x] Honest writeup in DOCUMENTATION.md: driven drift, NOT self-propulsion; negative
+      results recorded; Sakaguchi chirality named as the designed route to per-organism
+      self-propulsion.
+
+---
+
 # Task: Fix remaining faults — #3 collapse death terms, #4 drop hidden EMA, #5 viability re-target, binding-dependence experiments, #6 reframe
 
 Status: done (2026-06-12). Phase 1 work committed as 4331809; this task committed separately.
