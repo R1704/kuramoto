@@ -5,6 +5,8 @@
 set -e
 cd "$(dirname "$0")"
 PY=.venv/bin/python
+# Cap per-process CPU threads so 4 parallel runs don't oversubscribe the cores.
+export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 STEPS="${STEPS:-12000}"
 SIZE="${SIZE:-64}"
 MAXOBJ="${MAXOBJ:-8}"

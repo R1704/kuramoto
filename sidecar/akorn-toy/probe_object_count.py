@@ -21,31 +21,33 @@ from train import KuramotoSegmenter, phase_binding_loss
 
 
 def make_batch_multi(batch_size, size, n_shapes, device, generator=None):
-    # Built entirely on CPU, then moved to the device ONCE. Building scene tensors
-    # directly on the GPU with per-shape scalar `.uniform_()` calls forces hundreds
-    # of CPU<->GPU syncs per step (measured: ~280 ms/step on a 4090); CPU build +
-    # a single .to(device) is ~10x faster.
+    # Fully vectorized on the device: all shape parameters are sampled at once and
+    # masks are built by broadcasting, so there are NO per-scalar .item()/float()
+    # syncs and NO per-sample Python loop — only n_shapes (<=8) GPU ops per call.
+    # (The earlier per-shape scalar build cost ~280 ms/step; the CPU-build variant
+    # oversubscribed cores across the 4 parallel runs. This is ~ms on a 4090.)
     g = generator
-    yy, xx = torch.meshgrid(
-        torch.arange(size, dtype=torch.float32),
-        torch.arange(size, dtype=torch.float32),
-        indexing="ij",
-    )
-    images = torch.zeros(batch_size, 1, size, size)
-    labels = torch.zeros(batch_size, size, size, dtype=torch.long)
-    for b in range(batch_size):
-        for k in range(n_shapes):
-            cx = float(torch.empty(1).uniform_(size * 0.28, size * 0.72, generator=g))
-            cy = float(torch.empty(1).uniform_(size * 0.28, size * 0.72, generator=g))
-            rad = float(torch.empty(1).uniform_(size * 0.12, size * 0.18, generator=g))
-            if k % 2 == 0:
-                mask = ((xx - cx) ** 2 + (yy - cy) ** 2).sqrt() <= rad
-            else:
-                mask = ((xx - cx).abs() <= rad) & ((yy - cy).abs() <= rad)
-            labels[b][mask] = k + 1  # later shapes occlude earlier ones
-            images[b, 0][mask] = 0.5 + 0.12 * k
-    images = images + 0.05 * torch.randn(images.shape, generator=g)
-    return images.clamp(0, 1).to(device), labels.to(device)
+    yy = torch.arange(size, device=device, dtype=torch.float32).view(1, size, 1)
+    xx = torch.arange(size, device=device, dtype=torch.float32).view(1, 1, size)
+
+    def U(lo, hi):  # (batch,1,1) uniform on [lo,hi], no host sync
+        r = torch.rand(batch_size, 1, 1, device=device, generator=g)
+        return lo + (hi - lo) * r
+
+    images = torch.zeros(batch_size, size, size, device=device)
+    labels = torch.zeros(batch_size, size, size, dtype=torch.long, device=device)
+    for k in range(n_shapes):  # small loop over shapes, each step vectorized over the batch
+        cx = U(size * 0.28, size * 0.72)
+        cy = U(size * 0.28, size * 0.72)
+        rad = U(size * 0.12, size * 0.18)
+        if k % 2 == 0:
+            mask = ((xx - cx) ** 2 + (yy - cy) ** 2).sqrt() <= rad
+        else:
+            mask = ((xx - cx).abs() <= rad) & ((yy - cy).abs() <= rad)
+        labels = torch.where(mask, torch.full_like(labels, k + 1), labels)  # later shapes occlude
+        images = torch.where(mask, torch.full_like(images, 0.5 + 0.12 * k), images)
+    images = images + 0.05 * torch.randn(images.shape, device=device, generator=g)
+    return images.clamp(0, 1).unsqueeze(1), labels.to(device)
 
 
 @torch.no_grad()
