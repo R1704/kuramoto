@@ -848,6 +848,67 @@ export function bindControls() {
             btn.onclick = () => this.cb.onPreset(btn.dataset.preset);
         });
 
+        // Lenia bestiary picker (lazy-loads the ~900KB bestiary so startup is unaffected)
+        const bestiarySelect = getEl('lenia-bestiary-select');
+        if (bestiarySelect && this.cb.onSpawnAnimal) {
+            const search = getEl('lenia-bestiary-search');
+            const info = getEl('lenia-bestiary-info');
+            const countEl = getEl('lenia-bestiary-count');
+            const rule7El = getEl('lenia-bestiary-rule7');
+            import('../../patterns/leniaBestiary.js').then(({ LENIA_BESTIARY }) => {
+                this._bestiary = LENIA_BESTIARY;
+                const populate = (filter = '') => {
+                    const f = filter.trim().toLowerCase();
+                    const groups = new Map();
+                    for (const a of LENIA_BESTIARY) {
+                        if (f && !a.name.toLowerCase().includes(f)) continue;
+                        if (!groups.has(a.group)) groups.set(a.group, []);
+                        groups.get(a.group).push(a);
+                    }
+                    bestiarySelect.innerHTML = '';
+                    for (const [group, animals] of groups) {
+                        const og = document.createElement('optgroup');
+                        og.label = `${group} (${animals.length})`;
+                        for (const a of animals) {
+                            const o = document.createElement('option');
+                            o.value = a.name;
+                            o.textContent = a.name;
+                            og.appendChild(o);
+                        }
+                        bestiarySelect.appendChild(og);
+                    }
+                    const total = [...groups.values()].reduce((n, l) => n + l.length, 0);
+                    if (info) info.textContent = `${total} species. R=kernel radius, T=time res.`;
+                };
+                populate();
+                const showInfo = () => {
+                    const a = LENIA_BESTIARY.find(x => x.name === bestiarySelect.value);
+                    if (a && info) info.textContent = `${a.name} — R${a.R} T${a.T} m${a.m} s${a.s} ${a.b.length}-ring`;
+                };
+                bestiarySelect.onchange = showInfo;
+                if (search) search.oninput = () => populate(search.value);
+                const spawn = () => {
+                    const name = bestiarySelect.value;
+                    if (!name) return;
+                    this.cb.onSpawnAnimal(name, {
+                        count: Math.max(1, parseInt(countEl?.value, 10) || 1),
+                        ruleMode: rule7El?.checked ? 7 : 6,
+                    });
+                };
+                const spawnBtn = getEl('lenia-bestiary-spawn-btn');
+                const randomBtn = getEl('lenia-bestiary-random-btn');
+                if (spawnBtn) spawnBtn.onclick = spawn;
+                if (randomBtn) randomBtn.onclick = () => {
+                    const visible = bestiarySelect.options;
+                    if (visible.length) {
+                        bestiarySelect.selectedIndex = Math.floor(Math.random() * visible.length);
+                        showInfo();
+                        spawn();
+                    }
+                };
+            }).catch(e => console.warn('Lenia bestiary load failed:', e));
+        }
+
         const applyInitBtn = getEl('apply-init-btn');
         if (applyInitBtn) {
             applyInitBtn.onclick = () => {

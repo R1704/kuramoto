@@ -317,6 +317,19 @@ const checks = [
         hint: 'Expected sqrt gain on matter values in both 2D and 3D render paths.',
     },
     {
+        name: 'Lenia bestiary: exact multi-ring bell kernel (shape 9) + picker',
+        pass: /shape == 9/.test(compute)
+            && /ring_weights_select|ring_w = /.test(compute)
+            && /B \* q/.test(compute)
+            && /exp\(4\.0 - 1\.0 \/ \(frac_b \* \(1\.0 - frac_b\)\)\)/.test(compute)
+            && /i32\(lp\.kernel_shape\) == 9/.test(compute)
+            && /spawnAnimal/.test(read('src/patterns/leniaBestiary.js'))
+            && /decodeCells/.test(read('src/patterns/leniaBestiary.js'))
+            && /lenia-bestiary-select/.test(html)
+            && /lenia-bestiary-spawn-btn/.test(html),
+        hint: 'Expected kernel shape 9 (exact multi-ring Lenia bell reading ring weights), a bestiary module, and picker UI.',
+    },
+    {
         name: 'true Orbium: exact Lenia bell kernel + implanted pattern',
         pass: /shape == 8/.test(compute)
             && /exp\(4\.0 - 1\.0 \/ \(r_norm \* \(1\.0 - r_norm\)\)\)/.test(compute)

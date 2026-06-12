@@ -1607,6 +1607,7 @@
                                     <option value="6">Gabor (oscillatory)</option>
                                     <option value="7">Lenia Shell (ring)</option>
                                     <option value="8">Lenia Bell (exact, R=σ₂)</option>
+                                    <option value="9">Lenia Bell (multi-ring, bestiary)</option>
                                 </select>
                             </div>
                             <div id="anisotropic-controls" style="display: none; flex-direction: column; gap: 12px; padding-left: 12px; border-left: 2px solid #333;">
@@ -2053,6 +2054,22 @@
                         <button class="preset-btn" data-preset="kuramoto_nca_orbium_glider" style="background: linear-gradient(135deg, #4a1a5a, #1a5a4a);">🎨 KuramotoNCA Orbium</button>
                         <button class="preset-btn" data-preset="lenia_migration" style="background: linear-gradient(135deg, #1a4a3a, #4a3a1a);">🐦 Lenia Migration</button>
                         <button class="preset-btn" data-preset="kuramoto_nca_migration" style="background: linear-gradient(135deg, #2a3a5a, #4a2a3a);">🐦 KuramotoNCA Migration</button>
+                    </div>
+
+                    <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">🦠 Lenia Bestiary (463 species)</div>
+                    <div class="control-group">
+                        <input type="text" id="lenia-bestiary-search" placeholder="Filter by name…" style="width: 100%; margin-bottom: 4px; box-sizing: border-box;">
+                        <select id="lenia-bestiary-select" style="width: 100%;"></select>
+                        <div class="control-hint" id="lenia-bestiary-info">Pick an organism from Bert Chan's bestiary and spawn it.</div>
+                        <div style="display: flex; gap: 6px; align-items: center; margin-top: 6px;">
+                            <label style="font-size: 11px;">Count</label>
+                            <input type="number" id="lenia-bestiary-count" value="1" min="1" max="12" style="width: 48px;">
+                            <label style="font-size: 11px; display: flex; align-items: center; gap: 3px;"><input type="checkbox" id="lenia-bestiary-rule7"> Rule 7</label>
+                        </div>
+                        <div class="button-group" style="margin-top: 6px;">
+                            <button id="lenia-bestiary-spawn-btn" style="flex: 2;">Spawn</button>
+                            <button id="lenia-bestiary-random-btn" style="flex: 1;">Random</button>
+                        </div>
                     </div>
 
                     <div style="font-size: 10px; color: #666; margin-top: 12px; margin-bottom: 4px;">Discovery Presets</div>

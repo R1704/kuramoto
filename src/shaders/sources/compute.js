@@ -650,6 +650,28 @@ fn mexhat_weight_for_shape_scaled(dx: f32, dy: f32, shape: i32, scale: f32, lp: 
         }
     }
 
+    // Shape 9: exact MULTI-RING Lenia bell — the general bestiary kernel.
+    // K(r) = b[floor(B*q)] * exp(4 - 1/(f(1-f))), q = r/R, f = frac(B*q), B = #rings.
+    // The ring intensities b come from ring_weight_1..5; this reproduces any
+    // kn=1 animal (Orbium, Scutium, Kronium, ...). Indexing uniforms by a runtime
+    // value isn't allowed in WGSL, so the ring weight is selected by branch.
+    else if (shape == 9) {
+        let q = sqrt(dx * dx + dy * dy) / max(s2, 1.0);
+        base_weight = 0.0;
+        if (q > 0.0 && q < 1.0) {
+            let B = max(1.0, lp.kernel_rings);
+            let bq = B * q;
+            let ring = min(i32(floor(bq)), i32(B) - 1);
+            let frac_b = clamp(bq - floor(bq), 0.0001, 0.9999);
+            var ring_w = lp.ring_weight_1;
+            if (ring == 1) { ring_w = lp.ring_weight_2; }
+            else if (ring == 2) { ring_w = lp.ring_weight_3; }
+            else if (ring == 3) { ring_w = lp.ring_weight_4; }
+            else if (ring >= 4) { ring_w = lp.ring_weight_5; }
+            base_weight = ring_w * exp(4.0 - 1.0 / (frac_b * (1.0 - frac_b)));
+        }
+    }
+
     else {
         // Default to isotropic
         dist_sq = dx * dx + dy * dy;
@@ -911,7 +933,7 @@ fn rule_lenia_matter(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
     // Lenia bell (shape 8) has support exactly [0, R=sigma2]; sigma2*3 would blow
     // past the loop cap, so the range maps directly to R there.
     var rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 12.0));
-    if (i32(lp.kernel_shape) == 8) { rng_ext = i32(clamp(lp.sigma2 + 1.0, 1.0, 16.0)); }
+    if (i32(lp.kernel_shape) == 8 || i32(lp.kernel_shape) == 9) { rng_ext = i32(clamp(lp.sigma2 + 1.0, 1.0, 30.0)); }
 
     for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
         for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
@@ -944,7 +966,7 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
     var pos_total = 0.0;
     var neg_total = 0.0;
     var rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 8.0));
-    if (i32(lp.kernel_shape) == 8) { rng_ext = i32(clamp(lp.sigma2 + 1.0, 1.0, 16.0)); }
+    if (i32(lp.kernel_shape) == 8 || i32(lp.kernel_shape) == 9) { rng_ext = i32(clamp(lp.sigma2 + 1.0, 1.0, 30.0)); }
 
     for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
         for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {

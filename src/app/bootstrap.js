@@ -719,6 +719,19 @@ async function init() {
                 stateAdapter.syncURL(true);
             });
         },
+        onSpawnAnimal: (name, opts) => {
+            void import('../patterns/leniaBestiary.js').then(({ spawnAnimal }) => {
+                const rng = makeRng(STATE.seed, `lenia:${name}`);
+                const ok = spawnAnimal(STATE, sim, name, { ...opts, rand: rng.float });
+                if (!ok) return;
+                // Full GPU sync path: layer params (kernel/growth) live in their own buffer.
+                applyLayerStateToSimulation({ state: STATE, sim, normalizeSelectedLayers, syncStateToLayerParams });
+                applyStateToSimulation({ state: STATE, sim, renderer });
+                drawKernel(STATE);
+                ui?.updateDisplay?.();
+                stateAdapter.syncURL(true);
+            });
+        },
         onRuleModeChange: (ruleMode, previousRuleMode) => {
             const entersMatterRule = (ruleMode === 7 || ruleMode === 6) && previousRuleMode !== 7 && previousRuleMode !== 6;
             if (entersMatterRule && typeof sim.writeMatter === 'function') {

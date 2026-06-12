@@ -677,3 +677,27 @@ Detection runs every 200ms (configurable), only when `organismsEnabled === true`
 - [ ] Overlay shows bounding boxes, centroids, velocity vectors
 - [ ] Born/died/tracked counts update
 - [ ] Performance: no frame drops at 256×256 with detection enabled
+
+---
+
+# Task: Lenia bestiary picker — spawn any organism (2026-06-12)
+
+Survey: animals.json has 548 entries with cells+params; 523 (95%) use kn=1 (exact bell
+core) + gn=1 (exponential growth = our growthMode 0) + <=5 rings. Cap R<=28 (kernel loop
+limit) -> ~463 spawnable. Our growthMode 0 == Lenia gn=1 exactly; ring-weight uniforms
+(slots 16,22-26) already plumbed end-to-end (state/layerParams/buffers/shader).
+
+Plan:
+- [x] Build script (scripts/build-lenia-bestiary.mjs) -> leniaBestiary.json: 463 animals,
+      6 orders, 874KB. Dropped 25 polynomial/step-core + 60 radius>28.
+- [x] src/patterns/leniaBestiary.js: rle2arr/ch2val port, fetch+top-level-await load,
+      spawnAnimal(state, sim, name, {count, ruleMode, rand}).
+- [x] Shader shape 9 (exact multi-ring bell, ring weights by branch); neighborhood cap
+      raised to 30 for shapes 8/9 in both matter rules.
+- [x] Picker panel (Dynamics tab): search filter, optgroups by order, count, Rule 7
+      checkbox, Spawn + Random. Lazy dynamic-import so startup is unaffected.
+- [x] Verifier 45/45. Browser-verified 6 species across all 6 orders: all alive, mass
+      conserved, gliders glide (Kronium ~160 cells/6s) + rotators stay put (Hexadentium
+      0.4, Gyrorbium 1.9); multi-ring (Echinium 3-ring) works. Full UI path verified:
+      463 opts/6 optgroups, search filters, spawn 5 Scutium via buttons (mass 712).
+- [x] DOCUMENTATION.md: coverage (95%/463), dropped species, perf note for large R.
