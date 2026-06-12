@@ -639,6 +639,17 @@ fn mexhat_weight_for_shape_scaled(dx: f32, dy: f32, shape: i32, scale: f32, lp: 
         base_weight = exp(-(d * d) / (2.0 * shell_width * shell_width));
     }
 
+    // Shape 8: exact Lenia bell (Chan 2019, kernel core kn=1), radius R = sigma2.
+    // Orbium and the rest of the published bestiary are tuned to THIS profile;
+    // at growth sigma ~0.015 a Gaussian-ring approximation is not close enough.
+    else if (shape == 8) {
+        let r_norm = sqrt(dx * dx + dy * dy) / max(s2, 1.0);
+        base_weight = 0.0;
+        if (r_norm > 0.0 && r_norm < 1.0) {
+            base_weight = exp(4.0 - 1.0 / (r_norm * (1.0 - r_norm)));
+        }
+    }
+
     else {
         // Default to isotropic
         dist_sq = dx * dx + dy * dy;
@@ -897,7 +908,10 @@ fn growth_select(u: f32, mu: f32, sigma: f32, mode: i32) -> f32 {
 fn rule_lenia_matter(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: i32, lp: LayerParams) -> f32 {
     var sum = 0.0;
     var wpos = 0.0;
-    let rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 12.0));
+    // Lenia bell (shape 8) has support exactly [0, R=sigma2]; sigma2*3 would blow
+    // past the loop cap, so the range maps directly to R there.
+    var rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 12.0));
+    if (i32(lp.kernel_shape) == 8) { rng_ext = i32(clamp(lp.sigma2 + 1.0, 1.0, 16.0)); }
 
     for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
         for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {
@@ -929,7 +943,8 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
     var field = vec2<f32>(0.0, 0.0);
     var pos_total = 0.0;
     var neg_total = 0.0;
-    let rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 8.0));
+    var rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 8.0));
+    if (i32(lp.kernel_shape) == 8) { rng_ext = i32(clamp(lp.sigma2 + 1.0, 1.0, 16.0)); }
 
     for (var dr = -rng_ext; dr <= rng_ext; dr = dr + 1) {
         for (var dc = -rng_ext; dc <= rng_ext; dc = dc + 1) {

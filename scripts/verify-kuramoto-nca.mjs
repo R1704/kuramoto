@@ -316,6 +316,17 @@ const checks = [
         hint: 'Expected sqrt gain on matter values in both 2D and 3D render paths.',
     },
     {
+        name: 'true Orbium: exact Lenia bell kernel + implanted pattern',
+        pass: /shape == 8/.test(compute)
+            && /exp\(4\.0 - 1\.0 \/ \(r_norm \* \(1\.0 - r_norm\)\)\)/.test(compute)
+            && /kernel_shape\) == 8/.test(compute)
+            && /value="8">Lenia Bell/.test(html)
+            && /ORBIUM_CELLS/.test(presets)
+            && /lenia_orbium_glider/.test(presets)
+            && /data-preset="lenia_orbium_glider"/.test(html),
+        hint: 'Expected the exact Lenia bell kernel (shape 8, range >= R), the decoded Orbium pattern, and a glider preset.',
+    },
+    {
         name: 'migration presets: moving-organism regime (anisotropic kernel wind)',
         pass: /lenia_migration/.test(presets)
             && /kuramoto_nca_migration/.test(presets)

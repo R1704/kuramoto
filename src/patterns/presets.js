@@ -1,3 +1,31 @@
+// Orbium unicaudatus (Chan 2019, Lenia bestiary) decoded from the published RLE.
+// 20x20 cell pattern; lives ONLY with the exact Lenia bell kernel (shape 8) at
+// R = 13, growthMu 0.15, growthSigma 0.015, dt 0.1 - the first true self-propelled
+// glider in this app. Its asymmetric SHAPE is what breaks the symmetry; the rule
+// itself is isotropic.
+const ORBIUM_CELLS = [
+    [0, 0, 0, 0, 0, 0, 0, 0.051, 0.016, 0, 0, 0, 0, 0, 0, 0.235, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0.137, 0.208, 0.212, 0.082, 0.071, 0.098, 0.102, 0.071, 0.004, 0.255, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0.086, 0.267, 0.357, 0.384, 0.341, 0.188, 0.184, 0.172, 0.184, 0.176, 0.106, 0.349, 0, 0, 0],
+    [0, 0, 0, 0, 0.012, 0.067, 0.349, 0.455, 0.467, 0.38, 0.129, 0.078, 0.055, 0.063, 0.122, 0.216, 0.706, 0, 0, 0],
+    [0, 0, 0, 0.035, 0.129, 0.184, 0.341, 0.404, 0.384, 0.282, 0.133, 0, 0, 0, 0, 0.047, 0.4, 0.329, 0, 0],
+    [0.004, 0, 0.016, 0.137, 0.169, 0.133, 0.11, 0.247, 0.271, 0.263, 0.208, 0, 0, 0, 0, 0, 0.02, 0.863, 0, 0],
+    [0.235, 0, 0.102, 0.172, 0.078, 0, 0, 0.2, 0.31, 0.369, 0.372, 0.239, 0, 0, 0, 0, 0, 0.455, 0.157, 0],
+    [0, 0.122, 0.184, 0.11, 0, 0, 0, 0.271, 0.427, 0.506, 0.537, 0.51, 0, 0, 0, 0, 0, 0, 0.518, 0],
+    [0, 0.588, 0.216, 0.031, 0, 0, 0, 0.188, 0.529, 0.635, 0.682, 0.682, 0.42, 0, 0, 0, 0, 0, 0.427, 0],
+    [0, 0.553, 0.235, 0, 0, 0, 0, 0.028, 0.62, 0.757, 0.839, 0.855, 0.808, 0.106, 0, 0, 0, 0, 0.282, 0.098],
+    [0, 0, 0.596, 0, 0, 0, 0, 0, 0.667, 0.875, 0.961, 0.992, 0.973, 0.561, 0, 0, 0, 0, 0.224, 0.141],
+    [0, 0, 0.839, 0, 0, 0, 0, 0, 0.506, 0.969, 1.0, 1.0, 1.0, 0.914, 0.278, 0, 0, 0.024, 0.22, 0.133],
+    [0, 0, 0.553, 0.074, 0, 0, 0, 0, 0.333, 1.0, 1.0, 0.98, 1.0, 0.973, 0.557, 0.157, 0.051, 0.118, 0.243, 0.086],
+    [0, 0, 0.031, 0.447, 0, 0, 0, 0, 0.176, 0.851, 1.0, 0.894, 0.863, 0.867, 0.651, 0.333, 0.196, 0.216, 0.231, 0.039],
+    [0, 0, 0, 0.423, 0.114, 0, 0, 0, 0.114, 0.62, 0.878, 0.824, 0.78, 0.741, 0.612, 0.408, 0.294, 0.267, 0.165, 0],
+    [0, 0, 0, 0.078, 0.333, 0.074, 0, 0, 0.118, 0.423, 0.674, 0.722, 0.678, 0.627, 0.525, 0.404, 0.31, 0.224, 0.063, 0],
+    [0, 0, 0, 0, 0.165, 0.259, 0.149, 0.118, 0.172, 0.337, 0.498, 0.557, 0.545, 0.498, 0.427, 0.337, 0.243, 0.118, 0, 0],
+    [0, 0, 0, 0, 0, 0.145, 0.231, 0.235, 0.259, 0.318, 0.388, 0.423, 0.412, 0.361, 0.306, 0.228, 0.126, 0.02, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0.071, 0.169, 0.228, 0.251, 0.275, 0.278, 0.259, 0.231, 0.165, 0.094, 0.02, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0.059, 0.102, 0.129, 0.133, 0.118, 0.078, 0.043, 0, 0, 0, 0, 0],
+];
+
 function applyKuramotoNcaBase(state, overrides = {}) {
     state.ruleMode = 7;
     state.K0 = 1.0;
@@ -1109,6 +1137,46 @@ export const Presets = {
                 matter,
                 theta: theta + (rand() - 0.5) * 0.35,
             };
+        });
+    },
+
+    lenia_orbium_glider: (state, sim) => {
+        // TRUE Orbium: the published pattern under the exact Lenia bell kernel.
+        // Self-propelled - the crescent regenerates itself displaced each step.
+        state.ruleMode = 6;
+        state.K0 = 1.0;
+        state.sigma = 3.2; // unused by shape 8
+        state.sigma2 = 13; // kernel radius R
+        state.beta = 0.0;
+        state.kernelShape = 8; // exact Lenia bell
+        state.kernelCompositionEnabled = false;
+        state.growthMu = 0.15;
+        state.growthSigma = 0.015;
+        state.growthMode = 0;
+        state.globalCoupling = false;
+        state.dt = 0.1;
+        state.noiseStrength = 0.0;
+        state.leak = 0.0;
+        state.viewMode = 1;
+        state.colormap = 10;
+        state.colormapPalette = 1;
+        state.organismsEnabled = true;
+        state.organismOverlay = true;
+        state.organismThreshold = 0.1;
+        state.organismMinArea = 8;
+
+        // three copies, spaced so they will not collide for a long while
+        const sites = [[0.3, 0.3], [0.65, 0.5], [0.35, 0.72]];
+        writeKuramotoNcaSeed(sim, (c, r, grid) => {
+            let matter = 0.0;
+            for (const [fx, fy] of sites) {
+                const px = c - (Math.round(fx * grid) - 10);
+                const py = r - (Math.round(fy * grid) - 10);
+                if (px >= 0 && px < 20 && py >= 0 && py < 20) {
+                    matter = Math.max(matter, ORBIUM_CELLS[py][px]);
+                }
+            }
+            return { matter, theta: 0 };
         });
     },
 

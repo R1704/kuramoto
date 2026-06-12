@@ -35,7 +35,15 @@ perception, scalar-before-vector warm-up.
 
 # Task: Find a regime with gliders / moving organisms
 
-Status: done (2026-06-12) - moving organisms found (driven drift); self-propelled gliders ruled out for the symmetric model with a designed path forward.
+Status: done (2026-06-12) - THREE classes of movement now exist:
+(1) driven drift (Migration presets, kernel wind),
+(2) TRUE self-propelled gliders: the published Orbium pattern under the exact Lenia
+    bell kernel (new shape 8, R=sigma2; shape-aware neighborhood range). Verified:
+    3 implanted copies glide rigidly in formation, mass exactly conserved (214/214/214),
+    identical displacement vector (+25.9,-86.2)/10s across all three. Preset
+    lenia_orbium_glider. Crude seeds still die/explode - the PATTERN is the fixed point.
+(3) phase-pathway self-propulsion remains impossible while binding is even in delta-phi
+    (Sakaguchi lag chi = designed future route).
 
 Two candidate mechanisms:
 - (A) Phase-driven motility (unique to rule 7): an omega gradient makes traveling phase
