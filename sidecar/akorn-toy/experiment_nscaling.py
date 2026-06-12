@@ -22,12 +22,14 @@ from probe_object_count import make_batch_multi
 
 @torch.no_grad()
 def eval_by_count(model, size, max_obj, device, scenes=64, base_seed=10_000):
+    # Seed the global RNG per scene (make_batch_multi's CUDA randn can't take a
+    # CPU generator); deterministic enough for a stable accuracy-by-count table.
     out = {}
     for k in range(2, max_obj + 1):
         accs = []
         for s in range(scenes):
-            g = torch.Generator(device='cpu').manual_seed(base_seed + 1000 * k + s)
-            img, lab = make_batch_multi(1, size, k, device, generator=g)
+            torch.manual_seed(base_seed + 1000 * k + s)
+            img, lab = make_batch_multi(1, size, k, device)
             x, _ = model(img)
             accs.append(pairwise_acc(x, lab))
         out[k] = sum(accs) / len(accs)
