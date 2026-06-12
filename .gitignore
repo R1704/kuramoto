@@ -28,3 +28,8 @@ npm-debug.log*
 # Playwright MCP session artifacts
 .playwright-mcp/
 __pycache__/
+
+# Sidecar artifacts
+sidecar/akorn-toy/.venv/
+sidecar/akorn-toy/*.pt
+sidecar/akorn-toy/*.log

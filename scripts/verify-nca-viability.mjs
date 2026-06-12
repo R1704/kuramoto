@@ -82,6 +82,25 @@ const scenarios = {
     }),
 };
 
+// Within-regime ranking: the real 2026-06-12 binding-experiment endpoints.
+// Pure Lenia merged to fewer/larger organisms with lower phase diversity than
+// binding-only; both are healthy multi_domain states, and the score must still
+// rank them (the first metric revision saturated both at exactly 1.0).
+const bindingOnly = computeNcaViability({
+    ruleMode: 7, gridSize: 256,
+    matterMean: 0.2615, matterMass: 0.2615 * 256 * 256,
+    livingCoherenceMean: 0.923, globalR: null,
+    organismCount: 566, largestOrganismArea: 60,
+    meanTrackPersistence: null, phaseDiversity: 0.901,
+});
+const pureLenia = computeNcaViability({
+    ruleMode: 7, gridSize: 256,
+    matterMean: 0.2754, matterMass: 0.2754 * 256 * 256,
+    livingCoherenceMean: 0.925, globalR: null,
+    organismCount: 317, largestOrganismArea: 120,
+    meanTrackPersistence: null, phaseDiversity: 0.819,
+});
+
 const phaseStatsTwoDomains = computeOrganismPhaseStats([
     { area: 100, meanPhase: 0, phaseR: 0.95 },
     { area: 100, meanPhase: Math.PI, phaseR: 0.95 },
@@ -105,6 +124,8 @@ const checks = [
         scenarios.sweepSnapshotNoTemporalData.score > 0.6],
     ['anti-phase organism pair has near-max diversity', phaseStatsTwoDomains.phaseDiversity > 0.95],
     ['same-phase organism pair has near-zero diversity', phaseStatsOneDomain.phaseDiversity < 0.05],
+    ['score ranks WITHIN healthy regimes (no saturation ties)',
+        bindingOnly.score > pureLenia.score && bindingOnly.score < 1 && pureLenia.score > 0.5],
 ];
 
 let failed = 0;

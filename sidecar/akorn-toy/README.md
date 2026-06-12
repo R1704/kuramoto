@@ -14,11 +14,29 @@ app demonstrates interactively with `ncaPhaseAffinity`.
 
 ## Status
 
-Scaffold — syntax-verified, **not yet trained** (no torch in the authoring
-environment). Expected behavior on first runs: pairwise accuracy should climb
-well above the 0.5 chance level within a few hundred steps if the unrolled
-dynamics learn signed couplings; if it plateaus at chance, increase `--steps`
-per rollout (`KuramotoSegmenter(steps=...)`) before touching the loss.
+**Trained and converged** (2026-06-12, torch 2.12 / Apple MPS): pairwise
+segmentation accuracy on fresh scenes reaches **0.994 by step 100 and a
+sustained 1.000 from step 300** (2000 steps, batch 16, defaults). Loss falls
+2.90 → 0.009. Checkpoint: `akorn_toy.pt` (gitignored; rerun to reproduce).
+
+Two findings from getting it to train, both worth keeping:
+
+1. **Random initial phases kill learning.** With `theta ~ U(0, 2pi)` every
+   forward pass is an uncontrollable draw and expected gradients vanish — the
+   model could not even overfit a single scene (within-shape agreement decayed
+   to chance). Near-uniform init (`0.1·randn`) flips the task to "learn to
+   cut": omega conditioned on appearance drifts the shapes apart, negative
+   boundary couplings keep them cut, positive couplings bind interiors.
+2. **Unrolled explicit Euler must respect its stability bound.** Unbounded
+   heads gave per-step phase updates of ~4.6 rad (sum over 8 neighbor offsets)
+   — chaotic from initialization. tanh-bounded heads plus a mean-normalized
+   drive keep `|dtheta| <= 0.5` rad/step; with that single change the
+   single-scene diagnostic went from stuck-at-chance to within-shape agreement
+   1.000 / between-shape 0.006 in 100 steps.
+
+The same lesson the browser app taught (`dt`-halving sanity, clamp artifacts
+vs real structures) shows up here as: check the integrator before blaming the
+objective.
 
 ## Run
 

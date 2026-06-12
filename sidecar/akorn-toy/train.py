@@ -75,7 +75,7 @@ class KuramotoSegmenter(nn.Module):
 
     OFFSETS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-2, 0), (2, 0), (0, -2), (0, 2)]
 
-    def __init__(self, hidden=32, steps=16, dt=0.25):
+    def __init__(self, hidden=32, steps=32, dt=0.25):
         super().__init__()
         self.steps = steps
         self.dt = dt
@@ -87,21 +87,36 @@ class KuramotoSegmenter(nn.Module):
         )
         self.omega_head = nn.Conv2d(hidden, 1, 1)
         self.coupling_head = nn.Conv2d(hidden, len(self.OFFSETS), 1)
+        # Start in a weakly synchronizing regime: from random phases, near-zero
+        # couplings produce no organization and therefore almost no gradient.
+        # A positive bias makes everything begin to sync; training then learns
+        # where to cut (negative couplings at shape boundaries).
+        nn.init.constant_(self.coupling_head.bias, 1.0)
 
     def forward(self, images, generator=None):
         feats = self.encoder(images)
-        omega = self.omega_head(feats).squeeze(1)
-        coupling = self.coupling_head(feats)  # (B, n_offsets, H, W), signed
+        # Both heads bounded: with the drive mean-normalized over offsets below,
+        # |dtheta| <= dt * (|omega| + |J|) <= 0.5 rad/step — inside the explicit-
+        # Euler stability region. Unbounded heads made the rollout chaotic from
+        # initialization (within-shape agreement decayed instead of growing).
+        omega = torch.tanh(self.omega_head(feats)).squeeze(1)
+        coupling = torch.tanh(self.coupling_head(feats))  # (B, n_offsets, H, W)
 
         b, _, h, w = images.shape
-        theta = 2 * math.pi * torch.rand(b, h, w, device=images.device, generator=generator)
+        # Near-uniform init, NOT fully random: with random phases every forward
+        # is an uncontrollable draw and expected gradients vanish (verified —
+        # the model could not even overfit one scene). Starting all-bound makes
+        # the task "learn to cut": omega conditioned on appearance drifts the
+        # shapes apart, negative boundary couplings keep them cut, positive
+        # couplings bind shape interiors.
+        theta = 0.1 * torch.randn(b, h, w, device=images.device, generator=generator)
         trajectory = []
         for _ in range(self.steps):
             drive = torch.zeros_like(theta)
             for k, (dy, dx) in enumerate(self.OFFSETS):
                 neighbor = torch.roll(theta, shifts=(dy, dx), dims=(1, 2))
                 drive = drive + coupling[:, k] * torch.sin(neighbor - theta)
-            theta = theta + self.dt * (omega + drive)
+            theta = theta + self.dt * (omega + drive / len(self.OFFSETS))
             trajectory.append(theta)
         return theta, trajectory
 
@@ -162,9 +177,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--size", type=int, default=48)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--device",
+        default="cuda" if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu"),
+    )
     parser.add_argument("--checkpoint", default="akorn_toy.pt")
     args = parser.parse_args()
 
@@ -173,10 +192,14 @@ def main():
 
     for step in range(1, args.steps + 1):
         images, labels = make_batch(args.batch_size, args.size, args.device)
-        theta, _ = model(images)
-        loss = phase_binding_loss(theta, labels)
+        theta, trajectory = model(images)
+        # Supervise the tail of the rollout, not just the endpoint: richer
+        # gradient through the unrolled dynamics and a preference for stable
+        # (not momentarily lucky) phase configurations.
+        loss = sum(phase_binding_loss(t, labels) for t in trajectory[-4:]) / 4
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
         if step % 100 == 0 or step == 1:

@@ -127,9 +127,23 @@ call sites, verifier check added); (b) the droplets spot lattice is itself phase
 preset in multi_domain. Finding binding-dependent *presets* is now a search problem the
 fixed sweep + metric can actually do.
 
-Known limits, stated honestly: the viability score saturates at 1.0 within healthy
-multi-domain regimes; per-organism identity over minutes is unmeasured; the sidecar is
-a scaffold, not a result.
+Follow-up session (same day, "go ahead"): all three known limits were closed.
+- Viability de-saturation: hard clamps -> soft saturation x/(x+k) + direct [0,1] factors;
+  the real binding-experiment endpoints now rank (binding-only > pure Lenia) instead of
+  tying at 1.0; regression check added (verify-nca-viability 11/11).
+- Minutes-scale identity (90s tracked runs, omega heterogeneity, affinity 0 vs 0.7):
+  positional identity is binding-INDEPENDENT (zero deaths, 100% survival both); phase
+  identity erodes in both and binding slows the erosion ~25-30% (diversity at 90s 0.737
+  vs 0.618; decay 0.0027/s vs 0.0034/s). Binding is a brake, not a wall. Single run per
+  condition - directional.
+- Sidecar TRAINED to convergence (torch 2.12/MPS via uv venv): pairwise segmentation
+  accuracy on fresh scenes 0.994 at step 100, sustained 1.000 from step 300 (2000 steps).
+  Two fixes were required and are documented in the README: (1) random initial phases
+  make expected gradients vanish (could not even overfit one scene) -> near-uniform init
+  turns the task into "learn to cut"; (2) unbounded heads broke the explicit-Euler
+  stability bound (~4.6 rad/step updates -> chaos) -> tanh-bounded heads + mean-normalized
+  drive cap updates at 0.5 rad/step. The fault #6 milestone - segment two overlapping
+  shapes by phase, trained end-to-end through unrolled Kuramoto dynamics - is achieved.
 
 ---
 

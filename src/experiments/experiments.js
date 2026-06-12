@@ -118,31 +118,41 @@ export function computeNcaViability(metrics) {
     const meanPersistence = readMaybe(metrics?.meanTrackPersistence);
     const phaseDiversity = readMaybe(metrics?.phaseDiversity);
 
+    // Soft saturation x/(x+k): reaches 0.5 at k, stays strictly increasing —
+    // hard clamps made every healthy multi-domain regime score exactly 1.0,
+    // so sweeps could separate regimes but never rank within them.
+    const soft = (x, k) => {
+        const v = Math.max(0, x);
+        return v / (v + k);
+    };
+
     // Matter: alive but not overgrown.
     const matterPresent = clamp01((matterMean - 0.002) / 0.04);
     const overgrowthPenalty = 1 - clamp01((matterMean - 0.32) / 0.25);
     const matterScore = matterPresent * overgrowthPenalty;
 
     // Structure: several organisms, none owning the living mass outright.
-    const countScore = clamp01((organismCount - 1) / 9);
+    const countScore = soft(organismCount - 1, 9);
     const livingMass = matterMass !== null && matterMass > 0 ? matterMass : cells * Math.max(matterMean, 1e-6);
     const dominance = clamp01(largestArea / Math.max(1, livingMass));
     const dominancePenalty = 1 - clamp01((dominance - 0.5) / 0.5);
-    const persistenceScore = meanPersistence !== null ? clamp01(meanPersistence / 20) : null;
+    const persistenceScore = meanPersistence !== null ? soft(meanPersistence, 20) : null;
     const structureScore = (persistenceScore !== null
         ? 0.7 * countScore + 0.3 * persistenceScore
         : countScore) * dominancePenalty;
 
     // Phase: locally coherent AND globally diverse — the binding signature.
-    // Fallback when no per-organism phases exist: the localR-vs-globalR gap
-    // (high local order with low global order = multiple domains).
-    const coherenceScore = clamp01(livingCoherence / 0.6);
+    // Both factors enter directly (they live in [0,1] already) so differences
+    // inside healthy regimes keep ranking. Fallback when no per-organism
+    // phases exist: the localR-vs-globalR gap (high local order with low
+    // global order = multiple domains).
+    const coherenceScore = clamp01(livingCoherence);
     let diversity = phaseDiversity;
     if (diversity === null && globalR !== null) {
         diversity = clamp01((livingCoherence - globalR) / 0.5);
     }
     const phaseScore = diversity !== null
-        ? coherenceScore * clamp01(diversity / 0.6)
+        ? coherenceScore * clamp01(diversity)
         : coherenceScore * 0.25;
 
     // Dynamism: metastability band — frozen (std~0) and noise-dominated both lose.
