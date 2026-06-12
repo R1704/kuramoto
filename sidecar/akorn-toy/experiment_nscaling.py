@@ -45,10 +45,11 @@ def main():
     ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=5e-4)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--seed", type=int, default=0, help="training seed (for error bars)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    torch.manual_seed(0)
+    torch.manual_seed(args.seed)
     dev = args.device
     model = VectorAKOrN(n=args.n).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -67,14 +68,14 @@ def main():
 
     acc = eval_by_count(model, args.size, args.max_obj, dev)
     result = {
-        "n": args.n, "steps": args.steps, "size": args.size,
+        "n": args.n, "seed": args.seed, "steps": args.steps, "size": args.size,
         "max_obj": args.max_obj, "batch_size": args.batch_size,
         "acc_by_count": acc,
     }
-    print(f"[n={args.n}] accuracy by object count:")
+    print(f"[n={args.n} s{args.seed}] accuracy by object count:")
     for k, a in acc.items():
         print(f"    {k} objects: {a:.3f}")
-    out = args.out or f"results_n{args.n}.json"
+    out = args.out or f"results_n{args.n}_s{args.seed}.json"
     with open(out, "w") as f:
         json.dump(result, f, indent=2)
     torch.save(model.state_dict(), f"vector_akorn_n{args.n}.pt")
