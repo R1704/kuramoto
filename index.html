@@ -2637,16 +2637,22 @@
             <div class="tab-pane" data-tab-pane="analysis">
                 <div class="analysis-grid" id="analysis-grid">
                     <div class="panel-card">
-                        <div class="section-title">🧠 AKOrN — trained phase segmentation</div>
-                        <div class="control-hint" style="margin-bottom:8px;">A small Kuramoto network trained offline to segment two overlapping shapes by phase. Watch random phases relax into two phase domains — the trained counterpart to Living Phase.</div>
+                        <div class="section-title">🧠 AKOrN — trained oscillator segmentation</div>
+                        <div class="control-hint" style="margin-bottom:8px;">Kuramoto networks trained offline (on 2× RTX 4090) to segment overlapping shapes by oscillator state. Watch random state relax into per-object domains. <b>Scalar S¹</b> = phase→hue (2 shapes); <b>Vector S¹⁵</b> = 16-D unit vectors→RGB (more objects, since a higher sphere holds more distinct identities).</div>
                         <canvas id="akorn-canvas" width="240" height="240" style="width:240px; height:240px; image-rendering:pixelated; background:#000; border:1px solid #333; border-radius:4px; display:block; margin:0 auto;"></canvas>
                         <div class="control-hint" id="akorn-info" style="text-align:center; margin-top:6px;">Press Run to segment a scene.</div>
                         <div style="display:flex; gap:6px; align-items:center; margin-top:6px;">
-                            <button id="akorn-run-btn" style="flex:2;">Run segmentation</button>
+                            <select id="akorn-model" style="flex:1;">
+                                <option value="scalar">Scalar S¹</option>
+                                <option value="vector">Vector S¹⁵</option>
+                            </select>
                             <select id="akorn-mode" style="flex:1;">
-                                <option value="phase">Phase (model)</option>
+                                <option value="phase">Model</option>
                                 <option value="truth">Ground truth</option>
                             </select>
+                        </div>
+                        <div class="button-group" style="margin-top:6px;">
+                            <button id="akorn-run-btn">Run segmentation</button>
                         </div>
                     </div>
                     <div class="panel-card">

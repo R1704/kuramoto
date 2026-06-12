@@ -770,3 +770,21 @@ GPU experiment plan (on the user's 2-GPU server):
   objects holds to higher K as n grows (S^{n-1} has room for more identities).
 - Energy readout + the real AKOrN conditional-stimulus init. Export winning model to the
   browser viewer (akornModel.json already supports the pipeline).
+
+---
+
+# Task: Vector AKOrN watchable in the browser (2026-06-12)
+
+Status: DONE. Trained on remote GPU, viewable on local Mac.
+
+- [x] export_vector.py (remote): VectorAKOrN n=16 weights + 8 demo scenes (3 objs) +
+      verification reference -> src/akorn/akornVectorModel.json (3.9MB), committed+pulled.
+- [x] src/akorn/vectorInference.js: exact JS port (reuses conv2d/pointwise), unrolled
+      tangent-space dynamics, top-3 PCA -> RGB readout. verify-akorn-vector.mjs: 4.3e-7.
+- [x] akornViewer.js: model selector (Scalar S¹ / Vector S¹⁵); vector path animates the
+      relaxation, colours by PCA-RGB, reports vector pairwise accuracy.
+- [x] UI: akorn-model select; bootstrap passes modelEl. Browser-verified on Mac: vector
+      run -> "S¹⁵ vectors → RGB — pairwise accuracy 95.9%", 3 objects in distinct colours,
+      zero console errors. verify-kuramoto-nca 47/47.
+
+Workflow proven: remote GPU train/export -> git -> local browser, no PyTorch client-side.

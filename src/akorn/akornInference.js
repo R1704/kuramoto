@@ -18,7 +18,7 @@ export function loadAkornModel() {
 
 // 2D convolution with zero padding p = (k-1)/2 (PyTorch Conv2d 'same' for odd k).
 // weight: [outC][inC][k][k], bias: [outC], input: Float32Array[inC*H*W].
-function conv2d(input, inC, H, W, weight, bias, outC, k) {
+export function conv2d(input, inC, H, W, weight, bias, outC, k) {
     const p = (k - 1) >> 1;
     const out = new Float32Array(outC * H * W);
     for (let o = 0; o < outC; o++) {
@@ -50,13 +50,13 @@ function conv2d(input, inC, H, W, weight, bias, outC, k) {
     return out;
 }
 
-function reluInPlace(a) {
+export function reluInPlace(a) {
     for (let i = 0; i < a.length; i++) if (a[i] < 0) a[i] = 0;
     return a;
 }
 
 // 1x1 conv (per-pixel linear map) with optional tanh. weight: [outC][inC][1][1].
-function pointwise(input, inC, H, W, weight, bias, outC, useTanh) {
+export function pointwise(input, inC, H, W, weight, bias, outC, useTanh) {
     const out = new Float32Array(outC * H * W);
     const HW = H * W;
     for (let o = 0; o < outC; o++) {

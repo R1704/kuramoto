@@ -1109,6 +1109,7 @@ async function init() {
                     infoEl: document.getElementById('akorn-info'),
                     runBtn: akornRunBtn,
                     modeEl: document.getElementById('akorn-mode'),
+                    modelEl: document.getElementById('akorn-model'),
                 });
                 viewer?.run();
             }, { once: true });
