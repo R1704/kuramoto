@@ -1168,24 +1168,27 @@ export const Presets = {
         state.colormap = 11; // Living Phase: the tilt is visible as a color gradient
         state.colormapPalette = 1;
         state.ncaPhaseK = 0.0;   // freeze the oscillator so the seeded tilt persists
-        state.ncaGrowthK = 0.5;
+        state.ncaGrowthK = 0.12; // slow: the isolated blob visibly slides for ~8s before it spreads
         state.ncaMatterDecay = 0.0;
         state.ncaCoherenceMin = 0.0; // gate open: isolate the binding pathway
         state.ncaCoherenceMax = 0.05;
         state.ncaPhaseAffinity = 1.0; // full binding so the lag bites
-        state.ncaPhaseLag = 0.8;      // chi: the propulsion knob (try +/- in the slider)
+        state.ncaPhaseLag = 0.8;      // chi: the propulsion knob (drag the Phase Lag slider +/-)
         state.ncaAblationMode = 0;
         state.organismsEnabled = true;
-        state.organismOverlay = true;
+        state.organismOverlay = true; // the tracked box visibly travels with the blob
         state.organismThreshold = 0.2;
         state.organismMinArea = 8;
 
-        const slope = 0.06;
+        // Single blob started on the RIGHT, with a left-increasing phase tilt; chi=0.8
+        // makes it swim LEFT across empty space. Watch the first ~8s, then drag the
+        // Phase Lag slider through 0 to negative to reverse it.
+        const slope = 0.05;
         writeKuramotoNcaSeed(sim, (c, r, grid) => {
-            const dx = c - grid * 0.5;
+            const dx = c - grid * 0.72;
             const dy = r - grid * 0.5;
-            const blob = Math.exp(-(dx * dx + dy * dy) / (2.0 * 7.0 * 7.0));
-            return { matter: blob, theta: slope * dx }; // horizontal phase tilt
+            const blob = 0.7 * Math.exp(-(dx * dx + dy * dy) / (2.0 * 8.0 * 8.0));
+            return { matter: blob, theta: slope * (c - grid * 0.5) }; // global horizontal tilt
         });
     },
 
