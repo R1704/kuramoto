@@ -544,6 +544,12 @@ This mode is exposed as **rule 6** in the coupling dropdown and on keyboard shor
 
 ---
 
+### AKOrN — trained phase segmentation (sidecar → browser, 2026-06-12)
+
+The hand-designed Rule 7 model demonstrates the *intuition* that relative phase carries identity; the AKOrN sidecar demonstrates that the same idea can be **trained end-to-end to do a task**. A small unrolled Kuramoto network (`sidecar/akorn-toy/train.py`) — a 2-layer CNN that reads an image into per-pixel intrinsic frequencies `omega` and signed neighbour couplings, then relaxes random phases through 32 Kuramoto steps — is trained to **segment two overlapping shapes by phase**: same-shape pixels end in phase, different-shape pixels split into a second phase domain. It converges to ~100% pairwise accuracy on fresh scenes (random init → vanishing gradients was the key failure mode; near-uniform init plus tanh-bounded heads fixed it — see the sidecar README).
+
+The loop is now **closed into the browser**. `sidecar/akorn-toy/export_weights.py` dumps the trained weights (the model is tiny), six demo scenes, and a verification reference to `src/akorn/akornModel.json`; `src/akorn/akornInference.js` is an exact JS port of the forward pass (convolutions, heads, unrolled dynamics) that runs live with no PyTorch. The **Analysis tab → 🧠 AKOrN panel** animates the relaxation on a chosen scene: you watch a near-uniform phase field organize into two clean phase domains over the foreground shapes, with the measured pairwise accuracy reported, and a Ground-truth toggle to compare. The JS port is proven bit-close to PyTorch (`scripts/verify-akorn-inference.mjs`: max abs error 1.9e-6 vs the baked reference; 100% segmentation on all six demo scenes). This is the trained counterpart to the Living Phase view: identity-by-phase, but learned rather than hand-tuned. Next research steps live in the sidecar — harder scenes, vector oscillators on `S^{n-1}`, real AKOrN-style energy readout.
+
 ### Rule 7: KuramotoNCA
 
 KuramotoNCA mode is a coherence-gated unit-oscillator model. Conceptually, each cell is:

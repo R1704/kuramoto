@@ -1095,6 +1095,26 @@ async function init() {
         stateAdapter.syncURL(true);
     };
 
+    // AKOrN viewer: self-contained, lazy-loaded (the ~1MB trained model only
+    // loads when the Analysis tab's Run button is first pressed).
+    {
+        const akornRunBtn = document.getElementById('akorn-run-btn');
+        if (akornRunBtn) {
+            // First click builds the viewer (which rebinds the button for later clicks)
+            // and kicks off the first run; the import resolves after this handler exits.
+            akornRunBtn.addEventListener('click', async () => {
+                const { createAkornViewer } = await import('../akorn/akornViewer.js');
+                const viewer = createAkornViewer({
+                    canvas: document.getElementById('akorn-canvas'),
+                    infoEl: document.getElementById('akorn-info'),
+                    runBtn: akornRunBtn,
+                    modeEl: document.getElementById('akorn-mode'),
+                });
+                viewer?.run();
+            }, { once: true });
+        }
+    }
+
     discoverySweepController = createDiscoverySweepController({
         state: STATE,
         sim,

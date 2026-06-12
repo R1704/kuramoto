@@ -317,6 +317,18 @@ const checks = [
         hint: 'Expected sqrt gain on matter values in both 2D and 3D render paths.',
     },
     {
+        name: 'AKOrN loop closed: trained model runs in-browser with a viewer',
+        pass: /runSegmentation/.test(read('src/akorn/akornInference.js'))
+            && /encodeScene/.test(read('src/akorn/akornInference.js'))
+            && /createAkornViewer/.test(read('src/akorn/akornViewer.js'))
+            && /akorn-canvas/.test(html)
+            && /akorn-run-btn/.test(html)
+            && /createAkornViewer/.test(bootstrap)
+            && fs.existsSync(path.join(root, 'src/akorn/akornModel.json'))
+            && /AKOrN/i.test(docs),
+        hint: 'Expected the JS AKOrN inference + viewer, exported model JSON, UI canvas/button, bootstrap wiring, and docs.',
+    },
+    {
         name: 'Lenia bestiary: exact multi-ring bell kernel (shape 9) + picker',
         pass: /shape == 9/.test(compute)
             && /ring_weights_select|ring_w = /.test(compute)

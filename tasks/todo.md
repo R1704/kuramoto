@@ -729,3 +729,23 @@ asymmetric growth support and self-propels along the tilt.
 Next candidates: (a) mass-conserving phase soliton (couple chi to a self-sustaining
 traveling phase wave via omega gradient instead of a frozen ramp); (b) close the
 AKOrN->browser loop (visualize the trained segmenter); (c) bestiary kn=0/2 cores.
+
+---
+
+# Task: Close the AKOrN -> browser loop (2026-06-12)
+
+Status: DONE. The trained segmenter now runs live in the app.
+
+- [x] export_weights.py: dumps trained weights + 6 demo scenes + a verification
+      reference (fixed init theta -> final theta) to src/akorn/akornModel.json (992KB).
+- [x] src/akorn/akornInference.js: exact JS port (conv2d, heads, unrolled Kuramoto,
+      torch.roll-faithful neighbor sampling, pairwise accuracy).
+- [x] scripts/verify-akorn-inference.mjs: JS matches PyTorch to max abs err 1.9e-6;
+      100% pairwise accuracy on all 6 demo scenes.
+- [x] src/akorn/akornViewer.js + Analysis-tab panel (canvas, Run, Phase/Ground-truth
+      toggle): animates the 32-step relaxation, hue=phase, reports accuracy.
+- [x] bootstrap wiring (lazy dynamic import). Browser-verified: Run -> "segmented by
+      phase - pairwise accuracy 100.0%", multi-hue canvas, zero console errors.
+- [x] verify-kuramoto-nca 47/47; docs section added.
+
+Next research (sidecar): harder scenes, vector oscillators on S^{n-1}, energy readout.
