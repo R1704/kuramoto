@@ -33,3 +33,4 @@ __pycache__/
 sidecar/akorn-toy/.venv/
 sidecar/akorn-toy/*.pt
 sidecar/akorn-toy/*.log
+sidecar/akorn-toy/results_n*.json
