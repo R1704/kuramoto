@@ -749,3 +749,24 @@ Status: DONE. The trained segmenter now runs live in the app.
 - [x] verify-kuramoto-nca 47/47; docs section added.
 
 Next research (sidecar): harder scenes, vector oscillators on S^{n-1}, energy readout.
+
+---
+
+# Task: AKOrN scaling — object count + vector oscillators (2026-06-12)
+
+Status: local probe DONE; vector advantage = GPU experiment.
+
+- [x] probe_object_count.py: scalar S^1 crowds — pairwise acc 0.96/0.90/0.74 at
+      2/3/4 objects; min phase separation 126/100/38 deg. Clean monotone degradation.
+- [x] vector_akorn.py: AKOrN on S^{n-1} (tangent-projected ascent on alignment energy;
+      n=2 reduces to scalar). Trains, segments 2 objects ~0.95.
+- [x] HONEST: S^{n-1} advantage NOT shown at small scale (n=4 ~0.71 vs n=2 ~0.78 at 4
+      objects, noisy 8-scene eval). Needs longer training + more objects (8-16) + proper
+      eval = GPU work.
+
+GPU experiment plan (on the user's 2-GPU server):
+- Vector AKOrN at n in {2,4,8,16}, many objects (up to 16), 10-50k steps, batch 64+.
+- Eval over 100+ seeded scenes, stratified by object count. Hypothesis: accuracy at K
+  objects holds to higher K as n grows (S^{n-1} has room for more identities).
+- Energy readout + the real AKOrN conditional-stimulus init. Export winning model to the
+  browser viewer (akornModel.json already supports the pipeline).
