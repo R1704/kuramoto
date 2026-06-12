@@ -301,13 +301,20 @@ export function createFrameLoop(ctx) {
                 ctx.structureDetector.threshold = STATE.organismThreshold ?? 0.5;
                 ctx.structureDetector.minArea = STATE.organismMinArea ?? 4;
                 runtime.organismsReadPending = true;
-                sim.readOrderField().then((orderData) => {
+                // Sequential reads: all readbacks share one pending-guard mutex, so a
+                // concurrent Promise.all would make the second call return null.
+                (async () => {
+                    const orderData = await sim.readOrderField();
+                    const thetaData = orderData ? await sim.readTheta() : null;
+                    return [orderData, thetaData];
+                })().then(([orderData, thetaData]) => {
                     if (orderData) {
                         const gridSize = sim.gridSize;
                         const layerSize = gridSize * gridSize;
                         const layer = getActiveLayerIndex();
                         const layerOrder = orderData.subarray(layer * layerSize, (layer + 1) * layerSize);
-                        const structures = ctx.structureDetector.detect(layerOrder, gridSize);
+                        const layerTheta = thetaData ? thetaData.subarray(layer * layerSize, (layer + 1) * layerSize) : undefined;
+                        const structures = ctx.structureDetector.detect(layerOrder, gridSize, undefined, layerTheta);
                         const trackResult = ctx.structureTracker.update(structures, gridSize);
                         runtime.organisms = {
                             structures,

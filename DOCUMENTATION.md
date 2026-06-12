@@ -546,13 +546,13 @@ This mode is exposed as **rule 6** in the coupling dropdown and on keyboard shor
 
 ### Rule 7: KuramotoNCA
 
-KuramotoNCA mode is now documented as a coherence-gated hidden-state unit-oscillator model. Conceptually, each cell is:
+KuramotoNCA mode is a coherence-gated unit-oscillator model. Conceptually, each cell is:
 
 ```text
-cell_i = (a_i, \mathbf{h}_i, \mathbf{x}_i)
+cell_i = (a_i, \mathbf{x}_i)
 ```
 
-with matter `a_i` as alive density in `[0,1]`, fixed hidden morphogen memory `h_i` in `[0,1]^4`, and unit oscillator `x_i` on `S^{d-1}`. The current WebGPU implementation keeps the existing S1 phase texture as the `d = 2` case:
+with matter `a_i` as alive density in `[0,1]` and unit oscillator `x_i` on `S^{d-1}`. (An earlier revision carried four fixed "hidden morphogen memory" channels `h_i`; they were an exponential moving average of quantities already computed each step — not free state, not learned — and were removed in the 2026-06-12 collapse, per standing fault #4. Learned latent state returns, if ever, with the AKOrN training sidecar.) The current WebGPU implementation keeps the existing S1 phase texture as the `d = 2` case:
 
 ```text
 x_i = (cos(theta_i), sin(theta_i))
@@ -588,36 +588,28 @@ C_i = smoothstep(ncaCoherenceMin, ncaCoherenceMax, R_i)
 T_i = Im(conj(z_i) M_i)
 ```
 
-Matter evolves as birth minus death:
+Matter evolves with **collapsed dynamics** (2026-06-12, standing fault #3): one coherence-gated saturating growth term and one structural death term. Homeostasis is structural — it lives in the growth function's negative tail (and in `beta`, which already routes inhibition through `u`) — not in a stack of independently tuned penalty terms:
 
 ```text
-coherent_birth_i = C_i * C_i
-H_i = sum_{w_ij > 0} w_ij a_j h_j / max(sum_{w_ij > 0} w_ij a_j, eps)
-memory_gate_i = clamp(0.75 + ncaHiddenMemory * (h_i.x + H_i.x - h_i.y), 0, 1.5)
-birth_i = coherent_birth_i * G_i+ * memory_gate_i * (1 - a_i)
-density_death_i = G_i- * a_i
-incoherence_death_i = ncaSyncFeedback * (1 - C_i) * a_i
-overcrowding_death_i = I_i * a_i
-memory_death_i = ncaHiddenMemory * max(h_i.y - h_i.x, 0) * a_i
-passive_death_i = ncaMatterDecay * a_i
+birth_i = C_i^2 * G_i+ * (1 - a_i)
+death_i = (G_i- + ncaMatterDecay) * a_i
 
-da_i/dt = ncaGrowthK * (birth_i - density_death_i - incoherence_death_i - overcrowding_death_i - memory_death_i - passive_death_i)
+da_i/dt = ncaGrowthK * (birth_i - death_i)
 dtheta_i/dt = omega_i + ncaPhaseK * T_i
-h_i(t+dt) = mix(h_i, (coherent_birth_i * G_i+, I_i, R_i, a_i(t+dt)), ncaHiddenMemory)
 ```
+
+The earlier six-term form (`coherent_birth`, `density_death`, `incoherence_death`, `overcrowding_death`, `memory_gate`/`memory_death`, `passive_death`) imposed stability by tuning rather than structure. The redundancies it encoded: incoherence death duplicated the gate (the gate already starves incoherent matter on the birth side), overcrowding death double-counted inhibition that `beta` already pushes through `u`, and the memory terms acted on EMA state that was removed with fault #4. The collapsed form has the same validated attractor family (shell-kernel spot lattice) with two fewer parameters and one fewer texture ping-pong.
 
 The order buffer stores living coherence `a_i * R_i` in this mode, so organism detection tracks coherent living matter rather than empty synchronized background.
 
 Runtime controls:
 - `ncaPhaseK`: phase/unit-vector synchrony force
 - `ncaGrowthK`: matter birth/death rate
-- `ncaSyncFeedback`: incoherence death strength
-- `ncaMatterDecay`: passive matter decay
+- `ncaMatterDecay`: passive matter decay (the leak inside the structural death term)
 - `ncaCoherenceMin`: local coherence where matter birth starts opening
 - `ncaCoherenceMax`: local coherence where matter birth is fully open
-- `ncaHiddenMemory`: update rate and feedback strength for four fixed hidden morphogen channels
 - `ncaAblationMode`: ablation harness selector — `0` full model, `1` frozen oscillator, `2` gate off
-- `ncaPhaseAffinity`: phase binding strength — `0` phase-blind matter support, `1` fully phase-selective (a neighbor's matter supports growth only in proportion to phase agreement). The Mitosis preset seeds two touching lobes at opposite phases as the binding testbed. Measured status (2026-06-10, readback): the affinity term changes interface growth dynamics substantially (it can either starve or feed the interface depending on where local density sits relative to the growth window), but two-domain phase identity currently persists in *both* conditions for ~7.5s because matter gaps in the spot lattice decouple the sync torque and `omega = 0` applies no drift pressure. Demonstrating that binding is load-bearing for identity needs harder conditions: omega heterogeneity, longer horizons, or forced spot contact — a sweep/experiment program, and the viability metric should reward multi-domain persistence (standing fault #5).
+- `ncaPhaseAffinity`: phase binding strength — `0` phase-blind matter support, `1` fully phase-selective (a neighbor's matter supports growth only in proportion to phase agreement). The Mitosis preset seeds two touching lobes at opposite phases as the binding testbed. Measured status (2026-06-12, readback, **binding is load-bearing under drift pressure**): with per-cell omega heterogeneity (`~N(0, 0.2)`), same seed and same omega field across conditions, pure Lenia (gate pinned, affinity 0) merges matter into far fewer, larger structures (317 organisms at 10s; 142 at 5s), while binding alone (gate pinned, affinity 0.7) restores the full model's fine-grained multi-domain structure (566 organisms at 10s; 454 at 5s — a 3.2x mid-run gap) with higher organism-phase diversity (0.901 vs 0.819). The phase-to-matter pathway materially shapes structure formation, and the affinity term alone is sufficient for it. Still open: long-horizon per-organism identity persistence (minutes-scale tracking), and the earlier caveat stands that without omega heterogeneity the conditions are indistinguishable at ~10s horizons (geometry does the work when nothing drifts).
 
 #### Ablation harness (does the oscillator earn its place?)
 
@@ -625,11 +617,11 @@ Rule 7 includes a three-way ablation to test whether oscillatory dynamics contri
 
 - **Mode 0 — Full model**: the current coherence-gated dynamics.
 - **Mode 1 — Frozen oscillator (`ω = 0`)**: intrinsic frequencies are zeroed for Rule 7, so the phase field stops oscillating and becomes a passively relaxing alignment field (gradient flow on the XY coupling energy). The coherence gate is still computed identically. If matter behavior matches mode 0, intrinsic oscillation is not load-bearing.
-- **Mode 2 — Gate off (pure Lenia)**: the coherence gate is pinned to 1 (which also zeroes incoherence death), reducing matter dynamics to the Lenia-style excitation/inhibition growth alone. If matter behavior matches mode 0, the oscillator pathway as a whole is decoration.
+- **Mode 2 — Gate off (pure Lenia)**: the coherence gate is pinned to 1, reducing matter dynamics to the Lenia-style excitation/inhibition growth alone. If matter behavior matches mode 0, the oscillator pathway as a whole is decoration.
 
 Protocol: pick a Rule 7 preset, then press **NCA Ablation** in the Analysis sweep panel. It configures a 3-step integer sweep over `ncaAblationMode` (0→2). The sweep restores the same captured baseline state before each condition, so all three runs start from identical matter/phase/omega fields and differ only in the ablation branch. Compare the per-row thumbnails and matter/viability metrics side by side; the interesting result is a *difference between conditions*, not the viability rank (the viability score favors static blobs, so do not treat "Apply Best" as the conclusion of an ablation run).
 
-This is the scalar S1 implementation of the hidden-state unit-vector KuraNCA model. True `d > 2` oscillator textures, learned hidden-channel updates, learned kernels, learned MLP updates, AKOrN-style projection updates, and reservoir readouts are later research steps.
+This is the scalar S1 implementation of the unit-vector KuraNCA model. True `d > 2` oscillator textures, learned latent state, learned kernels, learned MLP updates, AKOrN-style projection updates, and reservoir readouts are later research steps.
 
 Interpretation notes:
 - The visible organism is the **Matter** layer. Phase, Phase+Gradient, and Chirality layers can show spirals even when matter is just a blob, because the preset seeds `theta` with a spiral/twist to make synchrony binding visible.
@@ -638,13 +630,13 @@ Interpretation notes:
 - The preset family is intentionally diagnostic and conservative after the coherence-gated update: Orbium is a compact coherent island, Mitosis starts from two lobes, Filament tests thin living matter, and Droplets tests multiple competing coherent regions without defaulting immediately to hot expanding fronts.
 - Since 2026-06-10 all Rule 7 presets use the **Lenia Shell kernel (shape 7)** with the validated growth window (`growthMu 0.15, growthSigma 0.06`). The old Gaussian-core Mexican hat front-swept any seed into uniform ~0.3 mush (readback-verified); the shell kernel condenses matter into ~100 discrete coherent living spots that the organism tracker identifies individually.
 - The Analysis parameter sweep previously **failed to transmit layer-backed parameters** (growth/NCA/kernel/gauge) to the GPU — it only synced global params like `K0`/`range`, so those sweep rankings were noise. Fixed by routing the sweep through the full `applyLayerStateToSimulation` sync; sweep rows now reflect real dynamics differences.
-- `ncaPhaseK` changes how strongly unit oscillators lock inside living matter; `ncaGrowthK`, `ncaSyncFeedback` as incoherence death, `ncaCoherenceMin/Max`, and `ncaMatterDecay` mostly change the matter layer, so use the Matter or Order layer when tuning them.
+- `ncaPhaseK` changes how strongly unit oscillators lock inside living matter; `ncaGrowthK`, `ncaCoherenceMin/Max`, and `ncaMatterDecay` mostly change the matter layer, so use the Matter or Order layer when tuning them.
 
-Rollout experiments export a first-pass KuramotoNCA viability score. It combines matter retention, living coherence, largest detected region, organism count, and track persistence into `ncaViabilityScore` plus a coarse `ncaRegime` label (`extinct`, `inert`, `coherent_matter`, `coherent_organism`, `overgrown`, or `transitional`). This is a triage metric for comparing scalar Rule 7 settings; it is not a replacement for visual inspection or later learned-task evaluation.
+Rollout experiments and sweeps export a KuramotoNCA viability score, **re-targeted 2026-06-12 (standing fault #5)**. The old score rewarded persistence + coherence + largest-region — maximized by the trivial globally synchronized blob, so "Apply Best" steered toward the least interesting attractor. The new score rewards what the model is for: several persistent organisms, each internally coherent, holding **distinct phases**. Components: matter window (alive, not overgrown), structure (organism count with a dominance penalty when one blob owns >50% of living mass), phase (living coherence x organism-phase diversity — the area-and-coherence-weighted circular spread of per-organism mean phases, which the StructureDetector now computes from a theta readback), and dynamism (temporal R variability in a metastability band, when time-series data exists; missing inputs drop out of the weighting instead of counting as zero). The uniform-sync fixed point is explicitly halved and labeled. Regimes: `extinct`, `overgrown`, `uniform_sync`, `multi_domain` (the target), `coherent_organism`, `coherent_matter`, `inert`, `transitional`. Behavioral checks live in `scripts/verify-nca-viability.mjs`. Measured on the live system: Mitosis two-domain scores 1.0 `multi_domain`; a forced uniform-phase state scores 0.32 `uniform_sync`; notably the droplets spot lattice itself sits at diversity 0.035 — pretty but phase-trivial — and is now labeled `uniform_sync`. Known ceiling: the score saturates at 1.0 across healthy multi-domain regimes, so it separates regimes rather than ranking within them. The sweep call site previously passed placeholder organism data (count 0, largest-area = total mass); it now runs its own StructureDetector over order+theta readbacks per candidate.
 
 The Analysis tab also includes an **NCA probe** for Rule 7. With the overlay probe enabled, hover the 2D canvas to read the local scalar update terms for the sampled cell: matter `a`, excitatory density, inhibitory density, growth input `u`, local coherence `R`, coherence gate `C`, growth response `G(u)`, estimated `da/dt`, and the strongest excitatory/inhibitory neighbor offsets. This is Phase 2 discovery instrumentation: it explains why a region is growing, decaying, coherent, or inert before adding learned kernels.
 
-The existing Analysis **parameter sweep** can now rank Rule 7 candidates. Choose an NCA parameter such as `ncaGrowthK`, `ncaPhaseK`, `ncaSyncFeedback`, `ncaMatterDecay`, `ncaCoherenceMin`, `ncaCoherenceMax`, `growthMu`, `growthSigma`, `sigma`, `sigma2`, or `beta`, or press **NCA Range** for a quick growth-rate sweep. When Rule 7 is active, sweep rows include matter mean, matter mass, `ncaViabilityScore`, `ncaRegime`, and a rank sorted by viability. Use **Apply Best** to write the top-ranked candidate back into the live state. This is the intended next step before learned kernels: search for robust hand-designed regimes, save good candidates as presets, then compare learned updates against that baseline.
+The existing Analysis **parameter sweep** can now rank Rule 7 candidates. Choose an NCA parameter such as `ncaGrowthK`, `ncaPhaseK`, `ncaMatterDecay`, `ncaCoherenceMin`, `ncaCoherenceMax`, `growthMu`, `growthSigma`, `sigma`, `sigma2`, or `beta`, or press **NCA Range** for a quick growth-rate sweep. When Rule 7 is active, sweep rows include matter mean, matter mass, `ncaViabilityScore`, `ncaRegime`, and a rank sorted by viability. Use **Apply Best** to write the top-ranked candidate back into the live state. This is the intended next step before learned kernels: search for robust hand-designed regimes, save good candidates as presets, then compare learned updates against that baseline.
 
 ---
 

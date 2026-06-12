@@ -153,9 +153,6 @@ export function destroy() {
         if (this.matterTextures) {
             for (const tex of this.matterTextures) tex.destroy();
         }
-        if (this.hiddenTextures) {
-            for (const tex of this.hiddenTextures) tex.destroy();
-        }
         if (this.gaugeXTextures) {
             for (const tex of this.gaugeXTextures) tex.destroy();
         }

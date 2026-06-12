@@ -15,9 +15,11 @@ export class StructureDetector {
      * @param {Float32Array} orderData - Per-cell local R values (single layer)
      * @param {number} gridSize - Width/height of grid
      * @param {number} [threshold] - Override threshold
+     * @param {Float32Array} [thetaData] - Per-cell phase (single layer); when given,
+     *     each structure gets a circular meanPhase and internal coherence phaseR.
      * @returns {Array<Structure>}
      */
-    detect(orderData, gridSize, threshold) {
+    detect(orderData, gridSize, threshold, thetaData) {
         const thr = threshold ?? this.threshold;
         const N = gridSize * gridSize;
         if (!orderData || orderData.length < N) return [];
@@ -83,6 +85,7 @@ export class StructureDetector {
             if (cells.length < this.minArea) continue;
 
             let sumR = 0, sinSum = 0, cosSum = 0;
+            let sinPhase = 0, cosPhase = 0;
             let minC = gridSize, maxC = 0, minR = gridSize, maxR = 0;
             // Use circular mean for centroid to handle wrapping
             let sinCX = 0, cosCX = 0, sinCY = 0, cosCY = 0;
@@ -92,6 +95,10 @@ export class StructureDetector {
                 const cr = Math.floor(idx / gridSize);
                 const cc = idx % gridSize;
                 sumR += orderData[idx];
+                if (thetaData) {
+                    sinPhase += Math.sin(thetaData[idx]);
+                    cosPhase += Math.cos(thetaData[idx]);
+                }
 
                 // Circular centroid computation (handles periodic wrapping)
                 const angX = cc * angStep;
@@ -121,6 +128,8 @@ export class StructureDetector {
                 centroidY,
                 area: n,
                 meanR: sumR / n,
+                meanPhase: thetaData ? Math.atan2(sinPhase / n, cosPhase / n) : null,
+                phaseR: thetaData ? Math.hypot(sinPhase / n, cosPhase / n) : null,
                 boundingBox: { minC, maxC, minR, maxR },
             });
         }

@@ -23,6 +23,14 @@ function kernelWeight(dx, dy, state) {
     const sigma = Math.max(1e-5, state.sigma ?? 1.2);
     const sigma2 = Math.max(1e-5, state.sigma2 ?? 3.0);
     const beta = state.beta ?? 0.35;
+    const shape = Math.round(state.kernelShape ?? 0);
+    if (shape === 7) {
+        const r = Math.sqrt(dx * dx + dy * dy);
+        const ringRadius = 1.5 * sigma2;
+        const shellWidth = Math.max(0.3, sigma * 0.5);
+        const d = r - ringRadius;
+        return Math.exp(-(d * d) / (2 * shellWidth * shellWidth));
+    }
     const d2 = dx * dx + dy * dy;
     const w1 = Math.exp(-d2 / (2 * sigma * sigma));
     const w2 = Math.exp(-d2 / (2 * sigma2 * sigma2));
@@ -111,15 +119,13 @@ export function computeKuramotoNcaProbe({ theta, matter, state, gridSize, layer 
     const ablationMode = Math.round(state.ncaAblationMode ?? 0);
     // Mode 2 pins the gate open in the shader; mirror it so the probe matches what runs.
     const coherenceGate = ablationMode === 2 ? 1 : smoothstep(coherenceMin, coherenceMax, localR);
-    const coherentBirth = coherenceGate * coherenceGate;
     const growthPositive = Math.max(growth, 0);
     const growthNegative = Math.max(-growth, 0);
-    const birth = coherentBirth * growthPositive * (1 - centerMatter);
-    const densityDeath = growthNegative * centerMatter;
-    const incoherenceDeath = (state.ncaSyncFeedback ?? 0.25) * (1 - coherenceGate) * centerMatter;
-    const overcrowdingDeath = inhDensity * centerMatter;
-    const passiveDeath = (state.ncaMatterDecay ?? 0.01) * centerMatter;
-    const matterDelta = (state.ncaGrowthK ?? 0.35) * (birth - densityDeath - incoherenceDeath - overcrowdingDeath - passiveDeath);
+    // Collapsed dynamics — mirrors rule_kuramoto_nca exactly: one coherence-gated
+    // saturating growth term, one structural death term (G- tail plus passive leak).
+    const birth = coherenceGate * coherenceGate * growthPositive * (1 - centerMatter);
+    const death = (growthNegative + (state.ncaMatterDecay ?? 0.01)) * centerMatter;
+    const matterDelta = (state.ncaGrowthK ?? 0.35) * (birth - death);
     const torque = Math.cos(centerTheta) * localY - Math.sin(centerTheta) * localX;
 
     return {
@@ -133,17 +139,11 @@ export function computeKuramotoNcaProbe({ theta, matter, state, gridSize, layer 
         growthInput,
         localR,
         coherenceGate,
-        coherentBirth,
-        hiddenActivation: coherentBirth * growthPositive,
-        hiddenInhibition: inhDensity,
         growth,
         growthPositive,
         growthNegative,
         birth,
-        densityDeath,
-        incoherenceDeath,
-        overcrowdingDeath,
-        passiveDeath,
+        death,
         matterDelta,
         phaseDelta: (state.ncaPhaseK ?? 1.0) * torque,
         dominantExc,

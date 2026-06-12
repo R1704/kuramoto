@@ -56,6 +56,50 @@ function readMean(value) {
     return Number.isFinite(value?.mean) ? value.mean : 0;
 }
 
+function readMaybe(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    return Number.isFinite(value?.mean) ? value.mean : null;
+}
+
+/**
+ * Area-and-coherence-weighted circular spread of per-organism mean phases.
+ * 0 = every organism sits at one shared phase (a single global domain),
+ * 1 = organism phases are spread/balanced around the circle (distinct domains).
+ * Organisms without phase data (no theta readback) are skipped; returns null
+ * when nothing usable remains, so callers can fall back or re-weight.
+ */
+export function computeOrganismPhaseStats(structures) {
+    if (!Array.isArray(structures) || structures.length === 0) return null;
+    let wSum = 0;
+    let x = 0;
+    let y = 0;
+    let coherentCount = 0;
+    for (const s of structures) {
+        if (!Number.isFinite(s?.meanPhase) || !Number.isFinite(s?.phaseR)) continue;
+        const w = Math.max(0, s.area || 0) * Math.max(0, s.phaseR);
+        if (w <= 0) continue;
+        wSum += w;
+        x += w * Math.cos(s.meanPhase);
+        y += w * Math.sin(s.meanPhase);
+        coherentCount++;
+    }
+    if (wSum <= 0 || coherentCount === 0) return null;
+    return {
+        phaseDiversity: 1 - Math.hypot(x, y) / wSum,
+        coherentCount,
+    };
+}
+
+/**
+ * Viability re-target (standing fault #5): the old score rewarded persistence +
+ * coherence + largest-region, which is maximized by the trivial globally
+ * synchronized blob. This version rewards what the model is *for* — several
+ * persistent organisms, each internally coherent, holding DISTINCT phases —
+ * and explicitly discounts the uniform-sync fixed point. Temporal variability
+ * (metastability) earns score when time-series data exists; missing inputs
+ * drop out of the weighting instead of silently counting as zero.
+ */
 export function computeNcaViability(metrics) {
     const ruleMode = Number(metrics?.ruleMode ?? 0);
     if (ruleMode !== 7) {
@@ -65,33 +109,78 @@ export function computeNcaViability(metrics) {
     const gridSize = Math.max(1, Number(metrics?.gridSize ?? 1));
     const cells = gridSize * gridSize;
     const matterMean = readMean(metrics?.matterMean);
+    const matterMass = readMaybe(metrics?.matterMass);
     const livingCoherence = readMean(metrics?.livingCoherenceMean);
+    const globalR = readMaybe(metrics?.globalR);
+    const globalRStd = readMaybe(metrics?.globalRStd);
     const organismCount = readMean(metrics?.organismCount);
     const largestArea = readMean(metrics?.largestOrganismArea);
-    const meanPersistence = readMean(metrics?.meanTrackPersistence);
+    const meanPersistence = readMaybe(metrics?.meanTrackPersistence);
+    const phaseDiversity = readMaybe(metrics?.phaseDiversity);
 
+    // Matter: alive but not overgrown.
     const matterPresent = clamp01((matterMean - 0.002) / 0.04);
     const overgrowthPenalty = 1 - clamp01((matterMean - 0.32) / 0.25);
     const matterScore = matterPresent * overgrowthPenalty;
-    const coherenceScore = clamp01(livingCoherence / 0.65);
-    const areaScore = clamp01(((largestArea / cells) - 0.0005) / 0.04);
-    const organismScore = Math.max(clamp01(organismCount / 3), clamp01(meanPersistence / 20));
-    const score = clamp01(
-        0.30 * matterScore +
-        0.30 * coherenceScore +
-        0.20 * areaScore +
-        0.20 * organismScore
-    );
+
+    // Structure: several organisms, none owning the living mass outright.
+    const countScore = clamp01((organismCount - 1) / 9);
+    const livingMass = matterMass !== null && matterMass > 0 ? matterMass : cells * Math.max(matterMean, 1e-6);
+    const dominance = clamp01(largestArea / Math.max(1, livingMass));
+    const dominancePenalty = 1 - clamp01((dominance - 0.5) / 0.5);
+    const persistenceScore = meanPersistence !== null ? clamp01(meanPersistence / 20) : null;
+    const structureScore = (persistenceScore !== null
+        ? 0.7 * countScore + 0.3 * persistenceScore
+        : countScore) * dominancePenalty;
+
+    // Phase: locally coherent AND globally diverse — the binding signature.
+    // Fallback when no per-organism phases exist: the localR-vs-globalR gap
+    // (high local order with low global order = multiple domains).
+    const coherenceScore = clamp01(livingCoherence / 0.6);
+    let diversity = phaseDiversity;
+    if (diversity === null && globalR !== null) {
+        diversity = clamp01((livingCoherence - globalR) / 0.5);
+    }
+    const phaseScore = diversity !== null
+        ? coherenceScore * clamp01(diversity / 0.6)
+        : coherenceScore * 0.25;
+
+    // Dynamism: metastability band — frozen (std~0) and noise-dominated both lose.
+    const dynamismScore = globalRStd !== null
+        ? clamp01(globalRStd / 0.01) * (1 - clamp01((globalRStd - 0.15) / 0.25))
+        : null;
+
+    const parts = [
+        [0.25, matterScore],
+        [0.30, structureScore],
+        [0.30, phaseScore],
+        [0.15, dynamismScore],
+    ].filter(([, v]) => v !== null);
+    let weightTotal = 0;
+    let weighted = 0;
+    for (const [w, v] of parts) {
+        weightTotal += w;
+        weighted += w * v;
+    }
+    let score = clamp01(weightTotal > 0 ? weighted / weightTotal : 0);
+
+    // The trivial attractor: all living matter locked to one phase.
+    const uniformSync = diversity !== null && diversity < 0.1 && livingCoherence > 0.8;
+    if (uniformSync) score *= 0.5;
 
     let regime = 'transitional';
     if (matterMean < 0.002) {
         regime = 'extinct';
     } else if (matterMean > 0.55) {
         regime = 'overgrown';
+    } else if (uniformSync) {
+        regime = 'uniform_sync';
+    } else if (organismCount >= 2 && diversity !== null && diversity >= 0.35 && structureScore > 0.3) {
+        regime = 'multi_domain';
+    } else if (organismCount >= 1 && (meanPersistence ?? 0) >= 8) {
+        regime = 'coherent_organism';
     } else if (score < 0.25) {
         regime = 'inert';
-    } else if (organismCount >= 1 && meanPersistence >= 8) {
-        regime = 'coherent_organism';
     } else if (matterScore > 0.4 && coherenceScore > 0.4) {
         regime = 'coherent_matter';
     }
@@ -133,6 +222,7 @@ export class ExperimentRunner {
             organismCount: [],
             largestOrganismArea: [],
             meanTrackPersistence: [],
+            phaseDiversity: [],
         };
 
         this.summary = null;
@@ -270,10 +360,13 @@ export class ExperimentRunner {
                 this.samples.syncFraction.push(result.localStats?.syncFraction ?? 0);
                 this.samples.matterMean.push(matter.mean);
                 this.samples.matterMass.push(matter.mass);
-                this.samples.livingCoherenceMean.push(result.localStats?.meanR ?? 0);
+                this.samples.livingCoherenceMean.push(organisms.livingCoherence ?? result.localStats?.meanR ?? 0);
                 this.samples.organismCount.push(organisms.count);
                 this.samples.largestOrganismArea.push(organisms.largestArea);
                 this.samples.meanTrackPersistence.push(organisms.meanPersistence);
+                if (Number.isFinite(organisms.phaseDiversity)) {
+                    this.samples.phaseDiversity.push(organisms.phaseDiversity);
+                }
             }
             this.pendingSampleStepRel = null;
 
@@ -316,6 +409,7 @@ export class ExperimentRunner {
                 organismCount: downsample(this.samples.organismCount),
                 largestOrganismArea: downsample(this.samples.largestOrganismArea),
                 meanTrackPersistence: downsample(this.samples.meanTrackPersistence),
+                phaseDiversity: downsample(this.samples.phaseDiversity),
             },
         };
     }
@@ -338,15 +432,20 @@ export class ExperimentRunner {
         const meanTrackPersistence = meanStd(this.samples.meanTrackPersistence);
         const chiMax = this.samples.chi.length ? Math.max(...this.samples.chi) : 0;
         const chiMean = meanStd(this.samples.chi).mean;
+        const phaseDiversity = this.samples.phaseDiversity.length ? meanStd(this.samples.phaseDiversity) : null;
         const state = this.getState?.() || this.snapshot || {};
         const viability = computeNcaViability({
             ruleMode: state.ruleMode,
             gridSize: this.sim?.gridSize || state.gridSize,
             matterMean,
+            matterMass,
             livingCoherenceMean,
+            globalR,
+            globalRStd: globalR.std,
             organismCount,
             largestOrganismArea,
             meanTrackPersistence,
+            phaseDiversity,
         });
 
         this.summary = {
@@ -363,6 +462,7 @@ export class ExperimentRunner {
             organismCount_mean: organismCount.mean,
             largestOrganismArea_mean: largestOrganismArea.mean,
             meanTrackPersistence_mean: meanTrackPersistence.mean,
+            phaseDiversity_mean: phaseDiversity ? phaseDiversity.mean : null,
             ncaViabilityScore: viability.score,
             ncaRegime: viability.regime,
             chi_mean: chiMean,
@@ -400,17 +500,25 @@ export class ExperimentRunner {
         const structures = organisms?.structures || [];
         const tracks = organisms?.tracks || [];
         let largestArea = 0;
+        let areaSum = 0;
+        let weightedR = 0;
         for (const s of structures) {
-            largestArea = Math.max(largestArea, s?.area || 0);
+            const area = Math.max(0, s?.area || 0);
+            largestArea = Math.max(largestArea, area);
+            areaSum += area;
+            weightedR += area * (s?.meanR || 0);
         }
         let persistenceSum = 0;
         for (const t of tracks) {
             persistenceSum += Array.isArray(t?.history) ? t.history.length : 0;
         }
+        const phaseStats = computeOrganismPhaseStats(structures);
         return {
             count: Number.isFinite(organisms?.count) ? organisms.count : tracks.length,
             largestArea,
             meanPersistence: tracks.length ? persistenceSum / tracks.length : 0,
+            livingCoherence: areaSum > 0 ? weightedR / areaSum : null,
+            phaseDiversity: phaseStats ? phaseStats.phaseDiversity : null,
         };
     }
 

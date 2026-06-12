@@ -39,9 +39,7 @@ const S1_BIND = {
     PRISMATIC_IN: 18,
     PRISMATIC_OUT: 19,
     MATTER_IN: 20,
-    MATTER_OUT: 21,
-    HIDDEN_IN: 22,
-    HIDDEN_OUT: 23
+    MATTER_OUT: 21
 };
 
 const PRISMATIC_METRICS_BIND = {
@@ -256,13 +254,11 @@ export function getBindGroup(delaySteps) {
         const nextIdx = currentIdx ^ 1;
         const currentMatterIdx = this.matterIndex;
         const nextMatterIdx = currentMatterIdx ^ 1;
-        const currentHiddenIdx = this.hiddenIndex;
-        const nextHiddenIdx = currentHiddenIdx ^ 1;
         const currentPrismaticIdx = this.prismaticIndex;
         const nextPrismaticIdx = currentPrismaticIdx ^ 1;
         
         // Cache key based on delay index and active theta texture
-        const cacheKey = `${delayIdx}:${currentIdx}:${this.gaugeIndex}:${this.prismaticIndex}:${this.matterIndex}:${this.hiddenIndex}`;
+        const cacheKey = `${delayIdx}:${currentIdx}:${this.gaugeIndex}:${this.prismaticIndex}:${this.matterIndex}`;
         if (!this.bindGroupCache.has(cacheKey)) {
             this.bindGroupCache.set(cacheKey, this.device.createBindGroup({
                 layout: this.pipeline.getBindGroupLayout(0),
@@ -289,8 +285,6 @@ export function getBindGroup(delaySteps) {
                     { binding: S1_BIND.PRISMATIC_OUT, resource: this.prismaticStateTextures[nextPrismaticIdx].createView({ dimension: '2d-array' }) },
                     { binding: S1_BIND.MATTER_IN, resource: this.matterTextures[currentMatterIdx].createView({ dimension: '2d-array' }) },
                     { binding: S1_BIND.MATTER_OUT, resource: this.matterTextures[nextMatterIdx].createView({ dimension: '2d-array' }) },
-                    { binding: S1_BIND.HIDDEN_IN, resource: this.hiddenTextures[currentHiddenIdx].createView({ dimension: '2d-array' }) },
-                    { binding: S1_BIND.HIDDEN_OUT, resource: this.hiddenTextures[nextHiddenIdx].createView({ dimension: '2d-array' }) },
                 ],
             }));
         }

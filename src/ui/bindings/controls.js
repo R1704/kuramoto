@@ -601,11 +601,9 @@ export function bindControls() {
         const ncaControls = [
             ['nca-phase-k-slider', 'ncaPhaseK', 2],
             ['nca-growth-k-slider', 'ncaGrowthK', 2],
-            ['nca-sync-feedback-slider', 'ncaSyncFeedback', 2],
             ['nca-matter-decay-slider', 'ncaMatterDecay', 3],
             ['nca-coherence-min-slider', 'ncaCoherenceMin', 2],
             ['nca-coherence-max-slider', 'ncaCoherenceMax', 2],
-            ['nca-hidden-memory-slider', 'ncaHiddenMemory', 2],
             ['nca-phase-affinity-slider', 'ncaPhaseAffinity', 2],
         ];
         for (const [id, key, precision] of ncaControls) {

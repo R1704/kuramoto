@@ -401,8 +401,6 @@ export class Simulation {
             this.thetaTexture = this.thetaTextures[this.thetaIndex];
             this.matterIndex = nextMatterIdx;
             this.matterTexture = this.matterTextures[this.matterIndex];
-            this.hiddenIndex = this.hiddenIndex ^ 1;
-            this.hiddenTexture = this.hiddenTextures[this.hiddenIndex];
             this.prismaticIndex = nextPrismaticIdx;
             this.prismaticStateTexture = this.prismaticStateTextures[this.prismaticIndex];
 

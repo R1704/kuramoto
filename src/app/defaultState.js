@@ -171,11 +171,9 @@ export function createInitialState() {
         growthMode: 0, // 0=gaussian, 1=step, 2=double-gaussian
         ncaPhaseK: 1.0,
         ncaGrowthK: 0.35,
-        ncaSyncFeedback: 0.25,
         ncaMatterDecay: 0.01,
         ncaCoherenceMin: 0.18,
         ncaCoherenceMax: 0.65,
-        ncaHiddenMemory: 0.08,
         ncaAblationMode: 0, // 0=full, 1=frozen oscillator (omega=0), 2=gate off (pure Lenia)
         ncaPhaseAffinity: 0.7, // 0=phase-blind support, 1=fully phase-selective (synchrony binding)
 

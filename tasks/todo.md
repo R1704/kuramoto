@@ -33,6 +33,106 @@ perception, scalar-before-vector warm-up.
 
 ---
 
+# Task: Fix remaining faults — #3 collapse death terms, #4 drop hidden EMA, #5 viability re-target, binding-dependence experiments, #6 reframe
+
+Status: done (2026-06-12). Phase 1 work committed as 4331809; this task committed separately.
+
+## Pass 1 — Collapse Rule 7 dynamics (#3) + drop hidden channels (#4)
+
+Design: `da = growth_k * (gate^2 * G+(u) * (1-a) - (G-(u) + decay) * a)`. One coherence-gated
+saturating growth term; death is structural (the negative tail of the growth function) plus a
+small passive leak. Removed as redundant: incoherence_death (gate already encodes it on the
+birth side), overcrowding_death (inhibition already enters u via beta), memory_gate /
+memory_death (hidden EMA dropped entirely — fault #4 decision: drop now; learned latent state
+returns with the AKOrN sidecar if ever). ncaSyncFeedback and ncaHiddenMemory params removed.
+Hidden texture plumbing (bindings 22/23, ping-pong, loadHiddenGlobal) removed — exploration
+confirmed it is 100% isolated to rule 7, never rendered, never read back.
+
+- [x] Failing verifier checks first (5 failed, then all 37 pass)
+- [x] compute.js: collapsed da; strip hidden bindings/loads/stores/NcaStep.hidden_next;
+      slots 57/61 become padding (S2/S3 struct copies untouched — they never run rule 7)
+- [x] JS plumbing removal: buffers.js (hidden textures + slot 57/61 packing), pipelines.js,
+      Simulation.js hidden flip, defaultState, urlSchema, layerParams, index.html (2 sliders
+      + sweep options), controls.js, updateDisplay.js, presets.js
+- [x] Probe mirrors the collapsed rule exactly (+ fixed shape-7 kernel drift in the probe)
+- [x] Browser verify: zero console errors; droplets preset stable 10s (matter mean ~0.26,
+      513 organisms), rule 6 stable (405 organisms), dt-halving survives (195 organisms,
+      mean 0.27). No retune needed.
+
+## Pass 2 — Re-target viability (#5)
+
+Design: per-organism circular mean phase (detector takes theta alongside order field), then
+score = matter window + structure (organism count, dominance penalty for one giant blob) +
+phase diversity (area-weighted circular spread of organism mean phases; fallback: localR vs
+globalR gap = locally-coherent-globally-diverse) + dynamism (temporal R std / chi in a healthy
+band — frozen R~1 and pure noise both score low). Explicit uniform_sync penalty + new regimes
+'multi_domain' (best) and 'uniform_sync'. Fix the sweep call site that currently passes FAKE
+organism data (organismCount: 0, largestArea = total mass) — wire getOrganisms + globalR in.
+
+- [x] Failing verifier checks first (4 failed, then all 41 pass)
+- [x] StructureDetector: optional theta input -> per-structure meanPhase + internal phaseR
+- [x] frameLoop: theta read SEQUENTIALLY after order field (all readbacks share one
+      pending-guard mutex; Promise.all silently nulls the second read - caught in browser)
+- [x] computeNcaViability rewrite + scripts/verify-nca-viability.mjs (10 behavioral checks:
+      multi-domain 0.98 > lattice-shared-phase 0.29 > uniform blob 0.13; extinct/overgrown floor)
+- [x] Sweep call site detects organisms from readback itself (own StructureDetector) +
+      passes matterMass/globalR/phaseDiversity; ExperimentRunner passes globalR std +
+      phaseDiversity series + organism-derived living coherence
+- [x] Browser verify (readback, real system): Mitosis diversity 0.894 -> score 1.0
+      multi_domain; forced uniform sync diversity 0 -> 0.324 uniform_sync; droplets
+      lattice diversity 0.035 -> 0.334 uniform_sync. FINDING: the droplets spot lattice
+      is itself phase-locked (trivial regime) - the metric now exposes that; Mitosis is
+      the only preset currently in the multi_domain regime.
+
+## Pass 3 — Binding-dependence experiments (fault #1 follow-up)
+
+- [x] Omega heterogeneity: per-cell omega ~N(0,0.2), Mitosis seed, SAME theta/matter/omega
+      across 4 conditions {gate on/off} x {affinity 0/0.7}, measured at 2.5/5/10s
+- [x] RESULT — binding IS load-bearing for structure under drift pressure: pure Lenia
+      (gate off, aff 0) merges to 317 organisms / div 0.819 at 10s (142 at 5s); binding
+      alone (gate off, aff 0.7) restores 566 / 0.901 (454 at 5s; 3.2x mid-run gap),
+      matching the full model. The affinity term alone reproduces the oscillator
+      pathway's structural contribution. Still open: minutes-scale identity tracking.
+- [x] Affinity sweep note: the new metric saturates at 1.0 across all 4 healthy
+      conditions, so a ncaPhaseAffinity sweep cannot rank WITHIN the multi-domain
+      regime — documented as a known ceiling (the metric separates regimes, which is
+      what sweeps needed to escape the trivial attractor).
+
+## Pass 4 — Reframe toward AKOrN (#6)
+
+- [x] ROADMAP.md research-triage entry rewritten: browser = AKOrN intuition rig; next
+      real milestone = trained toy task; offline PyTorch sidecar is the vehicle
+- [x] sidecar/akorn-toy/ scaffold: differentiable unrolled scalar Kuramoto layer
+      (CNN -> omega + signed neighbor couplings), pairwise phase-binding BCE loss,
+      threshold-free pairwise accuracy eval. py_compile-verified; NOT trained (no torch
+      in this environment) and the README says so
+
+## Review
+
+All six standing faults now addressed: #1 binding implemented AND proven load-bearing
+(under omega heterogeneity), #2 ablation harness, #3 dynamics collapsed to growth +
+structural decay (2 params and 1 texture ping-pong removed; validated attractor
+unchanged), #4 hidden EMA fully removed, #5 viability re-targeted to multi-domain
+(uniform-sync explicitly penalized; sweep site fed real organism+phase data instead of
+fakes), #6 reframed with a runnable-shaped training scaffold.
+
+Verification: verify-kuramoto-nca.mjs 41/41, verify-kuramoto-audit.mjs 5/5,
+verify-nca-viability.mjs 10/10, zero browser console errors, readback-verified dynamics
+(stability, dt-halving, regime ranking on the live system).
+
+Surprises worth remembering: (a) all sim readbacks share one pending-guard mutex —
+Promise.all on two readbacks silently nulls the second (fixed sequentially at both new
+call sites, verifier check added); (b) the droplets spot lattice is itself phase-locked
+(diversity 0.035) — visually rich but in the trivial phase regime; Mitosis is the only
+preset in multi_domain. Finding binding-dependent *presets* is now a search problem the
+fixed sweep + metric can actually do.
+
+Known limits, stated honestly: the viability score saturates at 1.0 within healthy
+multi-domain regimes; per-organism identity over minutes is unmeasured; the sidecar is
+a scaffold, not a result.
+
+---
+
 # Task: Phase Binding (fault #1 — relative phase carries identity)
 
 Status: done (2026-06-10) — mechanism implemented + verified; load-bearing identity proof

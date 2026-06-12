@@ -1,4 +1,5 @@
-import { computeNcaViability } from '../../experiments/experiments.js';
+import { computeNcaViability, computeOrganismPhaseStats } from '../../experiments/experiments.js';
+import { StructureDetector } from '../../organisms/index.js';
 
 export function extrapolateKc(data) {
     const n = data.length;
@@ -46,11 +47,9 @@ function makeCandidateState(state, param, value) {
         [param]: value,
         ncaPhaseK: state.ncaPhaseK,
         ncaGrowthK: state.ncaGrowthK,
-        ncaSyncFeedback: state.ncaSyncFeedback,
         ncaMatterDecay: state.ncaMatterDecay,
         ncaCoherenceMin: state.ncaCoherenceMin,
         ncaCoherenceMax: state.ncaCoherenceMax,
-        ncaHiddenMemory: state.ncaHiddenMemory,
         ncaAblationMode: state.ncaAblationMode,
         ncaPhaseAffinity: state.ncaPhaseAffinity,
         growthMu: state.growthMu,
@@ -209,6 +208,37 @@ export function createDiscoverySweepController({
         }
     };
 
+    // The sweep detects organisms itself from readback instead of borrowing the
+    // overlay's throttled detection (which is off by default and racy vs settle).
+    const sweepDetector = new StructureDetector();
+    const sampleSweepOrganisms = async () => {
+        if (state.ruleMode !== 7 || typeof sim.readOrderField !== 'function') return null;
+        // Sequential: readbacks share a pending-guard mutex; concurrent calls return null.
+        const orderData = await sim.readOrderField();
+        if (!orderData) return null;
+        const thetaData = typeof sim.readTheta === 'function' ? await sim.readTheta() : null;
+        const grid = sim.gridSize || state.gridSize || 1;
+        const layerSize = grid * grid;
+        const layer = Math.min(Math.max(0, Math.floor(state.activeLayer ?? 0)), Math.max(0, (sim.layers || 1) - 1));
+        const layerOrder = orderData.subarray(layer * layerSize, (layer + 1) * layerSize);
+        const layerTheta = thetaData ? thetaData.subarray(layer * layerSize, (layer + 1) * layerSize) : undefined;
+        sweepDetector.threshold = state.organismThreshold ?? 0.5;
+        sweepDetector.minArea = state.organismMinArea ?? 4;
+        const structures = sweepDetector.detect(layerOrder, grid, undefined, layerTheta);
+        let areaSum = 0;
+        let weightedR = 0;
+        for (const s of structures) {
+            areaSum += s.area;
+            weightedR += s.area * (s.meanR || 0);
+        }
+        return {
+            structures,
+            count: structures.length,
+            largestArea: structures.length ? structures[0].area : 0,
+            livingCoherence: areaSum > 0 ? weightedR / areaSum : null,
+        };
+    };
+
     const sampleMatterMetrics = async () => {
         if (state.ruleMode !== 7 || typeof sim.readMatterField !== 'function') {
             return { mean: 0, mass: 0 };
@@ -269,17 +299,24 @@ export function createDiscoverySweepController({
                 };
                 if (state.ruleMode === 7) {
                     const matter = await sampleMatterMetrics();
+                    const organisms = await sampleSweepOrganisms();
+                    const phaseStats = computeOrganismPhaseStats(organisms?.structures);
                     const viability = computeNcaViability({
                         ruleMode: state.ruleMode,
                         gridSize: sim.gridSize || state.gridSize,
                         matterMean: matter.mean,
-                        livingCoherenceMean: metrics.localR,
-                        organismCount: 0,
-                        largestOrganismArea: matter.mass,
-                        meanTrackPersistence: 0,
+                        matterMass: matter.mass,
+                        livingCoherenceMean: organisms?.livingCoherence ?? metrics.localR,
+                        globalR: metrics.R,
+                        organismCount: organisms?.count ?? 0,
+                        largestOrganismArea: organisms?.largestArea ?? 0,
+                        meanTrackPersistence: null,
+                        phaseDiversity: phaseStats?.phaseDiversity ?? null,
                     });
                     metrics.matterMean = matter.mean;
                     metrics.matterMass = matter.mass;
+                    metrics.organismCount = organisms?.count ?? 0;
+                    metrics.phaseDiversity = phaseStats?.phaseDiversity ?? null;
                     metrics.ncaViabilityScore = viability.score;
                     metrics.ncaRegime = viability.regime;
                 }

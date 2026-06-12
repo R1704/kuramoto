@@ -59,26 +59,6 @@ export function initBuffers() {
             );
         }
 
-        const makeHiddenTexture = () => this.device.createTexture({
-            size: [this.gridSize, this.gridSize, this.layers],
-            format: 'rgba32float',
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-        });
-        this.hiddenTextures = [makeHiddenTexture(), makeHiddenTexture()];
-        this.hiddenIndex = 0;
-        this.hiddenTexture = this.hiddenTextures[this.hiddenIndex];
-        const hiddenInit = new Float32Array(this.N * 4);
-        const hiddenLayout = { bytesPerRow: this.gridSize * 16, rowsPerImage: this.gridSize };
-        const hiddenSize = [this.gridSize, this.gridSize, this.layers];
-        for (const tex of this.hiddenTextures) {
-            this.device.queue.writeTexture(
-                { texture: tex },
-                hiddenInit,
-                hiddenLayout,
-                hiddenSize
-            );
-        }
-        
         // Staging buffer for reading back texture data (for delay buffers and reduction)
         this.thetaStagingBuf = this.device.createBuffer({
             size: this.N * 4,
@@ -379,11 +359,11 @@ export function writeLayerParams(layers) {
             // KuramotoNCA parameters (indices 55-61)
             data[base + 55] = lp?.ncaPhaseK ?? 1.0;
             data[base + 56] = lp?.ncaGrowthK ?? 0.35;
-            data[base + 57] = lp?.ncaSyncFeedback ?? 0.25;
+            data[base + 57] = 0; // unused (was ncaSyncFeedback)
             data[base + 58] = lp?.ncaMatterDecay ?? 0.01;
             data[base + 59] = lp?.ncaCoherenceMin ?? 0.18;
             data[base + 60] = lp?.ncaCoherenceMax ?? 0.65;
-            data[base + 61] = lp?.ncaHiddenMemory ?? 0.08;
+            data[base + 61] = 0; // unused (was ncaHiddenMemory)
             data[base + 62] = lp?.ncaAblationMode ?? 0;
             data[base + 63] = lp?.ncaPhaseAffinity ?? 0.7;
         }

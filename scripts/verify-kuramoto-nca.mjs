@@ -24,6 +24,8 @@ const experiments = read('src/experiments/experiments.js');
 const ncaProbe = read('src/analysis/kuramotoNcaProbe.js');
 const analysisController = read('src/app/controllers/analysisController.js');
 const discoveryUi = read('src/app/runtime/discoveryUi.js');
+const detector = read('src/organisms/StructureDetector.js');
+const frameLoop = read('src/app/render/frameLoop.js');
 const roadmap = read('ROADMAP.md');
 const docs = read('DOCUMENTATION.md');
 
@@ -36,14 +38,15 @@ const checks = [
         hint: 'Expected WGSL Rule 7 to call rule_kuramoto_nca.',
     },
     {
-        name: 'KuramotoNCA uniforms exist',
+        name: 'KuramotoNCA uniforms exist (collapsed set)',
         pass: /nca_phase_k: f32/.test(compute)
             && /nca_growth_k: f32/.test(compute)
-            && /nca_sync_feedback: f32/.test(compute)
             && /nca_matter_decay: f32/.test(compute)
             && /nca_coherence_min: f32/.test(compute)
-            && /nca_coherence_max: f32/.test(compute),
-        hint: 'Expected six KuramotoNCA parameters in the WGSL layer params.',
+            && /nca_coherence_max: f32/.test(compute)
+            && !/nca_sync_feedback/.test(compute)
+            && !/nca_hidden_memory/.test(compute),
+        hint: 'Expected the collapsed KuramotoNCA parameter set (sync_feedback and hidden_memory removed).',
     },
     {
         name: 'matter textures are bound in compute pipeline',
@@ -54,13 +57,15 @@ const checks = [
         hint: 'Expected S1 bind group to provide matter ping-pong textures.',
     },
     {
-        name: 'hidden NCA memory textures are bound in compute pipeline',
-        pass: /HIDDEN_IN/.test(pipelines)
-            && /HIDDEN_OUT/.test(pipelines)
-            && /hiddenTextures\[currentHiddenIdx\]/.test(pipelines)
-            && /hiddenTextures\[nextHiddenIdx\]/.test(pipelines)
-            && /rgba32float/.test(buffers),
-        hint: 'Expected Rule 7 to have ping-pong rgba32float hidden-channel textures.',
+        name: 'hidden morphogen plumbing is fully removed (fault #4)',
+        pass: !/HIDDEN_IN/.test(pipelines)
+            && !/hiddenTextures/.test(pipelines)
+            && !/hiddenTextures/.test(buffers)
+            && !/loadHiddenGlobal/.test(compute)
+            && !/hidden_in/.test(compute)
+            && !/hidden_out/.test(compute)
+            && !/currentHiddenIdx/.test(simulation),
+        hint: 'Expected the hidden EMA texture ping-pong, bindings, and loads to be gone everywhere.',
     },
     {
         name: 'simulation exposes matter read and write APIs',
@@ -86,16 +91,13 @@ const checks = [
         name: 'state defaults and UI expose KuramotoNCA controls',
         pass: /ncaPhaseK: 1\.0/.test(defaults)
             && /ncaGrowthK: 0\.35/.test(defaults)
-            && /ncaSyncFeedback: 0\.25/.test(defaults)
             && /ncaMatterDecay: 0\.01/.test(defaults)
             && /ncaCoherenceMin: 0\.18/.test(defaults)
             && /ncaCoherenceMax: 0\.65/.test(defaults)
-            && /ncaHiddenMemory: 0\.08/.test(defaults)
             && /nca-phase-k-slider/.test(html)
             && /nca-growth-k-slider/.test(controls)
             && /nca-coherence-min-slider/.test(html)
             && /nca-coherence-max-slider/.test(controls)
-            && /nca-hidden-memory-slider/.test(html)
             && /nca-controls/.test(display),
         hint: 'Expected defaults, HTML controls, bindings, and display update support.',
     },
@@ -128,34 +130,28 @@ const checks = [
         hint: 'Expected Rule 7 growth to expose a legible excitation-inhibition matter signal.',
     },
     {
-        name: 'KuramotoNCA uses coherence-gated birth/death matter update',
-        pass: /coherence_gate/.test(compute)
-            && /coherent_birth/.test(compute)
-            && /growth_pos/.test(compute)
-            && /growth_neg/.test(compute)
-            && /birth = coherent_birth \* growth_pos \* memory_gate \* \(1\.0 - matter_i\)/.test(compute)
-            && /incoherence_death = lp\.nca_sync_feedback \* \(1\.0 - coherence_gate\) \* matter_i/.test(compute)
-            && /density_death = growth_neg \* matter_i/.test(compute),
-        hint: 'Expected Rule 7 matter to use C*G+ birth and density/incoherence/passive death.',
+        name: 'KuramotoNCA matter update is collapsed to growth + structural decay (fault #3)',
+        pass: /let birth = coherence_gate \* coherence_gate \* growth_pos \* \(1\.0 - matter_i\)/.test(compute)
+            && /let death = \(growth_neg \+ lp\.nca_matter_decay\) \* matter_i/.test(compute)
+            && /let da = lp\.nca_growth_k \* \(birth - death\)/.test(compute)
+            && !/incoherence_death/.test(compute)
+            && !/overcrowding_death/.test(compute)
+            && !/coherent_birth/.test(compute),
+        hint: 'Expected one coherence-gated saturating growth term and one structural death term (G- tail + leak), nothing else.',
     },
     {
-        name: 'KuramotoNCA caps expanding blobs with surround death',
-        pass: /coherent_birth = coherence_gate \* coherence_gate/.test(compute)
-            && /overcrowding_death = inh_density \* matter_i/.test(compute)
-            && /birth - density_death - incoherence_death - overcrowding_death - memory_death - passive_death/.test(compute)
-            && /overcrowdingDeath/.test(ncaProbe),
-        hint: 'Expected stricter coherent birth and direct inhibitory-surround death to limit expanding blobs.',
-    },
-    {
-        name: 'KuramotoNCA uses hidden morphogenetic memory',
-        pass: /hidden_avg/.test(compute)
-            && /hidden_next/.test(compute)
-            && /memory_gate/.test(compute)
-            && /memory_death/.test(compute)
-            && /textureStore\(hidden_out/.test(compute)
-            && /hiddenActivation/.test(ncaProbe)
-            && /hiddenInhibition/.test(ncaProbe),
-        hint: 'Expected Rule 7 to update hidden channels and feed them back into matter dynamics.',
+        name: 'hidden morphogen EMA is removed from the rule and probe (fault #4)',
+        pass: !/memory_gate/.test(compute)
+            && !/memory_death/.test(compute)
+            && !/hidden_avg/.test(compute)
+            && !/hidden_next/.test(compute)
+            && !/hiddenActivation/.test(ncaProbe)
+            && !/memoryGate/.test(ncaProbe)
+            && !/ncaHiddenMemory/.test(defaults)
+            && !/nca-hidden-memory-slider/.test(html)
+            && !/ncaSyncFeedback/.test(defaults)
+            && !/nca-sync-feedback-slider/.test(html),
+        hint: 'Expected the hidden EMA, its gate/death terms, params, and UI to be gone.',
     },
     {
         name: 'KuramotoNCA oscillator perception is matter-normalized',
@@ -206,7 +202,6 @@ const checks = [
             && /localR/.test(ncaProbe)
             && /coherenceGate/.test(ncaProbe)
             && /growthPositive/.test(ncaProbe)
-            && /incoherenceDeath/.test(ncaProbe)
             && /matterDelta/.test(ncaProbe)
             && /dominantExc/.test(ncaProbe)
             && /dominantInh/.test(ncaProbe)
@@ -250,12 +245,12 @@ const checks = [
         hint: 'Expected roadmap/docs to document the KuraNCA substrate.',
     },
     {
-        name: 'docs record coherence-gated unit oscillator model',
-        pass: /cell_i = \(a_i, \\mathbf\{h\}_i, \\mathbf\{x\}_i\)/.test(docs)
-            && /coherence-gated/i.test(roadmap)
-            && /Incoherence Death/.test(html)
+        name: 'docs record the collapsed coherence-gated model',
+        pass: /coherence-gated/i.test(roadmap)
+            && /structural/i.test(docs)
+            && !/Incoherence Death/.test(html)
             && /unit-vector oscillator/i.test(read('docs/superpowers/specs/2026-05-13-kuranca-coherence-gated-model.md')),
-        hint: 'Expected docs/spec/UI to describe KuraNCA as matter plus a coherence-gated unit oscillator.',
+        hint: 'Expected docs to describe the collapsed growth/decay model and the old death-term UI to be gone.',
     },
     {
         name: 'Rule 7 supports ablation modes in the shader',
@@ -372,6 +367,40 @@ const checks = [
             && /binding/i.test(docs)
             && /ncaPhaseAffinity/.test(docs),
         hint: 'Expected the mitosis preset to seed opposite-phase lobes and docs to describe phase binding.',
+    },
+    {
+        name: 'organism detector computes per-structure phase',
+        pass: /thetaData/.test(detector)
+            && /meanPhase/.test(detector)
+            && /phaseR/.test(detector),
+        hint: 'Expected StructureDetector.detect to take theta and emit circular meanPhase + internal phaseR per structure.',
+    },
+    {
+        name: 'frame loop feeds theta to organism detection (sequentially)',
+        pass: /await sim\.readOrderField\(\)/.test(frameLoop)
+            && /await sim\.readTheta\(\)/.test(frameLoop)
+            && /layerTheta/.test(frameLoop)
+            && !/Promise\.all\(\[sim\.readOrderField/.test(frameLoop)
+            && !/Promise\.all\(\[\s*sim\.readOrderField/.test(analysisController),
+        hint: 'Expected organism detection to read theta after the order field (readbacks share a pending-guard mutex; concurrent reads return null).',
+    },
+    {
+        name: 'viability rewards multi-domain structure and penalizes uniform sync (fault #5)',
+        pass: /computeOrganismPhaseStats/.test(experiments)
+            && /phaseDiversity/.test(experiments)
+            && /multi_domain/.test(experiments)
+            && /uniform_sync/.test(experiments)
+            && /dominance/.test(experiments),
+        hint: 'Expected computeNcaViability to score phase diversity, blob dominance, and dynamism, with multi_domain/uniform_sync regimes.',
+    },
+    {
+        name: 'sweep ranks with real organism and phase data',
+        pass: /StructureDetector/.test(analysisController)
+            && /computeOrganismPhaseStats/.test(analysisController)
+            && !/organismCount: 0/.test(analysisController)
+            && !/meanTrackPersistence: 0/.test(analysisController)
+            && /globalR/.test(analysisController),
+        hint: 'Expected the sweep call site to detect organisms from readback instead of passing fake zeros.',
     },
     {
         name: 'leaving rules 6/7 leaves the Matter layer',

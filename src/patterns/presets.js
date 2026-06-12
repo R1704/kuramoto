@@ -13,11 +13,9 @@ function applyKuramotoNcaBase(state, overrides = {}) {
     state.growthMode = 0;
     state.ncaPhaseK = 1.1;
     state.ncaGrowthK = 0.5;
-    state.ncaSyncFeedback = 0.35;
     state.ncaMatterDecay = 0.008;
     state.ncaCoherenceMin = 0.18;
     state.ncaCoherenceMax = 0.65;
-    state.ncaHiddenMemory = 0.08;
     state.ncaAblationMode = 0;
     state.ncaPhaseAffinity = 0.7;
     state.globalCoupling = false;
@@ -1015,7 +1013,6 @@ export const Presets = {
         applyKuramotoNcaBase(state, {
             ncaPhaseK: 1.0,
             ncaGrowthK: 0.34,
-            ncaSyncFeedback: 0.55,
             ncaMatterDecay: 0.012,
         });
 
@@ -1036,7 +1033,6 @@ export const Presets = {
         applyKuramotoNcaBase(state, {
             ncaPhaseK: 1.35,
             ncaGrowthK: 0.42,
-            ncaSyncFeedback: 0.75,
             ncaMatterDecay: 0.011,
             organismThreshold: 0.12,
         });
@@ -1066,7 +1062,6 @@ export const Presets = {
         applyKuramotoNcaBase(state, {
             ncaPhaseK: 1.6,
             ncaGrowthK: 0.36,
-            ncaSyncFeedback: 0.85,
             ncaMatterDecay: 0.010,
             organismThreshold: 0.1,
         });
@@ -1089,7 +1084,6 @@ export const Presets = {
         applyKuramotoNcaBase(state, {
             ncaPhaseK: 0.85,
             ncaGrowthK: 0.40,
-            ncaSyncFeedback: 0.62,
             ncaMatterDecay: 0.014,
             organismThreshold: 0.16,
             organismMinArea: 4,

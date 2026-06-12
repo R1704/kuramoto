@@ -90,11 +90,11 @@ struct LayerParams {
     growth_mode: f32,
     nca_phase_k: f32,
     nca_growth_k: f32,
-    nca_sync_feedback: f32,
+    _pad57: f32,
     nca_matter_decay: f32,
     nca_coherence_min: f32,
     nca_coherence_max: f32,
-    nca_hidden_memory: f32,
+    _pad61: f32,
     // 0 = full model, 1 = frozen oscillator (omega zeroed), 2 = coherence gate pinned to 1
     nca_ablation_mode: f32,
     // 0 = phase-blind matter support, 1 = fully phase-selective (synchrony binding)
@@ -170,8 +170,6 @@ struct InteractionParams {
 @group(0) @binding(19) var prismatic_state_out: texture_storage_2d_array<rg32float, write>;
 @group(0) @binding(20) var matter_in: texture_2d_array<f32>;
 @group(0) @binding(21) var matter_out: texture_storage_2d_array<r32float, write>;
-@group(0) @binding(22) var hidden_in: texture_2d_array<f32>;
-@group(0) @binding(23) var hidden_out: texture_storage_2d_array<rgba32float, write>;
 
 // ============================================================================
 // SHARED MEMORY TILE for fast neighbor access
@@ -237,14 +235,6 @@ fn loadMatterGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> f32
     if (c < 0) { c = c + cols; }
     if (r < 0) { r = r + rows; }
     return textureLoad(matter_in, vec2<i32>(c, r), layer, 0).r;
-}
-
-fn loadHiddenGlobal(col: i32, row: i32, layer: i32, cols: i32, rows: i32) -> vec4<f32> {
-    var c = col % cols;
-    var r = row % rows;
-    if (c < 0) { c = c + cols; }
-    if (r < 0) { r = r + rows; }
-    return textureLoad(hidden_in, vec2<i32>(c, r), layer, 0);
 }
 
 fn gaugePath(col: i32, row: i32, dc: i32, dr: i32, layer: i32, cols: i32, rows: i32) -> f32 {
@@ -930,7 +920,6 @@ struct NcaStep {
     dtheta: f32,
     matter_next: f32,
     local_r: f32,
-    hidden_next: vec4<f32>,
 }
 
 fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: i32, t: f32, lp: LayerParams) -> NcaStep {
@@ -938,7 +927,6 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
     var matter_support = 0.0;
     var matter_inh = 0.0;
     var field = vec2<f32>(0.0, 0.0);
-    var hidden_sum = vec4<f32>(0.0);
     var pos_total = 0.0;
     var neg_total = 0.0;
     let rng_ext = i32(clamp(lp.sigma2 * 3.0, 1.0, 8.0));
@@ -957,7 +945,6 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
                 let affinity = 0.5 + 0.5 * cos(theta_j - t);
                 matter_support = matter_support + w * a_j * mix(1.0, affinity, lp.nca_phase_affinity);
                 field = field + w * a_j * vec2<f32>(cos(theta_j), sin(theta_j));
-                hidden_sum = hidden_sum + w * a_j * loadHiddenGlobal(global_c + dc, global_r + dr, layer, cols, rows);
                 pos_total = pos_total + w;
             } else {
                 // Inhibition stays phase-blind: competition for space is physical.
@@ -975,32 +962,24 @@ fn rule_kuramoto_nca(global_c: i32, global_r: i32, cols: i32, rows: i32, layer: 
     let living_mass_floor = max(0.05 * pos_total, 1e-5);
     let field_norm = max(matter_exc, living_mass_floor);
     let local_field = field / field_norm;
-    let hidden_avg = hidden_sum / field_norm;
     let local_r = clamp(length(local_field), 0.0, 1.0);
     let torque = cos(t) * local_field.y - sin(t) * local_field.x;
     let growth = growth_select(u, lp.growth_mu, lp.growth_sigma, i32(lp.growth_mode));
     let matter_i = clamp(loadMatterGlobal(global_c, global_r, layer, cols, rows), 0.0, 1.0);
-    let hidden_i = loadHiddenGlobal(global_c, global_r, layer, cols, rows);
     let ablation = i32(lp.nca_ablation_mode + 0.5);
     var coherence_gate = smoothstep(lp.nca_coherence_min, max(lp.nca_coherence_min + 0.01, lp.nca_coherence_max), local_r);
     if (ablation == 2) { coherence_gate = 1.0; }
-    let coherent_birth = coherence_gate * coherence_gate;
     let growth_pos = max(growth, 0.0);
     let growth_neg = max(-growth, 0.0);
-    let memory_gate = clamp(0.75 + lp.nca_hidden_memory * (hidden_i.x + hidden_avg.x - hidden_i.y), 0.0, 1.5);
-    let birth = coherent_birth * growth_pos * memory_gate * (1.0 - matter_i);
-    let density_death = growth_neg * matter_i;
-    let incoherence_death = lp.nca_sync_feedback * (1.0 - coherence_gate) * matter_i;
-    let overcrowding_death = inh_density * matter_i;
-    let memory_death = lp.nca_hidden_memory * max(hidden_i.y - hidden_i.x, 0.0) * matter_i;
-    let passive_death = lp.nca_matter_decay * matter_i;
-    let da = lp.nca_growth_k * (birth - density_death - incoherence_death - overcrowding_death - memory_death - passive_death);
+    // Collapsed dynamics: one coherence-gated saturating growth term, one structural
+    // death term. Homeostasis lives in the growth function's negative tail (and beta,
+    // which already pushes inhibition through u) — not in a stack of tuned penalties.
+    let birth = coherence_gate * coherence_gate * growth_pos * (1.0 - matter_i);
+    let death = (growth_neg + lp.nca_matter_decay) * matter_i;
+    let da = lp.nca_growth_k * (birth - death);
     let matter_next = clamp(matter_i + params.dt * da, 0.0, 1.0);
-    let memory_rate = clamp(lp.nca_hidden_memory, 0.0, 1.0);
-    let hidden_target = vec4<f32>(coherent_birth * growth_pos, inh_density, local_r, matter_next);
-    let hidden_next = clamp(hidden_i * (1.0 - memory_rate) + hidden_target * memory_rate, vec4<f32>(0.0), vec4<f32>(1.0));
 
-    return NcaStep(lp.nca_phase_k * torque, matter_next, local_r, hidden_next);
+    return NcaStep(lp.nca_phase_k * torque, matter_next, local_r);
 }
 
 @compute @workgroup_size(16, 16)
@@ -1050,7 +1029,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     
     var dtheta = 0.0;
     var nca_matter_next = loadMatterGlobal(i32(global_c), i32(global_r), i32(layer), i32(cols), i32(rows));
-    var nca_hidden_next = loadHiddenGlobal(i32(global_c), i32(global_r), i32(layer), i32(cols), i32(rows));
     let mode = i32(lp.rule_mode);
     if (mode == 0) { dtheta = rule_classic(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, lp); }
     else if (mode == 1) { dtheta = rule_coherence(local_c, local_r, i32(global_c), i32(global_r), i32(layer), rng, t, i, cols, rows, ri, lp); }
@@ -1067,7 +1045,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         let nca = rule_kuramoto_nca(i32(global_c), i32(global_r), i32(cols), i32(rows), i32(layer), t, lp);
         dtheta = nca.dtheta;
         nca_matter_next = nca.matter_next;
-        nca_hidden_next = nca.hidden_next;
         order[i] = nca.matter_next * nca.local_r;
     }
 
@@ -1212,7 +1189,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     textureStore(theta_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(newTheta, 0.0, 0.0, 1.0));
     textureStore(prismatic_state_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(vel, max(0.0, energy), 0.0, 1.0));
     textureStore(matter_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), vec4<f32>(clamp(nca_matter_next, 0.0, 1.0), 0.0, 0.0, 1.0));
-    textureStore(hidden_out, vec2<i32>(i32(global_c), i32(global_r)), i32(layer), nca_hidden_next);
 }
 `;
 
@@ -1299,11 +1275,11 @@ struct LayerParams {
     growth_mode: f32,
     nca_phase_k: f32,
     nca_growth_k: f32,
-    nca_sync_feedback: f32,
+    _pad57: f32,
     nca_matter_decay: f32,
     nca_coherence_min: f32,
     nca_coherence_max: f32,
-    nca_hidden_memory: f32,
+    _pad61: f32,
     _pad4: f32,
     _pad5: f32,
 }
@@ -1501,11 +1477,11 @@ struct LayerParams {
     growth_mode: f32,
     nca_phase_k: f32,
     nca_growth_k: f32,
-    nca_sync_feedback: f32,
+    _pad57: f32,
     nca_matter_decay: f32,
     nca_coherence_min: f32,
     nca_coherence_max: f32,
-    nca_hidden_memory: f32,
+    _pad61: f32,
     _pad4: f32,
     _pad5: f32,
 }

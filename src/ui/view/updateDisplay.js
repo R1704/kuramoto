@@ -474,10 +474,6 @@ export function updateDisplay() {
     if (ncaGrowthKSlider) ncaGrowthKSlider.value = this.state.ncaGrowthK;
     const ncaGrowthKDisp = getEl('nca-growth-k-value');
     if (ncaGrowthKDisp && this.state.ncaGrowthK != null) ncaGrowthKDisp.textContent = this.state.ncaGrowthK.toFixed(2);
-    const ncaSyncFeedbackSlider = getEl('nca-sync-feedback-slider');
-    if (ncaSyncFeedbackSlider) ncaSyncFeedbackSlider.value = this.state.ncaSyncFeedback;
-    const ncaSyncFeedbackDisp = getEl('nca-sync-feedback-value');
-    if (ncaSyncFeedbackDisp && this.state.ncaSyncFeedback != null) ncaSyncFeedbackDisp.textContent = this.state.ncaSyncFeedback.toFixed(2);
     const ncaMatterDecaySlider = getEl('nca-matter-decay-slider');
     if (ncaMatterDecaySlider) ncaMatterDecaySlider.value = this.state.ncaMatterDecay;
     const ncaMatterDecayDisp = getEl('nca-matter-decay-value');
@@ -490,10 +486,6 @@ export function updateDisplay() {
     if (ncaCoherenceMaxSlider) ncaCoherenceMaxSlider.value = this.state.ncaCoherenceMax;
     const ncaCoherenceMaxDisp = getEl('nca-coherence-max-value');
     if (ncaCoherenceMaxDisp && this.state.ncaCoherenceMax != null) ncaCoherenceMaxDisp.textContent = this.state.ncaCoherenceMax.toFixed(2);
-    const ncaHiddenMemorySlider = getEl('nca-hidden-memory-slider');
-    if (ncaHiddenMemorySlider) ncaHiddenMemorySlider.value = this.state.ncaHiddenMemory;
-    const ncaHiddenMemoryDisp = getEl('nca-hidden-memory-value');
-    if (ncaHiddenMemoryDisp && this.state.ncaHiddenMemory != null) ncaHiddenMemoryDisp.textContent = this.state.ncaHiddenMemory.toFixed(2);
     const ncaAblationSelect = getEl('nca-ablation-select');
     if (ncaAblationSelect) ncaAblationSelect.value = `${this.state.ncaAblationMode ?? 0}`;
     const ncaPhaseAffinitySlider = getEl('nca-phase-affinity-slider');

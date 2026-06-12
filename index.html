@@ -1363,14 +1363,6 @@
                             </div>
                             <div class="control-group">
                                 <div class="control-label">
-                                    <span>Incoherence Death</span>
-                                    <span class="control-value" id="nca-sync-feedback-value">0.25</span>
-                                </div>
-                                <input type="range" id="nca-sync-feedback-slider" min="0" max="2" step="0.01" value="0.25">
-                                <div class="control-hint">Prunes matter when nearby living oscillators fail to cohere.</div>
-                            </div>
-                            <div class="control-group">
-                                <div class="control-label">
                                     <span>Matter Decay</span>
                                     <span class="control-value" id="nca-matter-decay-value">0.01</span>
                                 </div>
@@ -1384,14 +1376,6 @@
                                 <input type="range" id="nca-coherence-min-slider" min="0" max="0.95" step="0.01" value="0.18">
                                 <input type="range" id="nca-coherence-max-slider" min="0.05" max="1" step="0.01" value="0.65">
                                 <div class="control-hint">Living oscillator coherence range that opens matter birth.</div>
-                            </div>
-                            <div class="control-group">
-                                <div class="control-label">
-                                    <span>Hidden Memory</span>
-                                    <span class="control-value" id="nca-hidden-memory-value">0.08</span>
-                                </div>
-                                <input type="range" id="nca-hidden-memory-slider" min="0" max="0.5" step="0.01" value="0.08">
-                                <div class="control-hint">Rate and strength for four fixed hidden morphogen channels.</div>
                             </div>
                             <div class="control-group">
                                 <div class="control-label">
@@ -2823,7 +2807,6 @@
                                 <option value="range">Neighborhood Range</option>
                                 <option value="ncaPhaseK">NCA Phase Coupling</option>
                                 <option value="ncaGrowthK">NCA Growth Rate</option>
-                                <option value="ncaSyncFeedback">NCA Incoherence Death</option>
                                 <option value="ncaMatterDecay">NCA Matter Decay</option>
                                 <option value="ncaCoherenceMin">NCA Coherence Min</option>
                                 <option value="ncaCoherenceMax">NCA Coherence Max</option>
